@@ -1,2 +1,2 @@
 # gamma
-Real time vector search engine
+Real time vector search engine in vearch
