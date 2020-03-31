@@ -54,8 +54,10 @@ int RawVectorIO::Dump(int start, int n) {
   int *vid2docid = raw_vector_->vid2docid_.data();
 
   // dump source
-  write(src_fd_, (void *)(str_mem_ptr + source_mem_pos[start]),
-        source_mem_pos[start + n] - source_mem_pos[start]);
+  if (str_mem_ptr) {
+    write(src_fd_, (void *)(str_mem_ptr + source_mem_pos[start]),
+          source_mem_pos[start + n] - source_mem_pos[start]);
+  }
 
   // dump source position
   if (start == 0) {
@@ -131,8 +133,11 @@ int RawVectorIO::Load(int doc_num) {
   }
   read(src_pos_fd_, (void *)raw_vector_->source_mem_pos_.data(),
        (n + 1) * sizeof(long));
-  read(src_fd_, (void *)raw_vector_->str_mem_ptr_,
-       raw_vector_->source_mem_pos_[n]);
+  if (raw_vector_->source_mem_pos_[n] > 0) {
+    raw_vector_->CreateSourceMem();
+    read(src_fd_, (void *)raw_vector_->str_mem_ptr_,
+         raw_vector_->source_mem_pos_[n]);
+  }
 
   // truncate docid and str file to vid_num length
   if (ftruncate(docid_fd_, n * sizeof(int))) {
@@ -158,9 +163,10 @@ RawVector::RawVector(const string &name, int dimension, int max_vector_size,
       root_path_(root_path),
       ntotal_(0),
       total_mem_bytes_(0) {
-  uint64_t len = (uint64_t)max_vector_size_ * 100;
-  str_mem_ptr_ = new (std::nothrow) char[len];
-  total_mem_bytes_ += len;
+  str_mem_ptr_ = nullptr;
+  // uint64_t len = (uint64_t)max_vector_size_ * 100;
+  // str_mem_ptr_ = new (std::nothrow) char[len];
+  // total_mem_bytes_ += len;
   source_mem_pos_.resize(max_vector_size_ + 1, 0);
   total_mem_bytes_ += max_vector_size_ * sizeof(long);
   vid2docid_.resize(max_vector_size_, -1);
@@ -168,11 +174,13 @@ RawVector::RawVector(const string &name, int dimension, int max_vector_size,
   docid2vid_.resize(max_vector_size_, nullptr);
   total_mem_bytes_ += max_vector_size_ * sizeof(docid2vid_[0]);
   vector_byte_size_ = dimension * sizeof(float);
+  updated_vids_ = new moodycamel::ConcurrentQueue<int>();
 }
 
 RawVector::~RawVector() {
   if (str_mem_ptr_) {
     delete[] str_mem_ptr_;
+    str_mem_ptr_ = nullptr;
   }
   for (size_t i = 0; i < docid2vid_.size(); i++) {
     if (docid2vid_[i] != nullptr) {
@@ -180,6 +188,7 @@ RawVector::~RawVector() {
       docid2vid_[i] = nullptr;
     }
   }
+  CHECK_DELETE(updated_vids_);
 }
 
 int RawVector::GetVector(long vid, ScopeVector &vec) {
@@ -226,8 +235,20 @@ int RawVector::Gets(int k, long *ids_list, ScopeVectors &vecs) const {
 
 int RawVector::GetSource(int vid, char *&str, int &len) {
   if (vid < 0 || vid >= ntotal_) return -1;
+  if (str_mem_ptr_ == nullptr) {
+    str = nullptr;
+    len = 0;
+    return 0;
+  }
   len = source_mem_pos_[vid + 1] - source_mem_pos_[vid];
   str = str_mem_ptr_ + source_mem_pos_[vid];
+  return 0;
+}
+
+int RawVector::CreateSourceMem() {
+  uint64_t len = (uint64_t)max_vector_size_ * 100;
+  str_mem_ptr_ = new char[len];
+  total_mem_bytes_ += len;
   return 0;
 }
 
@@ -240,6 +261,7 @@ int RawVector::Add(int docid, Field *&field) {
   // add to source
   int len = field->source ? field->source->len : 0;
   if (len > 0) {
+    if (str_mem_ptr_ == nullptr) CreateSourceMem();
     memcpy(str_mem_ptr_ + source_mem_pos_[ntotal_], field->source->value,
            len * sizeof(char));
     source_mem_pos_[ntotal_ + 1] = source_mem_pos_[ntotal_] + len;
@@ -266,6 +288,27 @@ int RawVector::Add(int docid, Field *&field) {
   ntotal_++;
   return 0;
 }
+
+int RawVector::Update(int docid, Field *&field) {
+  if (docid >= ntotal_) return -1;
+  int *vids = docid2vid_[docid];
+  if (!vids || vids[0] > 1) {
+    LOG(ERROR) << "can't update when docid has multiple vids, docid=" << docid
+               << ", vid num=" << vids[0];
+    return -1;
+  }
+  int vid = vids[1];
+
+  if (UpdateToStore(vid, (float *)field->value->value,
+                    field->value->len / sizeof(float))) {
+    LOG(ERROR) << "update to store error, docid=" << docid;
+    return -1;
+  }
+  updated_vids_->enqueue(vid);
+  // TODO: update source
+  return 0;
+}
+
 int RawVector::GetFirstVectorID(int docid) {
   int *vid_list = docid2vid_[docid];
   if (vid_list[0] <= 0) return -1;
@@ -322,7 +365,9 @@ int AsyncFlusher::Flush() {
     else
       nflushed_ += ret;
     if (nflushed_ - last_nflushed_ > 100) {
+#ifdef DEBUG
       LOG(INFO) << "flushed number=" << nflushed_;
+#endif
       last_nflushed_ = nflushed_;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(interval_));

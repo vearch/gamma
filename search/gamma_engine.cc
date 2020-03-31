@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+
 #include <chrono>
 #include <cstring>
 #include <fstream>
@@ -19,11 +20,11 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-#include "log.h"
 
 #include "bitmap.h"
 #include "cJSON.h"
 #include "gamma_common_data.h"
+#include "log.h"
 #include "utils.h"
 
 using std::string;
@@ -212,13 +213,16 @@ GammaEngine::GammaEngine(const string &index_root_path)
   index_status_ = IndexStatus::UNINDEXED;
   delete_num_ = 0;
   b_running_ = false;
+  b_field_running_ = false;
   dump_docid_ = 0;
   bitmap_bytes_size_ = 0;
   field_range_index_ = nullptr;
   created_table_ = false;
+  indexed_field_num_ = 0;
 #ifdef PERFORMANCE_TESTING
   search_num_ = 0;
 #endif
+  counters_ = nullptr;
 }
 
 GammaEngine::~GammaEngine() {
@@ -227,6 +231,13 @@ GammaEngine::~GammaEngine() {
     std::mutex running_mutex;
     std::unique_lock<std::mutex> lk(running_mutex);
     running_cv_.wait(lk);
+  }
+
+  if (b_field_running_) {
+    b_field_running_ = false;
+    std::mutex running_mutex;
+    std::unique_lock<std::mutex> lk(running_mutex);
+    running_field_cv_.wait(lk);
   }
 
   if (vec_manager_) {
@@ -245,6 +256,7 @@ GammaEngine::~GammaEngine() {
     delete field_range_index_;
     field_range_index_ = nullptr;
   }
+  if (counters_) delete counters_;
 }
 
 GammaEngine *GammaEngine::GetInstance(const string &index_root_path,
@@ -288,16 +300,17 @@ int GammaEngine::Setup(int max_doc_size) {
   }
 
   if (!profile_) {
-    profile_ = new Profile(max_doc_size);
+    profile_ = new Profile(max_doc_size, index_root_path_);
     if (!profile_) {
       LOG(ERROR) << "Cannot create profile!";
       return -2;
     }
   }
 
+  counters_ = new GammaCounters(&max_docid_, &delete_num_);
   if (!vec_manager_) {
     vec_manager_ = new VectorManager(IVFPQ, Mmap, docids_bitmap_, max_doc_size,
-                                     index_root_path_);
+                                     index_root_path_, counters_);
     if (!vec_manager_) {
       LOG(ERROR) << "Cannot create vec_manager!";
       return -3;
@@ -310,11 +323,6 @@ int GammaEngine::Setup(int max_doc_size) {
 }
 
 Response *GammaEngine::Search(const Request *request) {
-#ifdef PERFORMANCE_TESTING
-  double start = utils::getmillisecs();
-  std::stringstream ss;
-#endif
-
 #ifdef DEBUG
   LOG(INFO) << "search request:" << RequestToString(request);
 #endif
@@ -391,7 +399,9 @@ Response *GammaEngine::Search(const Request *request) {
                                          // transmitted from search request
   condition.multi_vector_rank = request->multi_vector_rank == 1 ? true : false;
   condition.has_rank = request->has_rank == 1 ? true : false;
+  condition.parallel_based_on_query = request->parallel_based_on_query;
   condition.use_direct_search = use_direct_search;
+  condition.l2_sqrt = request->l2_sqrt;
 
   MultiRangeQueryResults range_query_result;
   if (request->range_filters_num > 0 || request->term_filters_num > 0) {
@@ -402,12 +412,8 @@ Response *GammaEngine::Search(const Request *request) {
     }
   }
 #ifdef PERFORMANCE_TESTING
-  double numeric_filter_time = utils::getmillisecs();
-  ss << "numeric filter cost [" << numeric_filter_time - start << "]ms, ";
+  condition.Perf("filter");
 #endif
-
-  // condition.min_dist = request->vec_fields[0]->min_score;
-  // condition.max_dist = request->vec_fields[0]->max_score;
 
   gamma_query.condition = &condition;
   if (request->vec_fields_num > 0) {
@@ -437,7 +443,13 @@ Response *GammaEngine::Search(const Request *request) {
       return response_results;
     }
 
+#ifdef PERFORMANCE_TESTING
+    condition.Perf("search total");
+#endif
     PackResults(gamma_results, response_results, request);
+#ifdef PERFORMANCE_TESTING
+    condition.Perf("pack results");
+#endif
   } else {
     GammaResult gamma_result;
     gamma_result.topn = request->topn;
@@ -445,21 +457,17 @@ Response *GammaEngine::Search(const Request *request) {
     std::vector<std::pair<string, int>> fields_ids;
     std::vector<string> vec_names;
 
-    const auto &range_result = range_query_result.GetAllResult();
-    if (range_result.size() == 0 && request->term_filters_num > 0) {
-      LOG(INFO) << "request->term_filters_num [" << request->term_filters_num
-                << "]";
+    const auto range_result = range_query_result.GetAllResult();
+    if (range_result == nullptr && request->term_filters_num > 0) {
       for (int i = 0; i < request->term_filters_num; ++i) {
         TermFilter *filter = request->term_filters[i];
 
         string value = string(filter->field->value, filter->field->len);
         string key = string(filter->value->value, filter->value->len);
-        LOG(INFO) << "value [" << value << "], key [" << key << "]";
 
         int doc_id = -1;
         int ret = profile_->GetDocIDByKey(key, doc_id);
         if (ret != 0) {
-          LOG(ERROR) << "Get doc id error, key [" << key << "]";
           continue;
         }
 
@@ -472,16 +480,13 @@ Response *GammaEngine::Search(const Request *request) {
         int ret = vec_manager_->GetVector(fields_ids, vec);
         if (ret == 0) {
           int idx = 0;
+          VectorDoc *doc = gamma_result.docs[gamma_result.results_count];
           for (const auto &field_id : fields_ids) {
             int id = field_id.second;
-            gamma_result.docs[gamma_result.results_count]->docid = id;
-            ByteArray *s = MakeByteArray(vec[idx].c_str(), vec[idx].length());
-            gamma_result.docs[gamma_result.results_count]->fields[idx].source =
-                s->value;
-            gamma_result.docs[gamma_result.results_count]
-                ->fields[idx]
-                .source_len = s->len;
-            free(s);
+            doc->docid = id;
+            doc->fields[idx].name = vec[idx];
+            doc->fields[idx].source = nullptr;
+            doc->fields[idx].source_len = 0;
             ++idx;
           }
           ++gamma_result.results_count;
@@ -505,12 +510,7 @@ Response *GammaEngine::Search(const Request *request) {
   }
 
 #ifdef PERFORMANCE_TESTING
-  double search_time = utils::getmillisecs();
-  if (++search_num_ % 1000 == 0) {
-    ss << "search cost [" << search_time - numeric_filter_time
-       << "]ms, total cost [" << search_time - start << "]ms";
-    LOG(INFO) << ss.str();
-  }
+  LOG(INFO) << condition.OutputPerf().str();
 #endif
 
   const char *log_message = logger.Data();
@@ -555,7 +555,7 @@ int GammaEngine::MultiRangeQuery(const Request *request,
     ++idx;
   }
 
-  int retval = field_range_index_->Search(filters, *range_query_result);
+  int retval = field_range_index_->Search(filters, range_query_result);
 
   OLOG(&logger, DEBUG, "search numeric index, ret: " << retval);
 
@@ -595,12 +595,15 @@ int GammaEngine::CreateTable(const Table *table) {
     return -2;
   }
 
-  field_range_index_ = new MultiFieldsRangeIndex(profile_);
+  field_range_index_ = new MultiFieldsRangeIndex(index_root_path_, profile_);
   if ((nullptr == field_range_index_) || (AddNumIndexFields() < 0)) {
     LOG(ERROR) << "add numeric index fields error!";
     return -3;
   }
 
+  auto func_build_field_index = std::bind(&GammaEngine::BuildFieldIndex, this);
+  std::thread t(func_build_field_index);
+  t.detach();
   string table_name = string(table->name->value, table->name->len);
   string path = index_root_path_ + "/" + table_name + ".schema";
   TableIO tio(path);  // rewrite it if the path is already existed
@@ -632,11 +635,14 @@ int GammaEngine::Add(const Doc *doc) {
     return -1;
   }
 
-  for (int i = 0; i < doc->fields_num; ++i) {
-    auto *f = doc->fields[i];
-    int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
-    field_range_index_->Add(max_docid_, idx);
-  }
+  // for (int i = 0; i < doc->fields_num; ++i) {
+  //   auto *f = doc->fields[i];
+  //   if (f->data_type == VECTOR) {
+  //     continue;
+  //   }
+  //   int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
+  //   field_range_index_->Add(max_docid_, idx);
+  // }
 
   // add vectors by VectorManager
   if (vec_manager_->AddToStore(max_docid_, fields_vec) != 0) {
@@ -652,10 +658,12 @@ int GammaEngine::AddOrUpdate(const Doc *doc) {
     LOG(ERROR) << "Doc size reached upper size [" << max_docid_ << "]";
     return -1;
   }
+#ifdef PERFORMANCE_TESTING
+  double start = utils::getmillisecs();
+#endif
   std::vector<Field *> fields_profile;
   std::vector<Field *> fields_vec;
   string key;
-  bool can_update = true;  // VECTOR or STRING cannot be updated now
 
   for (int i = 0; i < doc->fields_num; ++i) {
     if (doc->fields[i]->data_type != VECTOR) {
@@ -664,12 +672,9 @@ int GammaEngine::AddOrUpdate(const Doc *doc) {
           string(doc->fields[i]->name->value, doc->fields[i]->name->len);
       if (name == "_id") {
         key = string(doc->fields[i]->value->value, doc->fields[i]->value->len);
-      } else if (doc->fields[i]->data_type == STRING) {
-        can_update = false;
       }
     } else {
       fields_vec.push_back(doc->fields[i]);
-      can_update = false;
     }
   }
   // add fields into profile
@@ -679,56 +684,67 @@ int GammaEngine::AddOrUpdate(const Doc *doc) {
     int ret = profile_->Add(fields_profile, max_docid_, false);
     if (ret != 0) return -1;
   } else {
-    if (can_update) {
-      return Update(doc);  // TODO : add range_index update
+    if (Update(docid, fields_profile, fields_vec)) {
+      LOG(ERROR) << "update error, key=" << key << ", docid=" << docid;
+      return -1;
     }
-    Del(key);
-    int ret = profile_->Add(fields_profile, max_docid_, true);
-    if (ret != 0) return -1;
+    return 0;
   }
-
-  for (int i = 0; i < doc->fields_num; ++i) {
-    auto *f = doc->fields[i];
-    if (f->data_type == VECTOR) {
-      continue;
-    }
-    int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
-    field_range_index_->Add(max_docid_, idx);
-  }
+#ifdef PERFORMANCE_TESTING
+  double end_profile = utils::getmillisecs();
+#endif
+  // for (int i = 0; i < doc->fields_num; ++i) {
+  //   auto *f = doc->fields[i];
+  //   if (f->data_type == VECTOR) {
+  //     continue;
+  //   }
+  //   int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
+  //   field_range_index_->Add(max_docid_, idx);
+  // }
 
   // add vectors by VectorManager
   if (vec_manager_->AddToStore(max_docid_, fields_vec) != 0) {
     return -2;
   }
   ++max_docid_;
-
+#ifdef PERFORMANCE_TESTING
+  double end = utils::getmillisecs();
+  if (max_docid_ % 10000 == 0) {
+    LOG(INFO) << "profile cost [" << end_profile - start
+              << "]ms, vec store cost [" << end - end_profile << "]ms";
+  }
+#endif
   return 0;
 }
 
-int GammaEngine::Update(const Doc *doc) {
-  string key;
-  std::vector<Field *> fields_profile;
-  std::vector<Field *> fields_vec;
-  for (int i = 0; i < doc->fields_num; ++i) {
-    if (doc->fields[i]->data_type != VECTOR) {
-      if (strncmp(doc->fields[i]->name->value, "_id", 3) == 0) {
-        key = string(doc->fields[i]->value->value, doc->fields[i]->value->len);
-      }
-      fields_profile.push_back(doc->fields[i]);
-    } else {
-      fields_vec.push_back(doc->fields[i]);
-    }
+int GammaEngine::Update(const Doc *doc) { return -1; }
+
+int GammaEngine::Update(int doc_id, std::vector<Field *> &fields_profile,
+                        std::vector<Field *> &fields_vec) {
+  int ret = vec_manager_->Update(doc_id, fields_vec);
+  if (ret != 0) {
+    return ret;
   }
 
-  int doc_id = -1;
-  if (profile_->GetDocIDByKey(key, doc_id) < 0) {
-    return -1;
+  for (size_t i = 0; i < fields_profile.size(); ++i) {
+    auto *f = fields_profile[i];
+    int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
+    field_range_index_->Delete(doc_id, idx);
   }
 
   if (profile_->Update(fields_profile, doc_id) != 0) {
+    LOG(ERROR) << "profile update error";
     return -1;
   }
 
+  for (size_t i = 0; i < fields_profile.size(); ++i) {
+    auto *f = fields_profile[i];
+    int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
+    field_range_index_->Add(doc_id, idx);
+  }
+#ifdef DEBUG
+  LOG(INFO) << "update success! key=" << key;
+#endif
   return 0;
 }
 
@@ -774,7 +790,7 @@ int GammaEngine::DelDocByQuery(Request *request) {
     ++idx;
   }
 
-  int retval = field_range_index_->Search(filters, range_query_result);
+  int retval = field_range_index_->Search(filters, &range_query_result);
   if (retval == 0) {
     LOG(ERROR) << "numeric index search error, ret=" << retval;
     return 1;
@@ -804,31 +820,108 @@ Doc *GammaEngine::GetDoc(const std::string &id) {
     LOG(INFO) << "docid [" << docid << "] bitmap test failed!";
     return nullptr;
   }
-  Doc *doc = nullptr;
-  profile_->GetDocInfo(id, doc);
+  std::vector<std::string> index_names;
+  vec_manager_->VectorNames(index_names);
+
+  Doc *doc = static_cast<Doc *>(malloc(sizeof(Doc)));
+  doc->fields_num = profile_->FieldsNum() + index_names.size();
+  doc->fields =
+      static_cast<Field **>(malloc(doc->fields_num * sizeof(Field *)));
+  memset(doc->fields, 0, doc->fields_num * sizeof(Field *));
+
+  profile_->GetDocInfo(docid, doc);
+
+  std::vector<std::pair<std::string, int>> vec_fields_ids;
+  for (size_t i = 0; i < index_names.size(); ++i) {
+    vec_fields_ids.emplace_back(std::make_pair(index_names[i], docid));
+  }
+
+  std::vector<std::string> vec;
+  ret = vec_manager_->GetVector(vec_fields_ids, vec, true);
+  if (ret == 0 && vec.size() == vec_fields_ids.size()) {
+    int j = 0;
+    for (int i = profile_->FieldsNum(); i < doc->fields_num; ++i) {
+      const string &field_name = index_names[j];
+      doc->fields[i] = static_cast<Field *>(malloc(sizeof(Field)));
+      memset(doc->fields[i], 0, sizeof(Field));
+      doc->fields[i]->name =
+          MakeByteArray(field_name.c_str(), field_name.length());
+      doc->fields[i]->value = MakeByteArray(vec[j].c_str(), vec[j].length());
+      doc->fields[i]->data_type = DataType::VECTOR;
+      ++j;
+    }
+  }
   return doc;
 }
 
+#ifdef PYTHON
 int GammaEngine::BuildIndex() {
+  if (index_status_ != IndexStatus::INDEXED) {
+    if (vec_manager_->Indexing() != 0) {
+      LOG(ERROR) << "Create index failed!";
+      return -1;
+    }
+    LOG(INFO) << "vector manager indexing success!";
+    index_status_ = IndexStatus::INDEXED;
+  }
+  int ret = vec_manager_->AddRTVecsToIndex();
+  return ret;
+}
+
+#else
+int GammaEngine::BuildIndex() {
+  b_running_ = true;
   if (vec_manager_->Indexing() != 0) {
     LOG(ERROR) << "Create index failed!";
     return -1;
   }
   LOG(INFO) << "vector manager indexing success!";
 
-  b_running_ = true;
   int ret = 0;
+  bool has_error = false;
   while (b_running_) {
-    if (vec_manager_->AddRTVecsToIndex() != 0) {
+    if (has_error) {
+      usleep(5000 * 1000);  // sleep 5000ms
+      continue;
+    }
+    int add_ret = vec_manager_->AddRTVecsToIndex();
+    if (add_ret != 0) {
+      has_error = true;
       LOG(ERROR) << "Add real time vectors to index error!";
-      ret = -3;
-      break;
+      continue;
     }
     index_status_ = IndexStatus::INDEXED;
     usleep(5000 * 1000);  // sleep 5000ms
   }
   running_cv_.notify_one();
+  LOG(INFO) << "Build index exited!";
   return ret;
+}
+#endif
+
+int GammaEngine::BuildFieldIndex() {
+  b_field_running_ = true;
+
+  std::map<std::string, enum DataType> attr_type_map;
+  profile_->GetAttrType(attr_type_map);
+  int field_num = attr_type_map.size();
+
+  while (b_field_running_) {
+    int lastest_num = max_docid_;
+
+#pragma omp parallel for
+    for (int i = 0; i < field_num; ++i) {
+      for (int j = indexed_field_num_; j < lastest_num; ++j) {
+        field_range_index_->Add(j, i);
+      }
+    }
+
+    indexed_field_num_ = lastest_num;
+    usleep(5000 * 1000);  // sleep 5000ms
+  }
+  running_field_cv_.notify_one();
+  LOG(INFO) << "Build field index exited!";
+  return 0;
 }
 
 int GammaEngine::GetDocsNum() { return max_docid_ - delete_num_; }
@@ -837,7 +930,18 @@ long GammaEngine::GetMemoryBytes() {
   long profile_mem_bytes = profile_->GetMemoryBytes();
   long vec_mem_bytes = vec_manager_->GetTotalMemBytes();
 
-  long total_mem_bytes = profile_mem_bytes + vec_mem_bytes + bitmap_bytes_size_;
+  long dense_b = 0, sparse_b = 0, total_mem_b = 0;
+
+  total_mem_b += field_range_index_->MemorySize(dense_b, sparse_b);
+  // long total_mem_kb = total_mem_b / 1024;
+  // long total_mem_mb = total_mem_kb / 1024;
+  // LOG(INFO) << "Field range memory [" << total_mem_kb << "]kb, ["
+  //           << total_mem_mb << "]MB, dense [" << dense_b / 1024 / 1024
+  //           << "]MB sparse [" << sparse_b / 1024 / 1024
+  //           << "]MB, indexed_field_num_ [" << indexed_field_num_ << "]";
+
+  long total_mem_bytes = profile_mem_bytes + vec_mem_bytes +
+                         bitmap_bytes_size_ + total_mem_b + dense_b + sparse_b;
   return total_mem_bytes;
 }
 
@@ -898,9 +1002,11 @@ int GammaEngine::Dump() {
   dump_docid_ = max_docid + 1;
 
   const string dump_done_file_name = path + "/dump.done";
-  std::stringstream ss;
-  ss << "mv " << dumping_file_name << " " << dump_done_file_name;
-  system(ss.str().c_str());
+  if (rename(dumping_file_name.c_str(), dump_done_file_name.c_str())) {
+    LOG(ERROR) << "rename " << dumping_file_name << " to "
+               << dump_done_file_name << " error: " << strerror(errno);
+    return -1;
+  }
 
   LOG(INFO) << "Dumped to [" << path << "], next dump docid [" << dump_docid_
             << "]";
@@ -991,17 +1097,6 @@ int GammaEngine::Load() {
       LOG(ERROR) << "load profile error, ret=" << ret;
       return -1;
     }
-    // rebuild numeric index
-    std::map<std::string, enum DataType> attr_type_map;
-    profile_->GetAttrType(attr_type_map);
-    int field_num = attr_type_map.size();
-
-#pragma omp parallel for
-    for (int i = 0; i < field_num; ++i) {
-      for (int j = 0; j < max_docid_; ++j) {
-        field_range_index_->Add(j, i);
-      }
-    }
     // load bitmap
     if (docids_bitmap_ == nullptr) {
       LOG(ERROR) << "docid bitmap is not initilized";
@@ -1023,6 +1118,13 @@ int GammaEngine::Load() {
     }
     fread((void *)(docids_bitmap_), sizeof(char), bm_file_size, fp_bm);
     fclose(fp_bm);
+
+    delete_num_ = 0;
+    for (int i = 0; i < max_doc_size_; ++i) {
+      if (bitmap::test(docids_bitmap_, i)) {
+        ++delete_num_;
+      }
+    }
   }
 
   ret = vec_manager_->Load(folders, max_docid_);
@@ -1058,6 +1160,7 @@ int GammaEngine::AddNumIndexFields() {
       continue;
     }
     int field_idx = profile_->GetAttrIdx(field_name);
+    LOG(INFO) << "Add range field [" << field_name << "]";
     field_range_index_->AddField(field_idx, it.second);
   }
   return retvals;
@@ -1146,6 +1249,7 @@ ResultItem *GammaEngine::PackResultItem(const VectorDoc *vec_doc,
             MakeByteArray(field_name.c_str(), field_name.length());
         doc->fields[i]->value = MakeByteArray(vec[j].c_str(), vec[j].length());
         doc->fields[i]->data_type = DataType::VECTOR;
+        ++j;
       }
     } else {
       // get vector error

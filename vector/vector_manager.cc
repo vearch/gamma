@@ -23,12 +23,14 @@ static bool L2Cmp(const VectorDoc *a, const VectorDoc *b) {
 VectorManager::VectorManager(const RetrievalModel &model,
                              const VectorStorageType &store_type,
                              const char *docids_bitmap, int max_doc_size,
-                             const std::string &root_path)
+                             const std::string &root_path,
+                             GammaCounters *counters)
     : default_model_(model),
       default_store_type_(store_type),
       docids_bitmap_(docids_bitmap),
       max_doc_size_(max_doc_size),
-      root_path_(root_path) {
+      root_path_(root_path),
+      gamma_counters_(counters) {
   table_created_ = false;
   ivfpq_param_ = nullptr;
 }
@@ -113,13 +115,15 @@ int VectorManager::CreateVectorTable(VectorInfo **vectors_info, int vectors_num,
     RetrievalModel model = default_model_;
     if (!strcasecmp("IVFPQ", retrieval_type_str.c_str())) {
       model = RetrievalModel::IVFPQ;
+    } else if (!strcasecmp("GPU", retrieval_type_str.c_str())) {
+      model = RetrievalModel::GPU_IVFPQ;
     } else {
       LOG(WARNING) << "NO support for retrieval type " << retrieval_type_str
                    << ", default to " << default_model_;
     }
 
     GammaIndex *index = GammaIndexFactory::Create(
-        model, dimension, docids_bitmap_, vec, ivfpq_param_);
+        model, dimension, docids_bitmap_, vec, ivfpq_param_, gamma_counters_);
     if (index == nullptr) {
       LOG(ERROR) << "create gamma index " << vec_name << " error!";
       return -1;
@@ -140,6 +144,27 @@ int VectorManager::AddToStore(int docid, std::vector<Field *> &fields) {
       return -1;
     }
     raw_vectors_[name]->Add(docid, fields[i]);
+  }
+  return 0;
+}
+
+int VectorManager::Update(int docid, std::vector<Field *> &fields) {
+  for (unsigned int i = 0; i < fields.size(); i++) {
+    string name = string(fields[i]->name->value, fields[i]->name->len);
+    auto it = raw_vectors_.find(name);
+    if (it == raw_vectors_.end()) {
+      LOG(ERROR) << "Cannot find raw vector [" << name << "]";
+      return -1;
+    }
+    RawVector *raw_vector = it->second;
+    if (raw_vector->GetDimension() !=
+        fields[i]->value->len / (int)sizeof(float)) {
+      LOG(ERROR) << "invalid field value len=" << fields[i]->value->len
+                 << ", dimension=" << raw_vector->GetDimension();
+      return -1;
+    }
+
+    return raw_vector->Update(docid, fields[i]);
   }
   return 0;
 }
@@ -180,29 +205,37 @@ int VectorManager::Search(const GammaQuery &query, GammaResult *results) {
     std::string name = std::string(query.vec_query[i]->name->value,
                                    query.vec_query[i]->name->len);
     vec_names[i] = name;
-    std::map<std::string, GammaIndex *>::iterator iter =
-        vector_indexes_.find(name);
+    const auto &iter = vector_indexes_.find(name);
     if (iter == vector_indexes_.end()) {
       LOG(ERROR) << "Query name " << name
                  << " not exist in created vector table";
       return -1;
     }
 
-    int d = iter->second->raw_vec_->GetDimension();
+    GammaIndex *index = iter->second;
+
+    int d = index->raw_vec_->GetDimension();
     n = query.vec_query[i]->value->len / (sizeof(float) * d);
     if (!all_vector_results[i].init(n, query.condition->topn)) {
       LOG(ERROR) << "Query name " << name << "init vector result error";
       return -1;
     }
 
-    GammaSearchCondition condition(query.condition);
-    condition.min_dist = query.vec_query[i]->min_score;
-    condition.max_dist = query.vec_query[i]->max_score;
-    int ret_vec = iter->second->Search(query.vec_query[i], &condition,
+    // GammaSearchCondition condition(query.condition);
+    query.condition->min_dist = query.vec_query[i]->min_score;
+    query.condition->max_dist = query.vec_query[i]->max_score;
+    // condition.min_dist = query.vec_query[i]->min_score;
+    // condition.max_dist = query.vec_query[i]->max_score;
+    int ret_vec = iter->second->Search(query.vec_query[i], query.condition,
                                        all_vector_results[i]);
     if (ret_vec != 0) {
       ret = ret_vec;
     }
+#ifdef PERFORMANCE_TESTING
+    std::string msg;
+    msg += "search " + std::to_string(i);
+    query.condition->Perf(msg);
+#endif
   }
 
   if (query.condition->sort_by_docid) {
@@ -225,6 +258,7 @@ int VectorManager::Search(const GammaQuery &query, GammaResult *results) {
                                                      source, source_len);
           if (cur_docid == start_docid) {
             common_docid_count++;
+            if (query.condition->l2_sqrt) vec_dist = std::sqrt(vec_dist);
             double field_score = query.vec_query[j]->has_boost == 1
                                      ? (vec_dist * query.vec_query[j]->boost)
                                      : vec_dist;
@@ -262,8 +296,7 @@ int VectorManager::Search(const GammaQuery &query, GammaResult *results) {
                       InnerProductCmp);
             break;
           case L2:
-            std::sort(results[i].docs, results[i].docs + common_idx,
-                      L2Cmp);
+            std::sort(results[i].docs, results[i].docs + common_idx, L2Cmp);
             break;
           default:
             LOG(ERROR) << "invalid metric_type="
@@ -294,6 +327,7 @@ int VectorManager::Search(const GammaQuery &query, GammaResult *results) {
             all_vector_results[0].source_lens[real_pos];
 
         double score = all_vector_results[0].dists[real_pos];
+        if (query.condition->l2_sqrt) score = std::sqrt(score);
 
         score = query.vec_query[0]->has_boost == 1
                     ? (score * query.vec_query[0]->boost)
@@ -307,6 +341,9 @@ int VectorManager::Search(const GammaQuery &query, GammaResult *results) {
     }
   }
 
+#ifdef PERFORMANCE_TESTING
+  query.condition->Perf("merge result");
+#endif
   return ret;
 }
 

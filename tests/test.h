@@ -28,9 +28,10 @@
 
 using std::string;
 using namespace std;
+namespace {
 
 IVFPQParameters *kIVFPQParam =
-    MakeIVFPQParameters(InnerProduct, 20, 256, 64, 8);
+    MakeIVFPQParameters(InnerProduct, 10, 256, 64, 8);
 
 IVFPQParameters *GetIVFPQParam() {
   return MakeIVFPQParameters(InnerProduct, 20, 256, 64, 8);
@@ -47,6 +48,14 @@ inline ByteArray *StringToByteArray(const std::string &str) {
 inline ByteArray *FloatToByteArray(const float *feature, int dimension) {
   ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
   ba->len = dimension * sizeof(float);
+  ba->value = static_cast<char *>(malloc(ba->len));
+  memcpy((void *)ba->value, (void *)feature, ba->len);
+  return ba;
+}
+
+inline ByteArray *Uint8ToByteArray(const uint8_t* feature, int dimension) {
+  ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
+  ba->len = dimension * sizeof(uint8_t);
   ba->value = static_cast<char *>(malloc(ba->len));
   memcpy((void *)ba->value, (void *)feature, ba->len);
   return ba;
@@ -185,9 +194,7 @@ struct FileHelper {
   std::string file_path;
   FILE *fp;
 
-  FileHelper(std::string path) {
-    file_path = path;
-  }
+  FileHelper(std::string path) { file_path = path; }
 
   ~FileHelper() {
     if (fp) fclose(fp);
@@ -199,9 +206,7 @@ struct FileHelper {
     return 0;
   }
 
-  size_t Read(void *data, size_t len) {
-    return fread(data, 1, len, fp);
-  }
+  size_t Read(void *data, size_t len) { return fread(data, 1, len, fp); }
 };
 
 string GetCurrentCaseName() {
@@ -213,3 +218,13 @@ string GetCurrentCaseName() {
 void Sleep(long milliseconds) {
   std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
 }
+
+struct RandomGenerator {
+  RandomGenerator() {
+    std::srand(std::time(nullptr));
+    srand48(std::time(nullptr));
+  }
+  int Rand(int n, int offset = 0) { return std::rand() % n + offset; }
+  double RandDouble(double offset = 0.0f) { return drand48() + offset; }
+};
+}  // namespace

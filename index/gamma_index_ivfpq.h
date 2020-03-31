@@ -616,7 +616,13 @@ struct GammaIVFPQScanner : IVFPQScannerT<idx_t, METRIC_TYPE>,
 
 #define HANDLE_ONE                                 \
   do {                                             \
-    int doc_id = raw_vec_->vid2docid_[res.ids[j]]; \
+    if (res.ids[j] & 0x80000000) {                 \
+      codes += this->pq.M;                         \
+      j++;                                         \
+      continue;                                    \
+    }                                              \
+    int vid = res.ids[j] & 0x7fffffff;             \
+    int doc_id = raw_vec_->vid2docid_[vid];        \
     if ((range_index_ptr_ != nullptr &&            \
          (not range_index_ptr_->Has(doc_id))) ||   \
         bitmap::test(docids_bitmap_, doc_id)) {    \
@@ -1011,7 +1017,7 @@ struct FileIOWriter : faiss::IOWriter {
 struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
   GammaIVFPQIndex(faiss::Index *quantizer, size_t d, size_t nlist, size_t M,
                   size_t nbits_per_idx, const char *docids_bitmap,
-                  RawVector *raw_vec, int nprobe);
+                  RawVector *raw_vec, int nprobe, GammaCounters *counters);
   ~GammaIVFPQIndex();
 
   faiss::InvertedListScanner *get_InvertedListScanner(
@@ -1025,18 +1031,20 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
 
   bool Add(int n, const float *vec) override;
 
-  int Search(const VectorQuery *query, const GammaSearchCondition *condition,
+  int Update(int doc_id, const float *vec) { return -1; }
+  int AddUpdatedVecToIndex();
+
+  int Search(const VectorQuery *query, GammaSearchCondition *condition,
              VectorResult &result) override;
 
   void search_preassigned(int n, const float *x,
-                          const GammaSearchCondition *condition,
-                          const idx_t *assign, const float *centroid_dis,
-                          float *distances, idx_t *labels, int *total,
-                          bool store_pairs,
+                          GammaSearchCondition *condition, const idx_t *assign,
+                          const float *centroid_dis, float *distances,
+                          idx_t *labels, int *total, bool store_pairs,
                           const faiss::IVFSearchParameters *params = nullptr);
 
   // assign the vectors, then call search_preassign
-  void SearchIVFPQ(int n, const float *x, const GammaSearchCondition *condition,
+  void SearchIVFPQ(int n, const float *x, GammaSearchCondition *condition,
                    float *distances, idx_t *labels, int *total);
 
   void SearchDirectly(int n, const float *x,
@@ -1083,8 +1091,9 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
       return 0;
     }
 
-    return rt_invert_index_ptr_->Dump(
-        dir, vec_name, std::min(max_vid, indexed_vec_count_ - 1));
+    /* return rt_invert_index_ptr_->Dump( */
+    /*     dir, vec_name, std::min(max_vid, indexed_vec_count_ - 1)); */
+    return 0;
   }
 
   int Load(const std::vector<std::string> &index_dirs) {
@@ -1118,7 +1127,8 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
       return 0;  // it should train again after load
     }
 
-    indexed_vec_count_ = rt_invert_index_ptr_->Load(index_dirs, vec_name);
+    /* indexed_vec_count_ = rt_invert_index_ptr_->Load(index_dirs, vec_name); */
+    indexed_vec_count_ = 0;
 
     LOG(INFO) << "load: d=" << ivpq->d << ", ntotal=" << ivpq->ntotal
               << ", is_trained=" << ivpq->is_trained
@@ -1135,9 +1145,15 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
 
   int indexed_vec_count_;
   realtime::RTInvertIndex *rt_invert_index_ptr_;
+  bool compaction_;
+  size_t compact_bucket_no_;
+  uint64_t compacted_num_;
+  GammaCounters *gamma_counters_;
+  uint64_t updated_num_;
 
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_count_;
+  int add_count_;
 #endif
 };
 

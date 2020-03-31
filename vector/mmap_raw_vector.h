@@ -26,12 +26,14 @@ class MmapRawVector : public RawVector, public AsyncFlusher {
   int Init() override;
   int AddToStore(float *v, int len) override;
   int GetVectorHeader(int start, int end, ScopeVector &vec) override;
+  int UpdateToStore(int vid, float *v, int len);
 
  protected:
   int FlushOnce() override;
   int GetVector(long vid, const float *&vec, bool &deletable) const override;
   int DumpVectors(int dump_vid, int max_vid);
   int LoadVectors(int vec_num) override;
+  int LoadUpdatedVectors();
 
  private:
   VectorBufferQueue *vector_buffer_queue_;
@@ -43,9 +45,12 @@ class MmapRawVector : public RawVector, public AsyncFlusher {
   int init_vector_num_;
   float *flush_batch_vectors_;
   std::string fet_file_path_;
+  std::string updated_fet_file_path_;
   int fet_fd_;
+  FILE *updated_fet_fp_;
   StoreParams *store_params_;
   int stored_num_;
+  bool memory_only_;
 };
 
 }  // namespace tig_gamma

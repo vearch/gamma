@@ -13,10 +13,13 @@ namespace tig_gamma {
 namespace realtime {
 
 RTInvertIndex::RTInvertIndex(faiss::Index *index, long max_vec_size,
+                             const char *docids_bitmap, int *vid2docid,
                              size_t bucket_keys, size_t bucket_keys_limit)
     : _bucket_keys(bucket_keys),
       _bucket_keys_limit(bucket_keys_limit),
-      _max_vec_size(max_vec_size) {
+      _max_vec_size(max_vec_size),
+      docids_bitmap_(docids_bitmap),
+      vid2docid_(vid2docid) {
   _cur_ptr = nullptr;
   if (index) {
     _index_ivf = dynamic_cast<faiss::IndexIVF *>(index);
@@ -34,8 +37,9 @@ RTInvertIndex::~RTInvertIndex() {
 
 bool RTInvertIndex::Init() {
   if (nullptr == _index_ivf) return false;
-  _cur_ptr = new (std::nothrow) RealTimeMemData(
-      _index_ivf->nlist, _max_vec_size, _bucket_keys, _index_ivf->code_size);
+  _cur_ptr = new (std::nothrow)
+      RealTimeMemData(_index_ivf->nlist, _max_vec_size, docids_bitmap_,
+                      vid2docid_, _bucket_keys, _index_ivf->code_size);
   if (nullptr == _cur_ptr) return false;
 
   if (!_cur_ptr->Init()) return false;
@@ -110,6 +114,10 @@ bool RTInvertIndex::AddKeys(std::map<int, std::vector<long>> &new_keys,
   return true;
 }
 
+int RTInvertIndex::Update(int bucket_no, int vid, std::vector<uint8_t> &codes) {
+  return _cur_ptr->Update(bucket_no, vid, codes);
+}
+
 bool RTInvertIndex::GetIvtList(const size_t &bucket_no, long *&ivt_list,
                                size_t &ivt_size, uint8_t *&ivt_codes_list) {
   ivt_size = _cur_ptr->_cur_invert_ptr->_retrieve_idx_pos[bucket_no];
@@ -139,6 +147,20 @@ int RTInvertIndex::Dump(const std::string &dir, const std::string &vec_name,
 int RTInvertIndex::Load(const std::vector<std::string> &index_dirs,
                         const std::string &vec_name) {
   return _cur_ptr->Load(index_dirs, vec_name);
+}
+
+void RTInvertIndex::PrintBucketSize() { _cur_ptr->PrintBucketSize(); }
+
+int RTInvertIndex::CompactBucket(int bucket_no) {
+  return _cur_ptr->CompactBucket(bucket_no);
+}
+
+int RTInvertIndex::RetrieveBucketId(int vid) {
+  return _cur_ptr->RetrieveBucketId(vid);
+}
+
+bool RTInvertIndex::Compactable(int deleted_doc_num) {
+  return _cur_ptr->Compactable(deleted_doc_num);
 }
 
 }  // namespace realtime

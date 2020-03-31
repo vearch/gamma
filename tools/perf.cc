@@ -30,6 +30,7 @@
 
 using namespace std;
 
+namespace {
 inline ByteArray *StringToByteArray(const std::string &str) {
   ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
   ba->len = str.length();
@@ -45,6 +46,7 @@ inline ByteArray *FloatToByteArray(const float *feature, int dimension) {
   memcpy((void *)ba->value, (void *)feature, ba->len);
   return ba;
 }
+}  // namespace
 
 namespace test {
 
@@ -364,7 +366,7 @@ class GammaPerfTest {
 
       Request *request =
           MakeRequest(10, vector_querys, 1, nullptr, 0, nullptr, 0, nullptr, 0,
-                      1, 0, nullptr, conf->has_rank, 0);
+                      1, 0, nullptr, conf->has_rank, 0, FALSE, FALSE);
 
       double start = utils::getmillisecs();
       Response *response = Search(t->engine_, request);

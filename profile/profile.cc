@@ -18,10 +18,15 @@
 using std::move;
 using std::string;
 using std::vector;
+#ifdef WITH_ROCKSDB
+using namespace rocksdb;
+#endif
 
 namespace tig_gamma {
 
-Profile::Profile(const int max_doc_size) {
+const static string kProfileDumpedNum = "profile_dumped_num";
+
+Profile::Profile(const int max_doc_size, const string &root_path) {
   item_length_ = 0;
   field_num_ = 0;
   key_idx_ = -1;
@@ -30,6 +35,7 @@ Profile::Profile(const int max_doc_size) {
   max_profile_size_ = max_doc_size;
   max_str_size_ = max_profile_size_ * 128;
   str_offset_ = 0;
+  db_path_ = root_path + "/profile";
 
   // TODO : there is a failure.
   // if (!item_to_docid_.reserve(max_doc_size)) {
@@ -50,61 +56,60 @@ Profile::~Profile() {
   if (str_mem_ != nullptr) {
     delete[] str_mem_;
   }
+
+#ifdef WITH_ROCKSDB
+  if (db_) {
+    delete db_;
+    db_ = nullptr;
+  }
+#endif
 }
 
 int Profile::Load(const std::vector<string> &folders, int &doc_num) {
-  uint64_t total_num = 0;
-  uint64_t total_str_size = 0;
-  char *cur_mem = mem_;
-  char *cur_str_mem = str_mem_;
-
-  for (const string &path : folders) {
-    const string prf_name = path + "/" + name_ + ".prf";
-    const string prf_str_name = path + "/" + name_ + ".str.prf";
-
-    FILE *fp_prf = fopen(prf_name.c_str(), "rb");
-    if (fp_prf == nullptr) {
-      LOG(INFO) << "Cannot open file " << prf_name;
-      return -1;
-    }
-
-    long profile_size = utils::get_file_size(prf_name.c_str());
-    total_num += profile_size / item_length_;
-    if (total_num > max_profile_size_) {
-      LOG(ERROR) << "total_num [" << total_num
-                 << "] larger than max_profile_size [" << max_profile_size_
-                 << "]";
-      fclose(fp_prf);
-      return -1;
-    }
-
-    fread((void *)cur_mem, sizeof(char), profile_size, fp_prf);
-    fclose(fp_prf);
-    cur_mem += profile_size;
-
-    FILE *fp_str = fopen(prf_str_name.c_str(), "rb");
-    if (fp_str == nullptr) {
-      LOG(ERROR) << "Cannot open file " << prf_str_name;
-      return -1;
-    }
-
-    long profile_str_size = utils::get_file_size(prf_str_name.c_str());
-    total_str_size += profile_str_size;
-    if (total_str_size > max_str_size_) {
-      LOG(ERROR) << "total_str_size [" << total_str_size
-                 << "] larger than max_str_size [" << max_str_size_ << "]";
-      fclose(fp_str);
-      return -1;
-    }
-
-    fread((void *)cur_str_mem, sizeof(char), profile_str_size, fp_str);
-    fclose(fp_str);
-
-    cur_str_mem += profile_str_size;
-    doc_num += profile_size / item_length_;
-
-    LOG(INFO) << "Load profile doc_num [" << doc_num << "]";
+  doc_num = 0;
+#ifdef WITH_ROCKSDB
+  string value;
+  rocksdb::Status s =
+      db_->Get(rocksdb::ReadOptions(), kProfileDumpedNum, &value);
+  if (!s.ok()) {
+    LOG(INFO) << "the key=" << kProfileDumpedNum
+              << " isn't in db, skip loading";
+    doc_num = 0;
+    return 0;
   }
+  doc_num = std::stoi(value, 0, 10);
+  if (doc_num < 0) {
+    LOG(ERROR) << "invalid doc num of db, value=" << value;
+    return -1;
+  }
+  LOG(INFO) << "begin to load profile, doc num=" << doc_num;
+  rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+  string start_key;
+  ToRowKey(0, start_key);
+  it->Seek(Slice(start_key));
+  for (int c = 0; c < doc_num; c++, it->Next()) {
+    if (!it->Valid()) {
+      LOG(ERROR) << "rocksdb iterator error, count=" << c;
+      delete it;
+      return 2;
+    }
+    Slice value = it->value();
+    const char *data = value.data_;
+    memcpy((void *)(mem_ + (long)c * item_length_), data, item_length_);
+    data += item_length_;
+    memcpy(str_mem_ + str_offset_, data, value.size_ - item_length_);
+    for (int field_id = 0; field_id < (int)idx_attr_offset_.size();
+         field_id++) {
+      if (attrs_[field_id] != STRING) continue;
+      int field_offset = idx_attr_offset_[field_id];
+      char *field = mem_ + (long)c * item_length_ + field_offset;
+      memcpy((void *)field, (void *)&str_offset_, sizeof(uint64_t));
+      uint16_t field_len = 0;
+      memcpy((void *)&field_len, (field + sizeof(uint64_t)), sizeof(field_len));
+      str_offset_ += field_len;
+    }
+  }
+  delete it;
 
   const string str_id = "_id";
   const auto &iter = attr_idx_map_.find(str_id);
@@ -123,7 +128,10 @@ int Profile::Load(const std::vector<string> &folders, int &doc_num) {
     item_to_docid_.insert(key, i);
   }
 
-  LOG(INFO) << "Profile load successed!";
+  LOG(INFO) << "Profile load successed! doc num=" << doc_num;
+#else
+  LOG(ERROR) << "rocksdb is need when compiling for profile's loading";
+#endif
   return 0;
 }
 
@@ -159,6 +167,20 @@ int Profile::CreateTable(const Table *table) {
 
   mem_ = new char[max_profile_size_ * item_length_];
   str_mem_ = new char[max_str_size_];
+
+#ifdef WITH_ROCKSDB
+  // open DB
+  Options options;
+  options.IncreaseParallelism();
+  // options.OptimizeLevelStyleCompaction();
+  // create the DB if it's not already present
+  options.create_if_missing = true;
+  Status s = DB::Open(options, db_path_, &db_);
+  if (!s.ok()) {
+    LOG(ERROR) << "open rocks db error: " << s.ToString();
+    return -1;
+  }
+#endif
 
   table_created_ = true;
   LOG(INFO) << "Create table " << name_ << " success!";
@@ -196,8 +218,7 @@ void Profile::SetFieldValue(int docid, const std::string &field,
     int type_size = FTypeSize(attr);
     memcpy(mem_ + offset, value, type_size);
   } else {
-    int ofst = 0;
-    ofst += sizeof(uint64_t);
+    int ofst = sizeof(uint64_t);
     if ((str_offset_ + len) >= max_str_size_) {
       LOG(ERROR) << "Str memory reached max size [" << max_str_size_ << "]";
       return;
@@ -242,14 +263,28 @@ int Profile::Add(const std::vector<Field *> &fields, int doc_id,
     LOG(ERROR) << "Doc num reached upper limit [" << max_profile_size_ << "]";
     return -1;
   }
+
+  if (fields.size() != attr_idx_map_.size()) {
+    LOG(ERROR) << "Field num [" << fields.size() << "] not equal to ["
+               << attr_idx_map_.size() << "]";
+    return -1;
+  }
+  std::vector<Field *> fields_reorder(fields.size());
   string key;
   for (size_t i = 0; i < fields.size(); ++i) {
     const auto field_value = fields[i];
     const string &name =
         std::string(field_value->name->value, field_value->name->len);
+
+    auto it = attr_idx_map_.find(name);
+    if (it == attr_idx_map_.end()) {
+      LOG(ERROR) << "Unknown field " << name;
+      continue;
+    }
+    int field_idx = it->second;
+    fields_reorder[field_idx] = field_value;
     if (name == "_id") {
       key = string(field_value->value->value, field_value->value->len);
-      break;
     }
   }
 #ifdef DEBUG__
@@ -266,8 +301,8 @@ int Profile::Add(const std::vector<Field *> &fields, int doc_id,
 
   item_to_docid_.insert(key, doc_id);
 
-  for (size_t i = 0; i < fields.size(); ++i) {
-    const auto field_value = fields[i];
+  for (size_t i = 0; i < fields_reorder.size(); ++i) {
+    const auto field_value = fields_reorder[i];
     const string &name =
         std::string(field_value->name->value, field_value->name->len);
 
@@ -288,87 +323,121 @@ int Profile::Add(const std::vector<Field *> &fields, int doc_id,
 }
 
 int Profile::Update(const std::vector<Field *> &fields, int doc_id) {
+  if (fields.size() == 0) return 0;
+
   for (size_t i = 0; i < fields.size(); ++i) {
     const auto field_value = fields[i];
     const string &name =
         string(field_value->name->value, field_value->name->len);
-    auto it = attr_idx_map_.find(name);
+    const auto &it = attr_idx_map_.find(name);
     if (it == attr_idx_map_.end()) {
       LOG(ERROR) << "Cannot find field name [" << name << "]";
       continue;
     }
-    // TODO several operations should be atomic
-    // TODO update string
+
+    int field_id = it->second;
+
     if (field_value->data_type == STRING) {
-      continue;
+      size_t offset =
+          (uint64_t)doc_id * item_length_ + idx_attr_offset_[field_id];
+      size_t str_offset = 0;
+      memcpy(&str_offset, mem_ + offset, sizeof(size_t));
+      unsigned short len;
+      memcpy(&len, mem_ + offset + sizeof(size_t), sizeof(unsigned short));
+
+      if (len >= field_value->value->len) {
+        memcpy(mem_ + offset + sizeof(size_t), &(field_value->value->len),
+               sizeof(unsigned short));
+        memcpy(str_mem_ + str_offset, field_value->value->value,
+               field_value->value->len);
+      } else {
+        len = field_value->value->len;
+        int ofst = sizeof(uint64_t);
+        if ((str_offset_ + len) >= max_str_size_) {
+          LOG(ERROR) << "Str memory reached max size [" << max_str_size_ << "]";
+          return -1;
+        }
+        memcpy(mem_ + offset, &str_offset_, sizeof(uint64_t));
+        memcpy(mem_ + offset + ofst, &len, sizeof(uint16_t));
+        memcpy(str_mem_ + str_offset_, field_value->value->value,
+               sizeof(char) * len);
+        str_offset_ += len;
+      }
+    } else {
+      SetFieldValue(doc_id, name.c_str(), field_value->value->value,
+                    field_value->value->len);
     }
-    SetFieldValue(doc_id, name.c_str(), field_value->value->value,
-                  field_value->value->len);
+  }
+
+  if (PutToDB(doc_id)) {
+    LOG(ERROR) << "update to rocksdb error, docid=" << doc_id;
+    return -2;
   }
 
   return 0;
 }
 
-int Profile::Dump(const string &path, int start_docid, int end_docid) {
-  const string prf_name = path + "/" + name_ + ".prf";
-  FILE *fp_output = fopen(prf_name.c_str(), "wb");
-  if (fp_output == nullptr) {
-    LOG(ERROR) << "Cannot write file [" << prf_name << "]";
-    return -1;
+void Profile::ToRowKey(int id, string &key) const {
+  char data[11];
+  snprintf(data, 11, "%010d", id);
+  key.assign(data, 10);
+}
+
+int Profile::GetRawDoc(int docid, vector<char> &raw_doc) {
+  int len = item_length_;
+  raw_doc.resize(len, 0);
+  memcpy((void *)raw_doc.data(), mem_ + (long)docid * item_length_,
+         item_length_);
+  for (int i = 0; i < (int)idx_attr_offset_.size(); i++) {
+    if (attrs_[i] != STRING) continue;
+    char *field = mem_ + (long)docid * item_length_ + idx_attr_offset_[i];
+    uint16_t str_len = 0;
+    memcpy((void *)&str_len, field + sizeof(uint64_t), sizeof(str_len));
+    if (str_len == 0) continue;
+    raw_doc.resize(len + str_len, 0);
+    uint64_t str_offset = 0;
+    memcpy((void *)&str_offset, field, sizeof(uint64_t));
+    memcpy((void *)(raw_doc.data() + len), str_mem_ + str_offset, str_len);
+    len += str_len;
   }
+  return 0;
+}
 
-  LOG(INFO) << " item_length = " << item_length_ << " start [" << start_docid
-            << "] num [" << end_docid - start_docid + 1 << "]";
+int Profile::PutToDB(int docid) {
+#ifdef WITH_ROCKSDB
+  vector<char> doc;
+  GetRawDoc(docid, doc);
+  string key;
+  ToRowKey(docid, key);
+  Status s = db_->Put(WriteOptions(), Slice(key),
+                      Slice((char *)doc.data(), doc.size()));
+  if (!s.ok()) {
+    LOG(ERROR) << "rocksdb put error:" << s.ToString() << ", key=" << key;
+    return -2;
+  }
+#endif
+  return 0;
+}
 
-  fwrite((void *)(mem_ + (uint64_t)start_docid * item_length_), sizeof(char),
-         (uint64_t)(end_docid - start_docid + 1) * item_length_, fp_output);
-
-  fclose(fp_output);
-
-  int first_str_idx = -1;
-  int last_str_idx = -1;
-  string first_str_field, last_str_field;
-  for (size_t i = 0; i < attrs_.size(); ++i) {
-    if (attrs_[i] == DataType::STRING) {
-      if (first_str_idx < 0) {
-        first_str_idx = i;
-      }
-      last_str_idx = i;
+int Profile::Dump(const string &path, int start_docid, int end_docid) {
+#ifdef WITH_ROCKSDB
+  for (int docid = start_docid; docid <= end_docid; docid++) {
+    if (PutToDB(docid)) {
+      LOG(ERROR) << "put to rocksdb error, docid=" << docid;
+      return -2;
     }
   }
-
-  if (first_str_idx < 0) {
-    LOG(INFO) << "Cannot find string field!";
-    return 0;
+  string value;
+  ToRowKey(end_docid + 1, value);
+  Status s = db_->Put(WriteOptions(), Slice(kProfileDumpedNum), Slice(value));
+  if (!s.ok()) {
+    LOG(ERROR) << "rocksdb put error:" << s.ToString()
+               << ", key=" << kProfileDumpedNum << ", value=" << value;
+    return -2;
   }
-
-  const string prf_str_name = path + "/" + name_ + ".str.prf";
-  FILE *fp_str = fopen(prf_str_name.c_str(), "wb");
-  if (fp_str == nullptr) {
-    LOG(ERROR) << "Cannot write file " << prf_str_name;
-    fclose(fp_output);
-    return -1;
-  }
-
-  // get str start location
-  size_t offset =
-      (uint64_t)start_docid * item_length_ + idx_attr_offset_[first_str_idx];
-  size_t str_dumped_offset = 0;
-  memcpy(&str_dumped_offset, mem_ + offset, sizeof(size_t));
-
-  // get str end location
-  offset = (uint64_t)end_docid * item_length_ + idx_attr_offset_[last_str_idx];
-  size_t end_offset = 0;
-  memcpy(&end_offset, mem_ + offset, sizeof(size_t));
-  unsigned short len;
-  memcpy(&len, mem_ + offset + sizeof(size_t), sizeof(unsigned short));
-  uint64_t str_offset = end_offset + len;
-
-  fwrite((void *)(str_mem_ + str_dumped_offset), sizeof(char),
-         str_offset - str_dumped_offset, fp_str);
-
-  fclose(fp_str);
-
+#else
+  LOG(ERROR) << "rocksdb is need when compiling for profile's dumping";
+#endif
   return 0;
 }
 
@@ -467,6 +536,10 @@ int Profile::GetFieldString(int docid, int field_id, char **value) const {
   memcpy(&len, mem_ + offset + sizeof(size_t), sizeof(unsigned short));
   offset += sizeof(unsigned short);
   *value = str_mem_ + str_offset;
+  if (docid == 0)
+    LOG(INFO) << "docid=" << docid << ", field_id=" << field_id
+              << ", str_offset=" << str_offset << ", len=" << len
+              << ", value=" << string(str_mem_ + str_offset, len);
   return len;
 }
 

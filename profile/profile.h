@@ -15,13 +15,19 @@
 #include "gamma_api.h"
 #include "log.h"
 
+#ifdef WITH_ROCKSDB
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/table.h"
+#endif
+
 namespace tig_gamma {
 
 /** profile, support add, update, delete, dump and load.
  */
 class Profile {
  public:
-  explicit Profile(const int max_doc_size);
+  explicit Profile(const int max_doc_size, const std::string &root_path);
 
   ~Profile();
 
@@ -113,6 +119,12 @@ class Profile {
 
   int AddField(const std::string &name, enum DataType ftype, int is_index);
 
+  void ToRowKey(int id, std::string &key) const;
+
+  int GetRawDoc(int docid, std::vector<char> &raw_doc);
+
+  int PutToDB(int docid);
+
   std::string name_;   // table name
   int item_length_;    // every doc item length
   uint8_t field_num_;  // field number
@@ -133,12 +145,11 @@ class Profile {
   uint64_t str_offset_;
 
   bool table_created_;
+#ifdef WITH_ROCKSDB
+  rocksdb::DB *db_;
+#endif
+  std::string db_path_;
 };
-
-// specialization for string
-template <>
-bool Profile::GetField<std::string>(const int docid, const int field_id,
-                                    std::string &value) const;
 
 inline struct ByteArray *StringToByteArray(const std::string &str) {
   struct ByteArray *ba =

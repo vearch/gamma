@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "concurrentqueue/concurrentqueue.h"
 #include "gamma_api.h"
 
 namespace tig_gamma {
@@ -131,10 +132,17 @@ class RawVector {
    */
   int Add(int docid, Field *&field);
 
+  int Update(int docid, Field *&field);
+
   int GetFirstVectorID(int docid);
   int GetLastVectorID(int docid);
 
-  long GetTotalMemBytes() { return total_mem_bytes_; };
+  virtual size_t GetStoreMemUsage() { return 0; }
+
+  long GetTotalMemBytes() {
+    GetStoreMemUsage();
+    return total_mem_bytes_;
+  };
   int GetVectorNum() const { return ntotal_; };
   int GetMaxVectorSize() const { return max_vector_size_; }
   std::string GetName() { return vector_name_; }
@@ -145,10 +153,14 @@ class RawVector {
    */
   virtual int AddToStore(float *v, int len) = 0;
 
+  virtual int UpdateToStore(int vid, float *v, int len) = 0;
+
   int GetDimension() { return dimension_; };
 
   std::vector<int> vid2docid_;    // vector id to doc id
   std::vector<int *> docid2vid_;  // doc id to vector id list
+  moodycamel::ConcurrentQueue<int> *updated_vids_;
+
  protected:
   /** get vector by id
    *
@@ -158,6 +170,7 @@ class RawVector {
   virtual int GetVector(long vid, const float *&vec, bool &deletable) const = 0;
   virtual int DumpVectors(int dump_vid, int n) { return 0; }
   virtual int LoadVectors(int vec_num) { return 0; }
+  int CreateSourceMem();
 
  protected:
   friend RawVectorIO;

@@ -12,6 +12,7 @@
 #include "gamma_api.h"
 #include "log.h"
 #include "online_logger.h"
+#include "utils.h"
 
 namespace tig_gamma {
 
@@ -29,8 +30,8 @@ enum class ResultCode : std::uint16_t {
   Undefined
 };
 
-enum VectorStorageType {Mmap, RocksDB};
-enum RetrievalModel { IVFPQ };
+enum VectorStorageType { Mmap, RocksDB };
+enum RetrievalModel { IVFPQ, GPU_IVFPQ };
 
 struct VectorDocField {
   std::string name;
@@ -88,6 +89,11 @@ struct GammaSearchCondition {
     recall_num = 0;
     parallel_mode = 1;  // default to parallelize over inverted list
     use_direct_search = false;
+    l2_sqrt = false;
+#ifdef PERFORMANCE_TESTING
+    start_time = utils::getmillisecs();
+    cur_time = start_time;
+#endif
   }
 
   GammaSearchCondition(GammaSearchCondition *condition) {
@@ -102,6 +108,7 @@ struct GammaSearchCondition {
     recall_num = condition->recall_num;
     parallel_mode = condition->parallel_mode;
     use_direct_search = condition->use_direct_search;
+    l2_sqrt = condition->l2_sqrt;
   }
 
   ~GammaSearchCondition() {
@@ -113,6 +120,7 @@ struct GammaSearchCondition {
   int topn;
   bool has_rank;
   bool multi_vector_rank;
+  bool parallel_based_on_query;
   DistanceMetricType metric_type;
   bool sort_by_docid;
   float min_dist;
@@ -120,6 +128,31 @@ struct GammaSearchCondition {
   int recall_num;
   int parallel_mode;
   bool use_direct_search;
+  bool l2_sqrt;
+#ifdef PERFORMANCE_TESTING
+  double cur_time;
+  double start_time;
+  std::stringstream perf_ss;
+
+  void Perf(std::string &msg) {
+    double old_time = cur_time;
+    cur_time = utils::getmillisecs();
+    perf_ss << msg << " cost [" << cur_time - old_time << "]ms ";
+  }
+
+  void Perf(const char *msg) {
+    double old_time = cur_time;
+    cur_time = utils::getmillisecs();
+    perf_ss << msg << " cost [" << cur_time - old_time << "]ms ";
+  }
+
+  const std::stringstream &OutputPerf() {
+    cur_time = utils::getmillisecs();
+    perf_ss << " total cost [" << cur_time - start_time << "]ms ";
+    return perf_ss;
+  }
+
+#endif
 };
 
 struct GammaQuery {
@@ -131,6 +164,33 @@ struct GammaQuery {
   }
 
   ~GammaQuery() {}
+  VectorQuery **vec_query;
+  int vec_num;
+  GammaSearchCondition *condition;
+  utils::OnlineLogger *logger;
+};
+
+struct GammaBinaryQuery {
+  GammaBinaryQuery() {
+    vec_query = nullptr;
+    vec_num = 0;
+    condition = nullptr;
+    logger = nullptr;
+  }
+
+  ~GammaBinaryQuery() {}
+
+  int *vec_id; // binary vector id
+  std::vector<int> start_pos;
+  std::vector<int> sequence_len;
+
+  ByteArray **xa;
+  ByteArray **xb;
+  int *d;
+  int n;
+
+  bool get_vec;
+
   VectorQuery **vec_query;
   int vec_num;
   GammaSearchCondition *condition;
@@ -159,7 +219,7 @@ struct GammaResult {
 
   bool init(int n, std::string *vec_names, int vec_num) {
     topn = n;
-    docs = new (std::nothrow) VectorDoc*[topn];
+    docs = new (std::nothrow) VectorDoc *[topn];
     if (!docs) {
       // LOG(ERROR) << "docs in CommonDocs init error!";
       return false;
@@ -226,6 +286,21 @@ struct IVFPQParamHelper {
   }
 
   IVFPQParameters *ivfpq_param_;
+};
+
+struct GammaCounters {
+  int *max_docid;
+  std::atomic<int> *delete_num;
+
+  GammaCounters() {
+    max_docid = nullptr;
+    delete_num = nullptr;
+  }
+
+  GammaCounters(int *max_docid, std::atomic<int> *delete_num) {
+    this->max_docid = max_docid;
+    this->delete_num = delete_num;
+  }
 };
 
 }  // namespace tig_gamma

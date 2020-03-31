@@ -8,12 +8,12 @@
 #ifndef REALTIME_INVERT_INDEX_H_
 #define REALTIME_INVERT_INDEX_H_
 
+#include <stdlib.h>
+#include <map>
+#include <vector>
 #include "bitmap.h"
 #include "faiss/Index.h"
 #include "faiss/IndexIVF.h"
-#include <map>
-#include <stdlib.h>
-#include <vector>
 
 #include "realtime_mem_data.h"
 
@@ -21,9 +21,10 @@ namespace tig_gamma {
 namespace realtime {
 
 struct RTInvertIndex {
-public:
+ public:
   // bucket_keys should not be larger than bucket_keys_limit
   RTInvertIndex(faiss::Index *index, long max_vec_size,
+                const char *docids_bitmap, int *vid2docid,
                 size_t bucket_keys = 10000, size_t bucket_keys_limit = 1000000);
 
   ~RTInvertIndex();
@@ -35,6 +36,8 @@ public:
    *  @param keys_codes : added key code arrays*/
   bool AddKeys(std::map<int, std::vector<long>> &new_keys,
                std::map<int, std::vector<uint8_t>> &new_codes);
+
+  int Update(int bucket_no, int vid, std::vector<uint8_t> &codes);
 
   inline faiss::IndexIVF *GetIndexIVF() { return _index_ivf; }
 
@@ -53,20 +56,30 @@ public:
                     std::vector<std::vector<const uint8_t *>> &bucket_codes,
                     std::vector<std::vector<long>> &bucket_vids);
 
-  int Dump(const std::string &file_path, const std::string &vec_name, int max_vid);
-  int Load(const std::vector<std::string> &index_dirs, const std::string &vec_name);
+  int Dump(const std::string &file_path, const std::string &vec_name,
+           int max_vid);
+  int Load(const std::vector<std::string> &index_dirs,
+           const std::string &vec_name);
 
-private:
+  void PrintBucketSize();
+  int CompactBucket(int bucket_no);
+  int RetrieveBucketId(int vid);
+
+  bool Compactable(int deleted_doc_num);
+
+ private:
   size_t _bucket_keys;
   size_t _bucket_keys_limit;
   long _max_vec_size;
   faiss::IndexIVF *_index_ivf;
+  const char *docids_bitmap_;
+  int *vid2docid_;
 
   RealTimeMemData *_cur_ptr;
 };
 
-} // namespace realtime
+}  // namespace realtime
 
-} // namespace tig_gamma
+}  // namespace tig_gamma
 
 #endif

@@ -32,10 +32,11 @@ class GammaEngine {
   int CreateTable(const Table *table);
 
   int Add(const Doc *doc);
-
   int AddOrUpdate(const Doc *doc);
 
   int Update(const Doc *doc);
+  int Update(int doc_id, std::vector<Field *> &fields_profile,
+             std::vector<Field *> &fields_vec);
 
   /**
    * Delete doc
@@ -58,6 +59,7 @@ class GammaEngine {
    * @return 0 if exited
    */
   int BuildIndex();
+  int BuildFieldIndex();
 
   int GetIndexStatus();
 
@@ -93,7 +95,10 @@ class GammaEngine {
   std::atomic<int> delete_num_;
 
   bool b_running_;
+  bool b_field_running_;
+
   std::condition_variable running_cv_;
+  std::condition_variable running_field_cv_;
 
   int PackResults(const GammaResult *gamma_results, Response *response_results,
                   const Request *request);
@@ -114,9 +119,13 @@ class GammaEngine {
   bool created_table_;
   string dump_backup_path_;
 
+  int indexed_field_num_;
+
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;
 #endif
+
+  GammaCounters *counters_;
 };
 
 // specialization for string

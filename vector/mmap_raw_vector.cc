@@ -50,9 +50,12 @@ MmapRawVector::MmapRawVector(const string &name, int dimension,
   flush_write_retry_ = 10;
   buffer_chunk_num_ = kDefaultBufferChunkNum;
   fet_file_path_ = root_path + "/" + name + ".fet";
+  updated_fet_file_path_ = root_path + "/" + name + "_updated.fet";
   fet_fd_ = -1;
+  updated_fet_fp_ = NULL;
   store_params_ = new StoreParams(store_params);
   stored_num_ = 0;
+  memory_only_ = false;
 }
 
 MmapRawVector::~MmapRawVector() {
@@ -67,7 +70,14 @@ MmapRawVector::~MmapRawVector() {
   if (flush_batch_vectors_ != nullptr) {
     delete[] flush_batch_vectors_;
   }
-  if (fet_fd_ != -1) close(fet_fd_);
+  if (fet_fd_ != -1) {
+    fsync(fet_fd_);
+    close(fet_fd_);
+  }
+  if (updated_fet_fp_ != NULL) {
+    fflush(updated_fet_fp_);
+    fclose(updated_fet_fp_);
+  }
   if (store_params_) delete store_params_;
 }
 
@@ -79,6 +89,11 @@ int MmapRawVector::Init() {
     LOG(ERROR) << "open file error:" << strerror(errno);
     return -1;
   }
+  updated_fet_fp_ = fopen(updated_fet_file_path_.c_str(), "ab");
+  if (updated_fet_fp_ == NULL) {
+    LOG(ERROR) << "open update file error:" << strerror(errno);
+    return -1;
+  }
 
   int remainder = max_buffer_size_ % buffer_chunk_num_;
   if (remainder > 0) {
@@ -88,6 +103,8 @@ int MmapRawVector::Init() {
       new VectorBufferQueue(max_buffer_size_, dimension_, buffer_chunk_num_);
   vector_file_mapper_ =
       new VectorFileMapper(fet_file_path_, 0, max_vector_size_, dimension_);
+
+  if (max_buffer_size_ >= max_vector_size_) memory_only_ = true;  // memory mode
 
   int ret = vector_buffer_queue_->Init();
   if (0 != ret) {
@@ -107,7 +124,8 @@ int MmapRawVector::Init() {
 
   LOG(INFO) << "init success! vector byte size=" << vector_byte_size_
             << ", flush batch size=" << flush_batch_size_
-            << ", dimension=" << dimension_ << ", ntotal=" << ntotal_;
+            << ", memory only=" << memory_only_ << ", dimension=" << dimension_
+            << ", ntotal=" << ntotal_;
   return 0;
 }
 
@@ -119,6 +137,23 @@ int MmapRawVector::DumpVectors(int dump_vid, int n) {
               << ", nflushed=" << nflushed_;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
+  if (fflush(updated_fet_fp_)) {
+    LOG(ERROR) << "flush update file error: " << strerror(errno);
+    return -1;
+  }
+  // int vid = -1;
+  // vector<int> updated_vids;
+  // while (updated_vids_to_flush_->try_dequeue(vid)) {
+  //   updated_vids.push_back(vid);
+  //   if (updated_vids.size() >= 20000) break;
+  // }
+  // float *vec = nullptr;
+  // bool deletable = false;
+  // for (int vid : updated_vids) {
+  //   GetVector(vid, vec, deletable);
+  //   fwrite((void *)&vid, sizeof(int), 1, fp_update_);
+  //   fwrite((void *)vec, vector_byte_size_, 1, fp_update_);
+  // }
   return 0;
 }
 
@@ -197,9 +232,40 @@ int MmapRawVector::LoadVectors(int vec_num) {
   nflushed_ = disk_vector_num;
   last_nflushed_ = nflushed_;
 
+  LoadUpdatedVectors();
+
   LOG(INFO) << "load vectors success, nflushed=" << nflushed_;
 
   StartFlushingIfNeed(this);
+  return 0;
+}
+
+int MmapRawVector::LoadUpdatedVectors() {
+  if (!memory_only_) return -1;
+  FILE *fp = fopen(updated_fet_file_path_.c_str(), "rb");
+  int vid = -1;
+  float *vec = new float[dimension_];
+  // TODO: check file length
+  size_t update_num = 0;
+  while (!feof(fp)) {
+    fread((void *)&vid, sizeof(int), 1, fp);
+    fread((void *)vec, sizeof(float), dimension_, fp);
+    if (vid >= nflushed_) {
+      delete[] vec;
+      fclose(fp);
+      size_t truncate_len = update_num * (vector_byte_size_ + sizeof(int));
+      if (truncate(updated_fet_file_path_.c_str(), truncate_len)) {
+        LOG(ERROR) << "truncate update file error:" << strerror(errno)
+                   << ", truncate length=" << truncate_len;
+        return -1;
+      }
+      return 0;
+    }
+    vector_buffer_queue_->Update(vid, vec, dimension_);
+    ++update_num;
+  }
+  delete[] vec;
+  fclose(fp);
   return 0;
 }
 
@@ -207,8 +273,29 @@ int MmapRawVector::AddToStore(float *v, int len) {
   return vector_buffer_queue_->Push(v, len, -1);
 }
 
+int MmapRawVector::UpdateToStore(int vid, float *v, int len) {
+  if (memory_only_) {
+    vector_buffer_queue_->Update(vid, v, len);
+    fwrite((void *)&vid, sizeof(int), 1, updated_fet_fp_);
+    fwrite((void *)v, vector_byte_size_, 1, updated_fet_fp_);
+    return 0;
+  }
+  return -1;  // it doesn't support to update in disk mode
+}
+
 int MmapRawVector::GetVectorHeader(int start, int end, ScopeVector &vec) {
-  if (end > ntotal_) return 1;
+  if (end > ntotal_ || start > end) return 1;
+
+  // memory only mode
+  if (memory_only_) {
+    float *vec_head = nullptr;
+    if (vector_buffer_queue_->GetVectorHead(start, &vec_head, dimension_))
+      return 1;
+    vec.Set(vec_head, false);
+    return 0;
+  }
+
+  // disk mode
   Until(end);
   vec.Set(vector_file_mapper_->GetVectors() + (uint64_t)start * dimension_,
           false);

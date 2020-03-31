@@ -87,14 +87,31 @@ int RocksDBRawVector::GetVector(long vid, const float *&vec,
 }
 
 int RocksDBRawVector::AddToStore(float *v, int len) {
-  if (v == nullptr || len != dimension_) return -1;
+  return UpdateToStore(ntotal_, v, len);
+}
 
+size_t RocksDBRawVector::GetStoreMemUsage() {
+  size_t cache_mem = table_options_.block_cache->GetUsage();
+  std::string index_mem;
+  db_->GetProperty("rocksdb.estimate-table-readers-mem", &index_mem);
+  std::string memtable_mem;
+  db_->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_mem);
+  size_t pin_mem = table_options_.block_cache->GetPinnedUsage();
+  LOG(INFO) << "rocksdb mem usage: block cache=" << cache_mem
+            << ", index and filter=" << index_mem
+            << ", memtable=" << memtable_mem
+            << ", iterators pinned=" << pin_mem;
+  return 0;
+}
+
+int RocksDBRawVector::UpdateToStore(int vid, float *v, int len) {
+  if (v == nullptr || len != dimension_) return -1;
   string key;
-  ToRowKey(ntotal_, key);
+  ToRowKey(vid, key);
   Status s =
       db_->Put(WriteOptions(), Slice(key), Slice((char *)v, vector_byte_size_));
   if (!s.ok()) {
-    LOG(ERROR) << "rocksdb put error:" << s.ToString() << ", key=" << key;
+    LOG(ERROR) << "rocksdb update error:" << s.ToString() << ", key=" << key;
     return -2;
   }
   return 0;

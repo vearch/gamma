@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include "bitmap.h"
 #include "log.h"
 #include "utils.h"
 
@@ -19,19 +20,26 @@ namespace realtime {
 RTInvertBucketData::RTInvertBucketData(long **idx_array, int *retrieve_idx_pos,
                                        int *cur_bucket_keys,
                                        uint8_t **codes_array,
-                                       int *dump_latest_pos)
+                                       int *dump_latest_pos,
+                                       const char *docids_bitmap,
+                                       int *vid2docid)
     : _idx_array(idx_array),
       _retrieve_idx_pos(retrieve_idx_pos),
       _cur_bucket_keys(cur_bucket_keys),
       _codes_array(codes_array),
-      _dump_latest_pos(dump_latest_pos) {}
+      _dump_latest_pos(dump_latest_pos),
+      docids_bitmap_(docids_bitmap),
+      vid2docid_(vid2docid) {}
 
-RTInvertBucketData::RTInvertBucketData() {
+RTInvertBucketData::RTInvertBucketData(const char *docids_bitmap,
+                                       int *vid2docid) {
   _idx_array = nullptr;
   _retrieve_idx_pos = nullptr;
   _cur_bucket_keys = nullptr;
   _codes_array = nullptr;
   _dump_latest_pos = nullptr;
+  docids_bitmap_ = docids_bitmap;
+  vid2docid_ = vid2docid;
 }
 
 RTInvertBucketData::~RTInvertBucketData() {}
@@ -39,7 +47,7 @@ RTInvertBucketData::~RTInvertBucketData() {}
 bool RTInvertBucketData::Init(const size_t &buckets_num,
                               const size_t &bucket_keys,
                               const size_t &code_bytes_per_vec,
-                              long &total_mem_bytes) {
+                              std::atomic<long> &total_mem_bytes) {
   _idx_array = new (std::nothrow) long *[buckets_num];
   _codes_array = new (std::nothrow) uint8_t *[buckets_num];
   _cur_bucket_keys = new (std::nothrow) int[buckets_num];
@@ -63,15 +71,74 @@ bool RTInvertBucketData::Init(const size_t &buckets_num,
   _dump_latest_pos = new (std::nothrow) int[buckets_num];
   if (_dump_latest_pos == nullptr) return false;
   memset(_dump_latest_pos, 0, buckets_num * sizeof(int));
-
   total_mem_bytes += buckets_num * sizeof(int) * 2;
+
   LOG(INFO) << "===init total_mem_bytes is " << total_mem_bytes << "===";
   return true;
 }
 
+void RTInvertBucketData::FreeOldData(long *idx_array, uint8_t *codes_array) {
+  if (idx_array) free(idx_array);
+  if (codes_array) free(codes_array);
+}
+
+int RTInvertBucketData::CompactBucket(const size_t &bucket_no,
+                                      const size_t &code_bytes_per_vec,
+                                      std::vector<long> &vid_bucket_no_pos) {
+  long *old_idx_array = _idx_array[bucket_no];
+  uint8_t *old_codes_array = _codes_array[bucket_no];
+  int old_keys = _cur_bucket_keys[bucket_no];
+  int old_pos = _retrieve_idx_pos[bucket_no];
+
+  long *idx_array = (long *)malloc(sizeof(long) * old_keys);
+  uint8_t *codes_array = (uint8_t *)malloc(code_bytes_per_vec * old_keys);
+  int pos = 0;
+  long *idx_batch_header = nullptr;
+  uint8_t *code_batch_header = nullptr;
+  int batch_num = 0;
+  int new_pos = 0;
+  for (int i = 0; i <= old_pos; i++) {
+    if (i == old_pos || old_idx_array[i] & 0x80000000 ||
+        bitmap::test(docids_bitmap_,
+                     vid2docid_[old_idx_array[i] & 0x7fffffff])) {
+      if (batch_num > 0) {
+        memcpy((void *)(idx_array + pos), (void *)idx_batch_header,
+               sizeof(long) * batch_num);
+        memcpy((void *)(codes_array + pos * code_bytes_per_vec),
+               (void *)code_batch_header,
+               (size_t)code_bytes_per_vec * batch_num);
+        pos += batch_num;
+      }
+
+      batch_num = 0;
+      idx_batch_header = nullptr;
+      code_batch_header = nullptr;
+      continue;
+    }
+    if (!batch_num) {
+      idx_batch_header = old_idx_array + i;
+      code_batch_header = old_codes_array + i * code_bytes_per_vec;
+    }
+    vid_bucket_no_pos[old_idx_array[i]] = bucket_no << 32 | new_pos;
+    new_pos++;
+    batch_num++;
+  }
+
+  _idx_array[bucket_no] = idx_array;
+  _codes_array[bucket_no] = codes_array;
+  _retrieve_idx_pos[bucket_no] = pos;
+
+  // delay free
+  std::function<void(long *, uint8_t *)> func_free =
+      std::bind(&RTInvertBucketData::FreeOldData, this, std::placeholders::_1,
+                std::placeholders::_2);
+  utils::AsyncWait(1000, func_free, old_idx_array, old_codes_array);
+  return old_pos - pos;
+}
+
 bool RTInvertBucketData::ExtendBucketMem(const size_t &bucket_no,
                                          const size_t &code_bytes_per_vec,
-                                         long &total_mem_bytes) {
+                                         std::atomic<long> &total_mem_bytes) {
   int extend_size = _cur_bucket_keys[bucket_no] * 2;
 
   uint8_t *extend_code_bytes_array =
@@ -145,14 +212,19 @@ int RTInvertBucketData::GetCurDumpPos(const size_t &bucket_no, int max_vid,
 }
 
 RealTimeMemData::RealTimeMemData(size_t buckets_num, long max_vec_size,
+                                 const char *docids_bitmap, int *vid2docid,
                                  size_t bucket_keys, size_t code_bytes_per_vec)
     : _buckets_num(buckets_num),
       _bucket_keys(bucket_keys),
       _code_bytes_per_vec(code_bytes_per_vec),
       _max_vec_size(max_vec_size) {
-  _cur_invert_ptr = new (std::nothrow) RTInvertBucketData();
+  _cur_invert_ptr =
+      new (std::nothrow) RTInvertBucketData(docids_bitmap, vid2docid);
   _extend_invert_ptr = nullptr;
   _total_mem_bytes = 0;
+  index_num_ = 0;
+  compacted_num_ = 0;
+  deleted_num_ = 0;
 }
 
 RealTimeMemData::~RealTimeMemData() {
@@ -168,20 +240,12 @@ RealTimeMemData::~RealTimeMemData() {
     CHECK_DELETE_ARRAY(_cur_invert_ptr->_cur_bucket_keys);
     CHECK_DELETE_ARRAY(_cur_invert_ptr->_codes_array);
     CHECK_DELETE_ARRAY(_cur_invert_ptr->_dump_latest_pos);
-    delete _cur_invert_ptr;
-    _cur_invert_ptr = nullptr;
   }
-  if (_extend_invert_ptr) {
-    delete _extend_invert_ptr;
-    _extend_invert_ptr = nullptr;
-  }
+  CHECK_DELETE(_cur_invert_ptr);
+  CHECK_DELETE(_extend_invert_ptr);
 }
 
 bool RealTimeMemData::Init() {
-  // fprintf(stderr, "%u\n", _total_keys);
-  // fprintf(stderr, "%u\n", _code_bytes_per_vec);
-  // fprintf(stderr, "%u\n", _buckets_num);
-
   _vid_bucket_no_pos.resize(_max_vec_size, -1);
 
   return _cur_invert_ptr &&
@@ -217,16 +281,63 @@ bool RealTimeMemData::AddKeys(size_t list_no, size_t n, std::vector<long> &keys,
     retrive_pos++;
   }
 
+  index_num_ += keys.size();
+
   // atomic switch retriving pos of list_no
   _cur_invert_ptr->_retrieve_idx_pos[list_no] = retrive_pos;
   return true;
+}
+
+int RealTimeMemData::Update(int bucket_no, int vid,
+                            std::vector<uint8_t> &codes) {
+  if (_vid_bucket_no_pos[vid] == -1) return 0;  // do nothing
+  int old_bucket_no = _vid_bucket_no_pos[vid] >> 32;
+  int old_pos = _vid_bucket_no_pos[vid] & 0xffffffff;
+  assert(_code_bytes_per_vec == codes.size());
+  if (old_bucket_no == bucket_no) {
+    uint8_t *codes_array = _cur_invert_ptr->_codes_array[old_bucket_no];
+    memcpy(codes_array + old_pos * _code_bytes_per_vec, codes.data(),
+           codes.size() * sizeof(uint8_t));
+    return 0;
+  }
+  _cur_invert_ptr->_idx_array[old_bucket_no][old_pos] = vid | 0x80000000;
+  ++deleted_num_;
+  std::vector<long> keys;
+  keys.push_back(vid);
+
+  return AddKeys(bucket_no, 1, keys, codes);
+}
+
+void RealTimeMemData::FreeOldData(long *idx, uint8_t *codes,
+                                  RTInvertBucketData *invert, long size) {
+  if (idx) {
+    delete idx;
+    idx = nullptr;
+  }
+  if (codes) {
+    delete codes;
+    codes = nullptr;
+  }
+  if (invert) {
+    delete invert;
+    invert = nullptr;
+  }
+  _total_mem_bytes -= size;
+}
+
+int RealTimeMemData::CompactBucket(int bucket_no) {
+  int num = _cur_invert_ptr->CompactBucket(bucket_no, _code_bytes_per_vec,
+                                           _vid_bucket_no_pos);
+  compacted_num_ += num;
+  return num;
 }
 
 bool RealTimeMemData::ExtendBucketMem(const size_t &bucket_no) {
   _extend_invert_ptr = new (std::nothrow) RTInvertBucketData(
       _cur_invert_ptr->_idx_array, _cur_invert_ptr->_retrieve_idx_pos,
       _cur_invert_ptr->_cur_bucket_keys, _cur_invert_ptr->_codes_array,
-      _cur_invert_ptr->_dump_latest_pos);
+      _cur_invert_ptr->_dump_latest_pos, _cur_invert_ptr->docids_bitmap_,
+      _cur_invert_ptr->vid2docid_);
   if (!_extend_invert_ptr) {
     LOG(ERROR) << "memory _extend_invert_ptr alloc error!";
     return false;
@@ -248,21 +359,18 @@ bool RealTimeMemData::ExtendBucketMem(const size_t &bucket_no) {
   RTInvertBucketData *old_invert_ptr = _cur_invert_ptr;
   _cur_invert_ptr = _extend_invert_ptr;
 
-  sleep(1);
+  std::function<void(long *, uint8_t *, RTInvertBucketData *, long)> func_free =
+      std::bind(&RealTimeMemData::FreeOldData, this, std::placeholders::_1,
+                std::placeholders::_2, std::placeholders::_3,
+                std::placeholders::_4);
 
-  if (old_idx_array) {
-    delete old_idx_array;
-    old_idx_array = nullptr;
-    _total_mem_bytes -= old_keys * sizeof(long);
-  }
+  long free_size = old_keys * sizeof(long) +
+                   old_keys * _code_bytes_per_vec * sizeof(uint8_t);
+  utils::AsyncWait(1000, func_free, old_idx_array, old_codes_array,
+                   old_invert_ptr, free_size);
 
-  if (old_codes_array) {
-    delete old_codes_array;
-    old_codes_array = nullptr;
-    _total_mem_bytes -= old_keys * _code_bytes_per_vec * sizeof(uint8_t);
-  }
-
-  delete old_invert_ptr;
+  old_idx_array = nullptr;
+  old_codes_array = nullptr;
   old_invert_ptr = nullptr;
   _extend_invert_ptr = nullptr;
 
@@ -419,9 +527,10 @@ int RealTimeMemData::Load(const std::vector<std::string> &index_dirs,
                 << " of real time index dumped";
       continue;
     }
-    if (i > 0 && max_vids[i - 1] != -1 &&
+    if (i > 0 && max_vids[i - 1] != -1 && min_vids[i] != 0 &&
         (min_vids[i] != (max_vids[i - 1] + 1))) {
-      std::string last_index_file = index_dirs[i - 1] + "/vector.idx";
+      std::string last_index_file =
+          index_dirs[i - 1] + "/" + vec_name + ".index";
       LOG(ERROR) << "the file " << index_file
                  << " missing some vectors after the file " << last_index_file;
     }
@@ -505,6 +614,47 @@ int RealTimeMemData::Load(const std::vector<std::string> &index_dirs,
     }
   }
   return total_ids;
+}
+
+void RealTimeMemData::PrintBucketSize() {
+  std::vector<std::pair<size_t, int>> buckets;
+
+  for (size_t bucket_id = 0; bucket_id < _buckets_num; ++bucket_id) {
+    int bucket_size = _cur_invert_ptr->_retrieve_idx_pos[bucket_id];
+    buckets.push_back(std::make_pair(bucket_id, bucket_size));
+  }
+
+  std::sort(
+      buckets.begin(), buckets.end(),
+      [](const std::pair<size_t, int> &a, const std::pair<size_t, int> &b) {
+        return (a.second > b.second);
+      });
+
+  std::stringstream ss;
+  ss << "Bucket (id, size): ";
+  for (const auto &bucket : buckets) {
+    ss << "(" << bucket.first << ", " << bucket.second << ") ";
+  }
+  LOG(INFO) << ss.str();
+}
+
+int RealTimeMemData::RetrieveBucketId(int vid) {
+  if (_vid_bucket_no_pos[vid] == -1) return -1;
+  return _vid_bucket_no_pos[vid] >> 32;
+}
+
+bool RealTimeMemData::Compactable(int deleted_doc_num) {
+  float factor = (float)(deleted_num_ + deleted_doc_num - compacted_num_) /
+                 (index_num_ - compacted_num_);
+  bool ret = factor >= 0.3f;
+  if (ret) {
+    LOG(INFO) << "ivf index should be compacted, factor=" << factor
+              << ", deleted num=" << deleted_num_
+              << ", deleted_doc_num=" << deleted_doc_num
+              << ", compacted_num=" << compacted_num_
+              << ", index_num=" << index_num_;
+  }
+  return ret;
 }
 
 }  // namespace realtime

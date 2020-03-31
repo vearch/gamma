@@ -24,13 +24,14 @@ class VectorManager {
  public:
   VectorManager(const RetrievalModel &model,
                 const VectorStorageType &store_type, const char *docids_bitmap,
-                int max_doc_size, const std::string &root_path);
+                int max_doc_size, const std::string &root_path, GammaCounters *counters);
   ~VectorManager();
 
   int CreateVectorTable(VectorInfo **vectors_info, int vectors_num,
                         IVFPQParameters *ivfpq_param);
 
   int AddToStore(int docid, std::vector<Field *> &fields);
+  int Update(int docid, std::vector<Field *> &fields);
 
   int Indexing();
 
@@ -68,6 +69,12 @@ class VectorManager {
     return it->second;
   }
 
+  void VectorNames(std::vector<std::string> &names) {
+    for (const auto &it : vector_indexes_) {
+      names.push_back(it.first);
+    }
+  }
+
  private:
   void Close();  // release all resource
 
@@ -79,6 +86,7 @@ class VectorManager {
   bool table_created_;
   IVFPQParameters *ivfpq_param_;
   std::string root_path_;
+  GammaCounters *gamma_counters_;
 
   std::map<std::string, RawVector *> raw_vectors_;
   std::map<std::string, GammaIndex *> vector_indexes_;

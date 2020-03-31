@@ -29,6 +29,9 @@ class RocksDBRawVector : public RawVector {
   int Init() override;
   int AddToStore(float *v, int len) override;
   int GetVectorHeader(int start, int end, ScopeVector &vec) override;
+  int UpdateToStore(int vid, float *v, int len);
+
+  size_t GetStoreMemUsage();
 
  protected:
   int GetVector(long vid, const float *&vec, bool &deletable) const override;

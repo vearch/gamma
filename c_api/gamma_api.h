@@ -621,6 +621,9 @@ typedef struct Request {
   int multi_vector_rank;  // whether it needs ranking after merging the
                           // searching result of multi-vectors. default 0, has
                           // not rank; 1, has rank
+  BOOL parallel_based_on_query;  // TRUE: parallelize over queries
+                                 // FALSE: parallelize over inverted lists
+  BOOL l2_sqrt;
 } Request;
 
 /** make a Request
@@ -638,6 +641,9 @@ typedef struct Request {
  * @param direct_search_type  1 : direct search; 0 : normal search
  * @param online_log_level    DEBUG, INFO, WARN, ERROR
  * @param has_rank            default 0, has not rank; 1, has rank
+ * @param multi_vector_rank
+ * @param parallel_based_on_query
+ * @param l2_sqrt             default FALSE, don't do sqrt; TRUE, do sqrt
  * @return  a request pointer
  */
 Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
@@ -646,7 +652,8 @@ Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
                      TermFilter **term_filters, int term_filters_num,
                      int req_num, int direct_search_type,
                      ByteArray *online_log_level, int has_rank,
-                     int multi_vector_rank);
+                     int multi_vector_rank, BOOL parallel_based_on_query,
+                     BOOL l2_sqrt);
 
 /** destroy Request
  *
@@ -686,6 +693,14 @@ typedef struct Response {
  * @return response, need to call @DestroyResponse to destroy
  */
 Response *Search(void *engine, Request *request);
+
+/** query vectors to index with serialized result
+ *
+ * @param engine    search engine pointer
+ * @param request   search request pointer
+ * @return response, need to call @DestroyByteArray to destroy
+ */
+ByteArray *SearchV2(void *engine, Request *request);
 
 /** delete docs from table by query
  *

@@ -6,15 +6,15 @@
  */
 
 #include "vector_buffer_queue.h"
-#include "log.h"
-#include "thread_util.h"
-#include "utils.h"
-#include <cassert>
-#include <iostream>
-#include <stdexcept>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <cassert>
+#include <iostream>
+#include <stdexcept>
+#include "log.h"
+#include "thread_util.h"
+#include "utils.h"
 
 using namespace std;
 
@@ -58,7 +58,7 @@ int VectorBufferQueue::Init() {
   chunk_size_ = max_vector_size_ / chunk_num_;
 
   vector_byte_size_ = sizeof(float) * dimension_;
-  buffer_ = (float *)calloc(max_vector_size_, vector_byte_size_);
+  buffer_ = (float *)malloc((size_t)max_vector_size_ * vector_byte_size_);
   if (buffer_ == NULL) {
     cerr << "malloc buffer failed" << endl;
     return 2;
@@ -81,11 +81,10 @@ int VectorBufferQueue::Init() {
   return 0;
 }
 int VectorBufferQueue::Push(const float *v, int dim, int timeout) {
-  if (v == NULL || dim != dimension_)
-    return 1;
+  if (v == NULL || dim != dimension_) return 1;
 
   if (!WaitFor(timeout, 1, 1)) {
-    return 3; // timeout
+    return 3;  // timeout
   }
   int chunk_id = push_index_ / chunk_size_ % chunk_num_;
   WriteThreadLock write_lock(shared_mutexes_[chunk_id]);
@@ -97,11 +96,10 @@ int VectorBufferQueue::Push(const float *v, int dim, int timeout) {
 }
 
 int VectorBufferQueue::Push(const float *v, int dim, int num, int timeout) {
-  if (v == NULL || dim != dimension_ || num <= 0)
-    return 1;
+  if (v == NULL || dim != dimension_ || num <= 0) return 1;
 
   if (!WaitFor(timeout, 1, num)) {
-    return 3; // timeout
+    return 3;  // timeout
   }
 
   do {
@@ -121,11 +119,10 @@ int VectorBufferQueue::Push(const float *v, int dim, int num, int timeout) {
 }
 
 int VectorBufferQueue::Pop(float *v, int dim, int timeout) {
-  if (v == nullptr || dim != dimension_)
-    return 1;
+  if (v == nullptr || dim != dimension_) return 1;
 
   if (!WaitFor(timeout, 2, 1)) {
-    return 3; // timeout
+    return 3;  // timeout
   }
 
   uint64_t offset = pop_index_ % max_vector_size_ * dimension_;
@@ -138,7 +135,7 @@ int VectorBufferQueue::Pop(float *v, int dim, int num, int timeout) {
     return 1;
 
   if (!WaitFor(timeout, 2, num)) {
-    return 3; // timeout
+    return 3;  // timeout
   }
   int offset = pop_index_ % max_vector_size_;
   // the remain vectors in last chunk are less than num
@@ -157,8 +154,7 @@ int VectorBufferQueue::Pop(float *v, int dim, int num, int timeout) {
 }
 
 int VectorBufferQueue::GetVector(int id, float *v, int dim) {
-  if (v == nullptr || dim != dimension_)
-    return 1;
+  if (v == nullptr || dim != dimension_) return 1;
   int id_in_queue = id;
   int chunk_id = id_in_queue / chunk_size_ % chunk_num_;
   ReadThreadLock read_lock(shared_mutexes_[chunk_id]);
@@ -169,6 +165,21 @@ int VectorBufferQueue::GetVector(int id, float *v, int dim) {
   }
   long offset = (long)id_in_queue % max_vector_size_ * dimension_;
   memcpy((void *)v, (void *)(buffer_ + offset), vector_byte_size_);
+  return 0;
+}
+
+int VectorBufferQueue::GetVectorHead(int id, float **vec_head, int dim) {
+  if (vec_head == nullptr || dim != dimension_ || (uint64_t)id >= push_index_)
+    return 1;
+  *vec_head = buffer_ + (long)id % max_vector_size_ * dimension_;
+  return 0;
+}
+
+int VectorBufferQueue::Update(int id, float *v, int dim) {
+  if (v == nullptr || dim != dimension_ || (uint64_t)id >= push_index_)
+    return 1;
+  float *dst_vec = buffer_ + (long)id % max_vector_size_ * dimension_;
+  memcpy((void *)dst_vec, (void *)v, vector_byte_size_);
   return 0;
 }
 
@@ -183,19 +194,18 @@ bool VectorBufferQueue::WaitFor(int timeout, int type, int num) {
   while (timeout == -1 || cost < timeout) {
     bool status = false;
     switch (type) {
-    case 1: // if it can add num vector
-      status =
-          max_vector_size_ - (push_index_ - pop_index_) >= (std::uint64_t)num;
-      break;
-    case 2: // if it can poll num vector
-      status = push_index_ - pop_index_ >= (std::uint64_t)num;
-      break;
-    default:
-      throw std::invalid_argument("invalid type=" + std::to_string(type));
+      case 1:  // if it can add num vector
+        status =
+            max_vector_size_ - (push_index_ - pop_index_) >= (std::uint64_t)num;
+        break;
+      case 2:  // if it can poll num vector
+        status = push_index_ - pop_index_ >= (std::uint64_t)num;
+        break;
+      default:
+        throw std::invalid_argument("invalid type=" + std::to_string(type));
     }
-    if (status)
-      return true;
-    usleep(100000); // wait 100ms
+    if (status) return true;
+    usleep(100000);  // wait 100ms
     cost += 100;
   }
   return false;
