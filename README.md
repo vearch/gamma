@@ -1,5 +1,5 @@
 # Gamma 
-Gamma is the core vector search engine of VectorBase. It is a high-performance, concurrent vector search engine, and supports real time indexing vectors and scalars without lock. Differently from general vector search engine, Gamma can store and index a document which contains scalars and vectors, and provides the ablity of quickly indexing and filtering by numeric scalar fields. The work of design and implementation of real time indexing has been publish in [our Middleware paper](https://arxiv.org/abs/1908.07389).
+Gamma is the core vector search engine of Vearch. It is a high-performance, concurrent vector search engine, and supports real time indexing vectors and scalars without lock. Differently from general vector search engine, Gamma can store and index a document which contains scalars and vectors, and provides the ablity of quickly indexing and filtering by numeric scalar fields. The work of design and implementation of real time indexing has been publish in [our Middleware paper](https://arxiv.org/abs/1908.07389).
 As for the part of similarity search of vectors in Gamma, it is mainly implemented based on faiss which is an open source library developed by Facebook AI Research. Besides faiss, it can easily support other approximate nearest neighbor search(ANN) algorithms or libraries. 
 
 ## Requirements 
