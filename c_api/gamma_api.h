@@ -652,8 +652,7 @@ Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
                      TermFilter **term_filters, int term_filters_num,
                      int req_num, int direct_search_type,
                      ByteArray *online_log_level, int has_rank,
-                     int multi_vector_rank, BOOL parallel_based_on_query,
-                     BOOL l2_sqrt);
+                     int multi_vector_rank, BOOL parallel_based_on_query);
 
 /** destroy Request
  *
