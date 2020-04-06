@@ -536,10 +536,6 @@ int Profile::GetFieldString(int docid, int field_id, char **value) const {
   memcpy(&len, mem_ + offset + sizeof(size_t), sizeof(unsigned short));
   offset += sizeof(unsigned short);
   *value = str_mem_ + str_offset;
-  if (docid == 0)
-    LOG(INFO) << "docid=" << docid << ", field_id=" << field_id
-              << ", str_offset=" << str_offset << ", len=" << len
-              << ", value=" << string(str_mem_ + str_offset, len);
   return len;
 }
 
