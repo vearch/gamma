@@ -304,6 +304,13 @@ int RealTimeMemData::Update(int bucket_no, int vid,
   ++deleted_num_;
   std::vector<long> keys;
   keys.push_back(vid);
+  if (_cur_invert_ptr->_retrieve_idx_pos[bucket_no] + 1 >
+      _cur_invert_ptr->_cur_bucket_keys[bucket_no]) {
+    if (!ExtendBucketMem(bucket_no)) {
+      LOG(ERROR) << "extend bucket error";
+      return -2;
+    }
+  }
 
   return AddKeys(bucket_no, 1, keys, codes);
 }

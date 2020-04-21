@@ -266,8 +266,19 @@ int GammaIVFPQIndex::AddUpdatedVecToIndex() {
   if (vids.size() == 0) return 0;
   ScopeVectors scope_vecs(vids.size());
   raw_vec_->Gets(vids.size(), vids.data(), scope_vecs);
+  int raw_d = raw_vec_->GetDimension();
   for (size_t i = 0; i < vids.size(); i++) {
-    const float *vec = scope_vecs.Get(i);
+    const float *vec = nullptr;
+    ScopeVector del;
+    if (d_ > raw_d) {
+      float *extend_vec = new float[d_];
+      ConvertVectorDim(1, raw_d, d_, scope_vecs.Get(i), extend_vec);
+      vec = (const float *)extend_vec;
+      del.Set(extend_vec);
+    } else {
+      vec = scope_vecs.Get(i);
+    }
+
     idx_t idx = -1;
     quantizer->assign(1, vec, &idx);
 
