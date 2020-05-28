@@ -404,14 +404,14 @@ class GammaPerfTest {
                        conf_->dimension, StringToByteArray(conf_->model_id),
                        StringToByteArray(conf_->retrieval_type),
                        StringToByteArray(conf_->store_type),
-                       StringToByteArray(conf_->store_param));
+                       StringToByteArray(conf_->store_param), FALSE);
     SetVectorInfo(vectors_info, 0, vector_info);
 
-    IVFPQParameters *kIVFPQParam = MakeIVFPQParameters(
-        InnerProduct, conf_->nprobe, conf_->ncentroids, conf_->nsubvector, 8);
-
+    string param;
+    ByteArray *retrieve_param = MakeByteArray(param.c_str(), param.size());
+    
     Table *table = MakeTable(table_name, field_infos, conf_->fields_vec.size(),
-                             vectors_info, 1, kIVFPQParam);
+                             vectors_info, 1, retrieve_param);
     enum ResponseCode ret = ::CreateTable(engine_, table);
     DestroyTable(table);
     return ret;

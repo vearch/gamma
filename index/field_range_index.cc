@@ -630,7 +630,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
     return Search(lower, result);
   }
 
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double start = utils::getmillisecs();
 #endif
 #ifdef __APPLE__
@@ -698,7 +698,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
 #endif
   bt_close(bt);
 
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double search_bt = utils::getmillisecs();
 #endif
   if (max_doc - min_doc + 1 <= 0) {
@@ -707,7 +707,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
 
   result->SetRange(min_aligned, max_aligned);
   result->Resize();
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double end_resize = utils::getmillisecs();
 #endif
 
@@ -757,7 +757,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
 
   result->SetDocNum(total);
 
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double end = utils::getmillisecs();
   LOG(INFO) << "bt cost [" << search_bt - start << "], resize cost ["
             << end_resize - search_bt << "], assemble result ["
@@ -770,7 +770,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   std::vector<string> items = utils::split(tags, kDelim_);
   Node *nodes[items.size()];
   int op_len = sizeof(BM_OPERATE_TYPE) * 8;
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double begin = utils::getmillisecs();
 #endif
 
@@ -801,7 +801,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
     }
     nodes[i] = p_node;
   }
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double fend = utils::getmillisecs();
 #endif
 
@@ -821,7 +821,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   result->SetRange(min_doc, max_doc);
   result->Resize();
   char *&bitmap = result->Ref();
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double mbegin = utils::getmillisecs();
 #endif
   for (size_t i = 0; i < items.size(); i++) {
@@ -849,7 +849,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   }
   result->SetDocNum(total);
 
-#ifdef PERFORMANCE_TESTING
+#ifdef DEBUG
   double mend = utils::getmillisecs();
   LOG(INFO) << "total cost=" << mend - begin << ", find cost=" << fend - begin
             << ", merge cost=" << mend - mbegin << ", total num=" << total;
@@ -1077,7 +1077,6 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
   }
 
   int fsize = filters.size();
-  vector<RangeQueryResult *> results(fsize);
 
   if (1 == fsize) {
     auto &filter = filters[0];
@@ -1092,9 +1091,8 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
     return retval;
   }
 
-  for (int i = 0; i < fsize; ++i) {
-    results[i] = new RangeQueryResult;
-  }
+  RangeQueryResult *results = new RangeQueryResult[fsize];
+  utils::ScopeDeleter<RangeQueryResult> del(results);
 
   int valuable_result = -1;
   // record the shortest docid list
@@ -1109,7 +1107,7 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
     }
 
     int retval = index->Search(filter.lower_value, filter.upper_value,
-                               results[valuable_result + 1]);
+                               &(results[valuable_result + 1]));
     if (retval < 0) {
       ;
     } else if (retval == 0) {
@@ -1129,36 +1127,38 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
   }
 
   RangeQueryResult *tmp = new RangeQueryResult;
-  int count = Intersect(results.data(), valuable_result, shortest_idx, tmp);
+  int count = Intersect(results, valuable_result, shortest_idx, tmp);
   if (count > 0) {
     out->Add(tmp);
+  } else {
+    delete tmp;
   }
 
   return count;
 }
 
-int MultiFieldsRangeIndex::Intersect(RangeQueryResult **results, int j,
+int MultiFieldsRangeIndex::Intersect(RangeQueryResult *results, int j,
                                      int shortest_idx, RangeQueryResult *out) {
   assert(results != nullptr && j >= 0);
 
   // I want to build a smaller bitmap ...
-  int min_doc = results[0]->MinAligned();
-  int max_doc = results[0]->MaxAligned();
+  int min_doc = results[0].MinAligned();
+  int max_doc = results[0].MaxAligned();
 
-  int total = results[0]->Size();
+  int total = results[0].Size();
 
-  // results[0]->Output();
+  // results[0].Output();
 
   for (int i = 1; i <= j; i++) {
-    RangeQueryResult *r = results[i];
+    RangeQueryResult &r = results[i];
 
     // the maximum of the minimum(s)
-    if (r->MinAligned() > min_doc) {
-      min_doc = r->MinAligned();
+    if (r.MinAligned() > min_doc) {
+      min_doc = r.MinAligned();
     }
     // the minimum of the maximum(s)
-    if (r->MaxAligned() < max_doc) {
-      max_doc = r->MaxAligned();
+    if (r.MaxAligned() < max_doc) {
+      max_doc = r.MaxAligned();
     }
   }
 
@@ -1178,7 +1178,7 @@ int MultiFieldsRangeIndex::Intersect(RangeQueryResult **results, int j,
 
   // calculate the intersection with the shortest doc chain.
   {
-    char *data = results[shortest_idx]->Ref();
+    char *data = results[shortest_idx].Ref();
 
     BM_OPERATE_TYPE *op_data_ori = (BM_OPERATE_TYPE *)data;
     for (int j = 0; j < (max_doc - min_doc + 1) / op_len; ++j) {
@@ -1190,10 +1190,10 @@ int MultiFieldsRangeIndex::Intersect(RangeQueryResult **results, int j,
     if (i == shortest_idx) {
       continue;
     }
-    char *data = results[i]->Ref();
+    char *data = results[i].Ref();
     BM_OPERATE_TYPE *op_data_ori = (BM_OPERATE_TYPE *)data;
-    int min = results[i]->MinAligned();
-    int max = results[i]->MaxAligned();
+    int min = results[i].MinAligned();
+    int max = results[i].MaxAligned();
 
     if (min < min_doc) {
       int offset = (min_doc - min) / op_len;

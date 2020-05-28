@@ -308,6 +308,13 @@ int JsonParser::Parse(const char *str) {
   return 0;
 }
 
+int JsonParser::GetInt(const std::string &name, int &value) {
+  cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
+  if (jvalue == nullptr || !cJSON_IsNumber(jvalue)) return -1;
+  value = jvalue->valueint;
+  return 0;
+}
+
 int JsonParser::GetDouble(const std::string &name, double &value) {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr || !cJSON_IsNumber(jvalue)) return -1;

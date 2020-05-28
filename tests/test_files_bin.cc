@@ -34,23 +34,22 @@ struct Options {
     print_doc = true;
     search_thread_num = 1;
     max_doc_size = 10000 * 200;
-    add_doc_num = 10000 * 100;
+    add_doc_num = 10000 * 10;
     search_num = 10000 * 1;
-    fields_vec = {"_id", "img", "field1", "field2", "field3"};
+    fields_vec = {"_id", "key", "field1", "field2", "field3"};
     fields_type = {LONG, STRING, STRING, INT, INT};
     vector_name = "abc";
     path = "files";
     log_dir = "log";
     model_id = "model";
-    retrieval_type = "IVFPQ";
-    store_type = "RocksDB";
+    retrieval_type = "BINARYIVF";
+    store_type = "Mmap";
     profiles.resize(max_doc_size * fields_vec.size());
     engine = nullptr;
   }
 
   int nprobe;
   size_t doc_id;
-  size_t doc_id2;
   size_t d;
   size_t max_doc_size;
   size_t add_doc_num;
@@ -68,7 +67,7 @@ struct Options {
   string store_type;
 
   std::vector<string> profiles;
-  float *feature;
+  uint8_t *feature;
 
   string profile_file;
   string feature_file;
@@ -89,7 +88,7 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
       ByteArray *value;
 
       string &data =
-          opt.profiles[(uint64_t)opt.doc_id2 * opt.fields_vec.size() + j];
+          opt.profiles[(uint64_t)opt.doc_id * opt.fields_vec.size() + j];
       if (opt.fields_type[j] == INT) {
         value = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
         value->value = static_cast<char *>(malloc(sizeof(int)));
@@ -100,7 +99,7 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
         value = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
         value->value = static_cast<char *>(malloc(sizeof(long)));
         value->len = sizeof(long);
-        long v = opt.doc_id;
+        long v = atol(data.c_str());
         memcpy(value->value, &v, value->len);
       } else {
         value = StringToByteArray(data + "\001all");
@@ -112,7 +111,7 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
     }
 
     ByteArray *value =
-        FloatToByteArray(opt.feature + (uint64_t)opt.doc_id * opt.d, opt.d);
+        Uint8ToByteArray(opt.feature + (uint64_t)opt.doc_id * opt.d / 8, opt.d / 8);
     ByteArray *name = StringToByteArray(opt.vector_name);
     ByteArray *source = StringToByteArray(url);
     Field *field = MakeField(name, value, source, VECTOR);
@@ -122,10 +121,7 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
     AddOrUpdateDoc(engine, doc);
     DestroyDoc(doc);
     ++opt.doc_id;
-    ++opt.doc_id2;
-    if (interval > 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(interval));
   }
   return 0;
 }
@@ -140,7 +136,7 @@ int SearchThread(void *engine, size_t num) {
     double start = utils::getmillisecs();
     VectorQuery **vector_querys = MakeVectorQuerys(1);
     ByteArray *value =
-        FloatToByteArray(opt.feature + (uint64_t)idx * opt.d, opt.d * req_num);
+        Uint8ToByteArray(opt.feature + (uint64_t)idx * opt.d / 8, opt.d * req_num / 8);
     VectorQuery *vector_query = MakeVectorQuery(
         StringToByteArray(opt.vector_name), value, 0, 10000, 0.1, 0);
     SetVectorQuery(vector_querys, 0, vector_query);
@@ -198,25 +194,25 @@ int SearchThread(void *engine, size_t num) {
                             FALSE, 0, FALSE, FALSE, 20, FALSE);
     }
 
-    // {
-    //   ByteArray *response = SearchV2(engine, request);
-    //   flatbuffers::FlatBufferBuilder builder_out;
-    //   builder_out.PushBytes((const uint8_t *)response->value, response->len);
-    //   auto res = gamma_api::GetResponse(builder_out.GetCurrentBufferPointer());
+    {
+      // ByteArray *response = SearchV2(engine, request);
+      // flatbuffers::FlatBufferBuilder builder_out;
+      // builder_out.PushBytes((const uint8_t *)response->value, response->len);
+      // auto res = gamma_api::GetResponse(builder_out.GetCurrentBufferPointer());
 
-    //   for (size_t i = 0; i < res->results()->Length(); ++i) {
-    //     auto result = res->results()->Get(i);
-    //     int total = result->total();
-    //     std::string msg = result->msg()->str();
-    //     auto result_items = result->result_items();
-    //     for (int j = 0; j < result_items->Length(); ++j) {
-    //       auto result_item = result_items->Get(j);
-    //       // double score = result_item->score();
-    //       // std::string name = result_item->name()->Get(0)->str();
-    //     }
-    //   }
-    //   DestroyByteArray(response);
-    // }
+      // for (int i = 0; i < res->results()->Length(); ++i) {
+      //   auto result = res->results()->Get(i);
+      //   int total = result->total();
+      //   std::string msg = result->msg()->str();
+      //   auto result_items = result->result_items();
+      //   for (int j = 0; j < result_items->Length(); ++j) {
+      //     auto result_item = result_items->Get(j);
+      //     double score = result_item->score();
+      //     std::string name = result_item->name()->Get(0)->str();
+      //   }
+      // }
+      // DestroyByteArray(response);
+    }
     Response *response = Search(engine, request);
 
     if (opt.print_doc) {
@@ -334,7 +330,7 @@ void UpdateThread(void *engine) {
   }
 
   ByteArray *value =
-      FloatToByteArray(opt.feature + (uint64_t)doc_id * opt.d, opt.d);
+      Uint8ToByteArray(opt.feature + (uint64_t)doc_id * opt.d / 8, opt.d / 8);
   ByteArray *name = StringToByteArray(opt.vector_name);
   ByteArray *source = StringToByteArray(string("abc"));
   Field *field = MakeField(name, value, source, VECTOR);
@@ -346,14 +342,20 @@ void UpdateThread(void *engine) {
 }
 
 int Init() {
+  srand(35);
+  opt.feature = new uint8_t[opt.add_doc_num * (opt.d / 8)];
+  std::vector<uint8_t> database(opt.add_doc_num * (opt.d / 8));
+  for (size_t i = 0; i < opt.add_doc_num * (opt.d / 8); i++) {
+    opt.feature[i] = rand() % 0x100;
+  }
 #ifdef PERFORMANCE_TESTING
-  int fd = open(opt.feature_file.c_str(), O_RDONLY, 0);
-  size_t mmap_size = opt.add_doc_num * sizeof(float) * opt.d;
-  opt.feature =
-      static_cast<float *>(mmap(NULL, mmap_size, PROT_READ, MAP_SHARED, fd, 0));
-  close(fd);
+  // int fd = open(opt.feature_file.c_str(), O_RDONLY, 0);
+  // size_t mmap_size = opt.add_doc_num * sizeof(uint8_t) * opt.d;
+  // opt.feature =
+  //     static_cast<uint8_t *>(mmap(NULL, mmap_size, PROT_READ, MAP_SHARED, fd, 0));
+  // close(fd);
 #else
-  opt.feature = fvecs_read(opt.feature_file.c_str(), &opt.d, &opt.add_doc_num);
+  // opt.feature = fvecs_read(opt.feature_file.c_str(), &opt.d, &opt.add_doc_num);
 #endif
 
   std::cout << "n [" << opt.add_doc_num << "]" << std::endl;
@@ -400,7 +402,8 @@ int CreateTable() {
   SetVectorInfo(vectors_info, 0, vector_info);
 
   Table *table = MakeTable(table_name, field_infos, opt.fields_vec.size(),
-                           vectors_info, 1, StringToByteArray(opt.retrieval_type),
+                           vectors_info, 1,
+                           StringToByteArray(opt.retrieval_type),
                            kIVFPQParam);
   enum ResponseCode ret = CreateTable(opt.engine, table);
   DestroyTable(table);
@@ -435,7 +438,8 @@ int Add() {
 }
 
 int BuildEngineIndex() {
-  BuildIndex(opt.engine);
+  std::thread t(BuildIndex, opt.engine);
+  t.detach();
 
   while (GetIndexStatus(opt.engine) != INDEXED) {
     std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -448,10 +452,8 @@ int BuildEngineIndex() {
   // doc = GetDocByID(opt.engine, value);
 
   LOG(INFO) << "Indexed!";
-  // UpdateThread(opt.engine);
+  UpdateThread(opt.engine);
   GetVector(opt.engine);
-  // opt.doc_id = 0;
-  opt.doc_id2 = 1;
   return 0;
 }
 
@@ -532,7 +534,7 @@ int CloseEngine() {
   opt.engine = nullptr;
   delete opt.docids_bitmap_;
 #ifdef PERFORMANCE_TESTING
-  munmap(opt.feature, opt.add_doc_num * sizeof(float) * opt.d);
+  // munmap(opt.feature, opt.add_doc_num * sizeof(uint8_t) * opt.d);
 #else
   delete opt.feature;
 #endif
@@ -555,7 +557,6 @@ int main(int argc, char **argv) {
   test::CreateTable();
   test::Add();
   test::BuildEngineIndex();
-  test::Add();
   test::Search();
   // test::DumpEngine();
   // test::LoadEngine();

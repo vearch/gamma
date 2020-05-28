@@ -108,7 +108,9 @@ struct TableIO {
     }
     WriteFieldInfos(table);
     WriteVectorInfos(table);
-    WriteIVFPQParam(table);
+    WriteRetrievalType(table);
+    WriteRetrievalParam(table);
+    WriteIdType(table);
     return 0;
   }
 
@@ -131,7 +133,6 @@ struct TableIO {
       fio->Write((void *)&vi->is_index, sizeof(vi->is_index), 1);
       fio->Write((void *)&vi->dimension, sizeof(vi->dimension), 1);
       FWriteByteArray(fio, vi->model_id);
-      FWriteByteArray(fio, vi->retrieval_type);
       FWriteByteArray(fio, vi->store_type);
       if (vi->store_param && vi->store_param->len > 0) {
         FWriteByteArray(fio, vi->store_param);
@@ -140,11 +141,20 @@ struct TableIO {
         FWriteByteArray(fio, ba);
         DestroyByteArray(ba);
       }
+      fio->Write((void *)&vi->has_source, sizeof(vi->has_source), 1);
     }
   }
 
-  void WriteIVFPQParam(const Table *table) {
-    fio->Write((void *)table->ivfpq_param, sizeof(*table->ivfpq_param), 1);
+  void WriteRetrievalType(const Table *table) {
+    FWriteByteArray(fio, table->retrieval_type);
+  }
+
+  void WriteRetrievalParam(const Table *table) {
+    FWriteByteArray(fio, table->retrieval_param);
+  }
+
+  void WriteIdType(const Table *table) {
+    fio->Write((void *)&table->id_type, sizeof(table->id_type), 1);
   }
 
   int Read(std::string &name, Table *&table) {
@@ -157,7 +167,9 @@ struct TableIO {
     table->name = MakeByteArray(name.c_str(), name.size());
     ReadFieldInfos(table);
     ReadVectorInfos(table);
-    ReadIVFPQParam(table);
+    ReadRetrievalType(table);
+    ReadRetrievalParam(table);
+    ReadIdType(table);
     return 0;
   }
 
@@ -183,7 +195,6 @@ struct TableIO {
       fio->Read((void *)&vi->is_index, sizeof(vi->is_index), 1);
       fio->Read((void *)&vi->dimension, sizeof(vi->dimension), 1);
       FReadByteArray(fio, vi->model_id);
-      FReadByteArray(fio, vi->retrieval_type);
       FReadByteArray(fio, vi->store_type);
       FReadByteArray(fio, vi->store_param);
       int plen = strlen(kPlaceHolder);
@@ -192,15 +203,25 @@ struct TableIO {
         DestroyByteArray(vi->store_param);
         vi->store_param = nullptr;
       }
+      fio->Read((void *)&vi->has_source, sizeof(vi->has_source), 1);
       table->vectors_info[i] = vi;
     }
   }
 
-  void ReadIVFPQParam(Table *&table) {
-    table->ivfpq_param =
-        static_cast<IVFPQParameters *>(malloc(sizeof(IVFPQParameters)));
-    memset(table->ivfpq_param, 0, sizeof(IVFPQParameters));
-    fio->Read((void *)table->ivfpq_param, sizeof(*table->ivfpq_param), 1);
+  void ReadRetrievalType(Table *&table) {
+    FReadByteArray(fio, table->retrieval_type);
+  }
+
+  void ReadRetrievalParam(Table *&table) {
+    FReadByteArray(fio, table->retrieval_param);
+  }
+
+  void ReadIdType(Table *&table) {
+    size_t ret = fio->Read((void *)&table->id_type, sizeof(table->id_type), 1);
+    if (ret != table->id_type) {
+      LOG(WARNING) << "Read id_type error, set string";
+      table->id_type = 0;
+    }
   }
 };
 
@@ -219,6 +240,7 @@ GammaEngine::GammaEngine(const string &index_root_path)
   field_range_index_ = nullptr;
   created_table_ = false;
   indexed_field_num_ = 0;
+  b_loading_ = false;
 #ifdef PERFORMANCE_TESTING
   search_num_ = 0;
 #endif
@@ -244,14 +266,17 @@ GammaEngine::~GammaEngine() {
     delete vec_manager_;
     vec_manager_ = nullptr;
   }
+
   if (profile_) {
     delete profile_;
     profile_ = nullptr;
   }
+
   if (docids_bitmap_) {
     delete docids_bitmap_;
     docids_bitmap_ = nullptr;
   }
+
   if (field_range_index_) {
     delete field_range_index_;
     field_range_index_ = nullptr;
@@ -402,7 +427,18 @@ Response *GammaEngine::Search(const Request *request) {
   condition.parallel_based_on_query = request->parallel_based_on_query;
   condition.use_direct_search = use_direct_search;
   condition.l2_sqrt = request->l2_sqrt;
+  condition.nprobe = request->nprobe;
+  condition.ivf_flat = request->ivf_flat;
 
+#ifdef BUILD_GPU
+  condition.range_filters_num = request->range_filters_num;
+  condition.range_filters = request->range_filters;
+  condition.term_filters_num = request->term_filters_num;
+  condition.term_filters = request->term_filters;
+  condition.profile = profile_;
+#endif  // BUILD_GPU
+
+#ifndef BUILD_GPU
   MultiRangeQueryResults range_query_result;
   if (request->range_filters_num > 0 || request->term_filters_num > 0) {
     int num = MultiRangeQuery(request, condition, response_results,
@@ -413,6 +449,7 @@ Response *GammaEngine::Search(const Request *request) {
   }
 #ifdef PERFORMANCE_TESTING
   condition.Perf("filter");
+#endif
 #endif
 
   gamma_query.condition = &condition;
@@ -450,6 +487,10 @@ Response *GammaEngine::Search(const Request *request) {
 #ifdef PERFORMANCE_TESTING
     condition.Perf("pack results");
 #endif
+
+#ifdef BUILD_GPU
+  }
+#else
   } else {
     GammaResult gamma_result;
     gamma_result.topn = request->topn;
@@ -463,11 +504,11 @@ Response *GammaEngine::Search(const Request *request) {
         TermFilter *filter = request->term_filters[i];
 
         string value = string(filter->field->value, filter->field->len);
-        string key = string(filter->value->value, filter->value->len);
+        std::string key_str =
+            std::string(filter->value->value, filter->value->len);
 
         int doc_id = -1;
-        int ret = profile_->GetDocIDByKey(key, doc_id);
-        if (ret != 0) {
+        if (profile_->GetDocIDByKey(key_str, doc_id) != 0) {
           continue;
         }
 
@@ -508,6 +549,7 @@ Response *GammaEngine::Search(const Request *request) {
     response_results->req_num = 1;  // only one result
     PackResults(&gamma_result, response_results, request);
   }
+#endif
 
 #ifdef PERFORMANCE_TESTING
   LOG(INFO) << condition.OutputPerf().str();
@@ -586,8 +628,14 @@ int GammaEngine::CreateTable(const Table *table) {
     LOG(ERROR) << "vector and profile should not be null!";
     return -1;
   }
+  std::string retrieval_type(table->retrieval_type->value,
+                             table->retrieval_type->len);
+
+  std::string retrieval_param(table->retrieval_param->value,
+                              table->retrieval_param->len);
+
   int ret_vec = vec_manager_->CreateVectorTable(
-      table->vectors_info, table->vectors_num, table->ivfpq_param);
+      table->vectors_info, table->vectors_num, retrieval_type, retrieval_param);
   int ret_profile = profile_->CreateTable(table);
 
   if (ret_vec != 0 || ret_profile != 0) {
@@ -595,6 +643,7 @@ int GammaEngine::CreateTable(const Table *table) {
     return -2;
   }
 
+#ifndef BUILD_GPU
   field_range_index_ = new MultiFieldsRangeIndex(index_root_path_, profile_);
   if ((nullptr == field_range_index_) || (AddNumIndexFields() < 0)) {
     LOG(ERROR) << "add numeric index fields error!";
@@ -604,6 +653,7 @@ int GammaEngine::CreateTable(const Table *table) {
   auto func_build_field_index = std::bind(&GammaEngine::BuildFieldIndex, this);
   std::thread t(func_build_field_index);
   t.detach();
+#endif
   string table_name = string(table->name->value, table->name->len);
   string path = index_root_path_ + "/" + table_name + ".schema";
   TableIO tio(path);  // rewrite it if the path is already existed
@@ -663,7 +713,7 @@ int GammaEngine::AddOrUpdate(const Doc *doc) {
 #endif
   std::vector<Field *> fields_profile;
   std::vector<Field *> fields_vec;
-  string key;
+  std::string key;
 
   for (int i = 0; i < doc->fields_num; ++i) {
     if (doc->fields[i]->data_type != VECTOR) {
@@ -671,7 +721,8 @@ int GammaEngine::AddOrUpdate(const Doc *doc) {
       const string &name =
           string(doc->fields[i]->name->value, doc->fields[i]->name->len);
       if (name == "_id") {
-        key = string(doc->fields[i]->value->value, doc->fields[i]->value->len);
+        key = std::string(doc->fields[i]->value->value,
+                          doc->fields[i]->value->len);
       }
     } else {
       fields_vec.push_back(doc->fields[i]);
@@ -680,6 +731,7 @@ int GammaEngine::AddOrUpdate(const Doc *doc) {
   // add fields into profile
   int docid = -1;
   profile_->GetDocIDByKey(key, docid);
+
   if (docid == -1) {
     int ret = profile_->Add(fields_profile, max_docid_, false);
     if (ret != 0) return -1;
@@ -726,31 +778,37 @@ int GammaEngine::Update(int doc_id, std::vector<Field *> &fields_profile,
     return ret;
   }
 
+#ifndef BUILD_GPU
   for (size_t i = 0; i < fields_profile.size(); ++i) {
     auto *f = fields_profile[i];
     int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
     field_range_index_->Delete(doc_id, idx);
   }
+#endif  // BUILD_GPU
 
   if (profile_->Update(fields_profile, doc_id) != 0) {
     LOG(ERROR) << "profile update error";
     return -1;
   }
 
+#ifndef BUILD_GPU
   for (size_t i = 0; i < fields_profile.size(); ++i) {
     auto *f = fields_profile[i];
     int idx = profile_->GetAttrIdx(string(f->name->value, f->name->len));
     field_range_index_->Add(doc_id, idx);
   }
+#endif  // BUILD_GPU
+
 #ifdef DEBUG
   LOG(INFO) << "update success! key=" << key;
 #endif
   return 0;
 }
 
-int GammaEngine::Del(const std::string &key) {
+int GammaEngine::Del(ByteArray *key) {
   int docid = -1, ret = 0;
-  ret = profile_->GetDocIDByKey(key, docid);
+  std::string key_str = std::string(key->value, key->len);
+  ret = profile_->GetDocIDByKey(key_str, docid);
   if (ret != 0 || docid < 0) return -1;
 
   if (bitmap::test(docids_bitmap_, docid)) {
@@ -759,6 +817,8 @@ int GammaEngine::Del(const std::string &key) {
   ++delete_num_;
   bitmap::set(docids_bitmap_, docid);
 
+  vec_manager_->Delete(docid);
+
   return ret;
 }
 
@@ -766,7 +826,7 @@ int GammaEngine::DelDocByQuery(Request *request) {
 #ifdef DEBUG
   LOG(INFO) << "delete by query request:" << RequestToString(request);
 #endif
-
+#ifndef BUILD_GPU
   if (request->range_filters_num <= 0) {
     LOG(ERROR) << "no range filter";
     return 1;
@@ -805,19 +865,21 @@ int GammaEngine::DelDocByQuery(Request *request) {
     ++delete_num_;
     bitmap::set(docids_bitmap_, docid);
   }
+#endif  // BUILD_GPU
   return 0;
 }
 
-Doc *GammaEngine::GetDoc(const std::string &id) {
+Doc *GammaEngine::GetDoc(ByteArray *id) {
   int docid = -1, ret = 0;
-  ret = profile_->GetDocIDByKey(id, docid);
+  std::string key_str = std::string(id->value, id->len);
+  ret = profile_->GetDocIDByKey(key_str, docid);
   if (ret != 0 || docid < 0) {
-    LOG(INFO) << "GetDocIDbyKey [" << id << "] error!";
+    LOG(INFO) << "GetDocIDbyKey [" << id->value << "] error!";
     return nullptr;
   }
 
   if (bitmap::test(docids_bitmap_, docid)) {
-    LOG(INFO) << "docid [" << docid << "] bitmap test failed!";
+    LOG(INFO) << "docid [" << docid << "] is deleted! key=" << key_str;
     return nullptr;
   }
   std::vector<std::string> index_names;
@@ -854,29 +916,25 @@ Doc *GammaEngine::GetDoc(const std::string &id) {
   return doc;
 }
 
-#ifdef PYTHON
 int GammaEngine::BuildIndex() {
-  if (index_status_ != IndexStatus::INDEXED) {
-    if (vec_manager_->Indexing() != 0) {
-      LOG(ERROR) << "Create index failed!";
-      return -1;
-    }
-    LOG(INFO) << "vector manager indexing success!";
-    index_status_ = IndexStatus::INDEXED;
-  }
-  int ret = vec_manager_->AddRTVecsToIndex();
-  return ret;
-}
-
-#else
-int GammaEngine::BuildIndex() {
-  b_running_ = true;
   if (vec_manager_->Indexing() != 0) {
     LOG(ERROR) << "Create index failed!";
     return -1;
   }
-  LOG(INFO) << "vector manager indexing success!";
 
+  if (b_running_) {
+    return 0;
+  }
+
+  b_running_ = true;
+  LOG(INFO) << "vector manager indexing success!";
+  auto func_indexing = std::bind(&GammaEngine::Indexing, this);
+  std::thread t(func_indexing);
+  t.detach();
+  return 0;
+}
+
+int GammaEngine::Indexing() {
   int ret = 0;
   bool has_error = false;
   while (b_running_) {
@@ -891,13 +949,12 @@ int GammaEngine::BuildIndex() {
       continue;
     }
     index_status_ = IndexStatus::INDEXED;
-    usleep(5000 * 1000);  // sleep 5000ms
+    usleep(1000 * 1000);  // sleep 5000ms
   }
   running_cv_.notify_one();
   LOG(INFO) << "Build index exited!";
   return ret;
 }
-#endif
 
 int GammaEngine::BuildFieldIndex() {
   b_field_running_ = true;
@@ -907,6 +964,10 @@ int GammaEngine::BuildFieldIndex() {
   int field_num = attr_type_map.size();
 
   while (b_field_running_) {
+    if (b_loading_) {
+      usleep(5000 * 1000);  // sleep 5000ms
+      continue;
+    }
     int lastest_num = max_docid_;
 
 #pragma omp parallel for
@@ -930,6 +991,7 @@ long GammaEngine::GetMemoryBytes() {
   long profile_mem_bytes = profile_->GetMemoryBytes();
   long vec_mem_bytes = vec_manager_->GetTotalMemBytes();
 
+#ifndef BUILD_GPU
   long dense_b = 0, sparse_b = 0, total_mem_b = 0;
 
   total_mem_b += field_range_index_->MemorySize(dense_b, sparse_b);
@@ -942,6 +1004,9 @@ long GammaEngine::GetMemoryBytes() {
 
   long total_mem_bytes = profile_mem_bytes + vec_mem_bytes +
                          bitmap_bytes_size_ + total_mem_b + dense_b + sparse_b;
+#else   // BUILD_GPU
+  long total_mem_bytes = profile_mem_bytes + vec_mem_bytes + bitmap_bytes_size_;
+#endif  // BUILD_GPU
   return total_mem_bytes;
 }
 
@@ -999,6 +1064,10 @@ int GammaEngine::Dump() {
 
   fwrite((void *)(docids_bitmap_), sizeof(char), bitmap_bytes_size_, fp_output);
   fclose(fp_output);
+
+  remove(last_bitmap_filename_.c_str());
+  last_bitmap_filename_ = bp_name;
+
   dump_docid_ = max_docid + 1;
 
   const string dump_done_file_name = path + "/dump.done";
@@ -1042,6 +1111,7 @@ int GammaEngine::CreateTableFromLocal(std::string &table_name) {
 }
 
 int GammaEngine::Load() {
+  b_loading_ = true;
   if (!created_table_) {
     string table_name;
     if (CreateTableFromLocal(table_name)) {
@@ -1138,6 +1208,7 @@ int GammaEngine::Load() {
   string last_folder = folders.size() > 0 ? folders[folders.size() - 1] : "";
   LOG(INFO) << "load engine success! max docid=" << max_docid_
             << ", last folder=" << last_folder;
+  b_loading_ = false;
   return 0;
 }
 

@@ -12,7 +12,7 @@
 #include "field_range_index.h"
 #include "gamma_gpu_resources.h"
 #include "gamma_index.h"
-#include "gamma_index_ivfpq_gpu.h"
+#include "gamma_index_ivfpq.h"
 #include "log.h"
 #include "raw_vector.h"
 #include "utils.h"
@@ -25,19 +25,22 @@ class GPUItem;
 class GammaIVFPQGPUIndex : public GammaIndex {
  public:
   GammaIVFPQGPUIndex(size_t d, size_t nlist, size_t M, size_t nbits_per_idx,
-                     const char *docids_bitmap, RawVector *raw_vec, int nprobe);
-  ~GammaIVFPQGPUIndex();
+                     const char *docids_bitmap, RawVector<float> *raw_vec,
+                     GammaCounters *counters);
+  virtual ~GammaIVFPQGPUIndex();
 
   int Indexing() override;
 
   int AddRTVecsToIndex() override;
 
-  bool Add(int n, const float *vec) override;
+  bool Add(int n, const float *vec) override { return true; };
 
-  int Update(int doc_id, const float *vec);
+  int Update(int doc_id, const float *vec) override;
 
   int Search(const VectorQuery *query, GammaSearchCondition *condition,
              VectorResult &result) override;
+
+  int Delete(int doc_id) override;
 
   long GetTotalMemBytes() override;
 
@@ -46,11 +49,11 @@ class GammaIVFPQGPUIndex : public GammaIndex {
 
  private:
   int GPUSearch(int n, const float *x, int k, float *distances, long *labels,
-                GammaSearchCondition *, std::stringstream &perf_ss);
+                GammaSearchCondition *condition);
 
-  int GPUThread(moodycamel::BlockingConcurrentQueue<GPUItem *> *items_q);
+  int GPUThread();
 
-  faiss::Index *CreateGPUIndex(faiss::Index *cpu_index);
+  faiss::Index *CreateGPUIndex();
 
   int CreateSearchThread();
 
@@ -60,11 +63,11 @@ class GammaIVFPQGPUIndex : public GammaIndex {
   size_t nbits_per_idx_;
   int nprobe_;
   int search_idx_;
-  std::atomic<int> cur_qid_;
 
-  std::vector<moodycamel::BlockingConcurrentQueue<GPUItem *> *> id_queues_;
+  moodycamel::BlockingConcurrentQueue<GPUItem *> id_queue_;
 
   faiss::Index *gpu_index_;
+  GammaIVFPQIndex *cpu_index_;
 
   int tmp_mem_num_;
   std::vector<faiss::gpu::GpuResources *> resources_;
@@ -75,6 +78,9 @@ class GammaIVFPQGPUIndex : public GammaIndex {
   bool is_indexed_;
 
   bool use_standard_resource_;
+
+  std::mutex cpu_mutex_;
+  std::mutex indexing_mutex_;
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_count_;
 #endif

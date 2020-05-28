@@ -13,54 +13,53 @@
 #include <atomic>
 #include <string>
 #include <vector>
+#include "raw_vector_common.h"
 
 namespace tig_gamma {
 
 namespace realtime {
 
-struct RTInvertBucketData {
-  RTInvertBucketData(long **idx_array, int *retrieve_idx_pos,
-                     int *cur_bucket_keys, uint8_t **codes_array,
-                     int *dump_latest_pos, const char *docids_bitmap,
-                     int *vid2docid);
+const static long kDelIdxMask = (long)1 << 63;     // 0x8000000000000000
+const static long kRecoverIdxMask = ~kDelIdxMask;  // 0x7fffffffffffffff
 
-  RTInvertBucketData(const char *docids_bitmap, int *vid2docid);
+struct RTInvertBucketData {
+  RTInvertBucketData(RTInvertBucketData *other);
+  RTInvertBucketData(VIDMgr *vid_mgr, const char *docids_bitmap);
 
   bool Init(const size_t &buckets_num, const size_t &bucket_keys,
             const size_t &code_bytes_per_vec,
-            std::atomic<long> &total_mem_bytes);
+            std::atomic<long> &total_mem_bytes, long max_vec_size);
   ~RTInvertBucketData();
 
-  void FreeOldData(long *idx_array, uint8_t *codes_array);
-  int CompactBucket(const size_t &bucket_no, const size_t &code_bytes_per_vec,
-                    std::vector<long> &vid_bucket_no_pos);
   bool ExtendBucketMem(const size_t &bucket_no,
                        const size_t &code_bytes_per_vec,
                        std::atomic<long> &total_mem_bytes);
 
-  bool ReleaseBucketMem(const size_t &bucket_no,
-                        const size_t &code_bytes_per_vec,
-                        long &total_mem_bytes);
-
-  bool GetBucketMemInfo(const size_t &bucket_no, std::string &mem_info);
-
   int GetCurDumpPos(const size_t &bucket_no, int max_vid, int &dump_start_pos,
                     int &size);
 
-  long **_idx_array;
-  int *_retrieve_idx_pos;  // total nb of realtime added indexed vectors
-  int *_cur_bucket_keys;
-  uint8_t **_codes_array;
-  int *_dump_latest_pos;
+  bool CompactBucket(const size_t &bucket_no, const size_t &code_bytes_per_vec);
+
+  void Delete(int vid);
+
+  long **idx_array_;
+  int *retrieve_idx_pos_;  // total nb of realtime added indexed vectors
+  int *cur_bucket_keys_;
+  uint8_t **codes_array_;
+  int *dump_latest_pos_;
+  VIDMgr *vid_mgr_;
   const char *docids_bitmap_;
-  int *vid2docid_;
+  std::atomic<long> *vid_bucket_no_pos_;
+  std::atomic<int> *deleted_nums_;
+  long compacted_num_;
+  size_t buckets_num_;
 };
 
 struct RealTimeMemData {
  public:
-  RealTimeMemData(size_t buckets_num, long max_vec_size,
-                  const char *docids_bitmap, int *vid2docid,
-                  size_t bucket_keys = 500,
+  RealTimeMemData(size_t buckets_num, long max_vec_size, VIDMgr *vid_mgr,
+                  const char *docids_bitmap, size_t bucket_keys = 500,
+                  size_t bucket_keys_limit = 1000000,
                   size_t code_bytes_per_vec = 512 * sizeof(float));
   ~RealTimeMemData();
 
@@ -73,11 +72,13 @@ struct RealTimeMemData {
 
   void FreeOldData(long *idx, uint8_t *codes, RTInvertBucketData *invert,
                    long size);
+  int ExtendBucketIfNeed(int bucket_no, size_t keys_size);
   bool ExtendBucketMem(const size_t &bucket_no);
+  bool AdjustBucketMem(const size_t &bucket_no, int type);
   bool GetIvtList(const size_t &bucket_no, long *&ivt_list,
                   uint8_t *&ivt_codes_list);
 
-  long GetTotalMemBytes() { return _total_mem_bytes; }
+  long GetTotalMemBytes() { return total_mem_bytes_; }
 
   int RetrieveCodes(int *vids, size_t vid_size,
                     std::vector<std::vector<const uint8_t *>> &bucket_codes,
@@ -92,27 +93,25 @@ struct RealTimeMemData {
            const std::string &vec_name);
 
   void PrintBucketSize();
-  int CompactBucket(int bucket_no);
 
-  int RetrieveBucketId(int vid);
+  int CompactIfNeed();
+  bool Compactable(int bucket_no);
+  bool CompactBucket(int bucket_no);
+  int Delete(int *vids, int n);
 
-  bool Compactable(int deleted_doc_num);
+  RTInvertBucketData *cur_invert_ptr_;
+  RTInvertBucketData *extend_invert_ptr_;
 
-  RTInvertBucketData *_cur_invert_ptr;
-  RTInvertBucketData *_extend_invert_ptr;
+  size_t buckets_num_;  // count of buckets
+  size_t bucket_keys_;  // max bucket keys
+  size_t bucket_keys_limit_;
 
-  size_t _buckets_num;  // count of buckets
-  size_t _bucket_keys;  // max bucket keys
+  size_t code_bytes_per_vec_;
+  std::atomic<long> total_mem_bytes_;
 
-  size_t _code_bytes_per_vec;
-  std::atomic<long> _total_mem_bytes;
-
-  long _max_vec_size;
-
-  std::vector<long> _vid_bucket_no_pos;
-  long index_num_;
-  long compacted_num_;
-  long deleted_num_;
+  long max_vec_size_;
+  VIDMgr *vid_mgr_;
+  const char *docids_bitmap_;
 };
 
 }  // namespace realtime

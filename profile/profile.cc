@@ -63,6 +63,18 @@ Profile::~Profile() {
     db_ = nullptr;
   }
 #endif
+
+#ifdef USE_BTREE
+  if (cache_mgr_) {
+    bt_mgrclose(cache_mgr_);
+    cache_mgr_ = nullptr;
+  }
+  if (main_mgr_) {
+    bt_mgrclose(main_mgr_);
+    main_mgr_ = nullptr;
+  }
+#endif
+  LOG(INFO) << "Profile deleted.";
 }
 
 int Profile::Load(const std::vector<string> &folders, int &doc_num) {
@@ -122,10 +134,20 @@ int Profile::Load(const std::vector<string> &folders, int &doc_num) {
 
 #pragma omp parallel for
   for (int i = 0; i < doc_num; ++i) {
-    char *value = nullptr;
-    int len = GetFieldString(i, idx, &value);
-    string key = string(value, len);
+    long key = -1;
+    GetField<long>(i, idx, key);
+#ifdef USE_BTREE
+    BtDb *bt = bt_open(cache_mgr_, main_mgr_);
+    BTERR bterr = bt_insertkey(
+        bt->main, reinterpret_cast<unsigned char *>(&key), sizeof(key), 0,
+        static_cast<void *>(&i), sizeof(int), Unique);
+    if (bterr) {
+      LOG(ERROR) << "Error " << bt->mgr->err;
+    }
+    bt_close(bt);
+#else
     item_to_docid_.insert(key, i);
+#endif
   }
 
   LOG(INFO) << "Profile load successed! doc num=" << doc_num;
@@ -158,6 +180,8 @@ int Profile::CreateTable(const Table *table) {
     return -1;
   }
 
+  id_type_ = table->id_type;
+
   if (mem_) {
     delete[] mem_;
   }
@@ -180,6 +204,33 @@ int Profile::CreateTable(const Table *table) {
     LOG(ERROR) << "open rocks db error: " << s.ToString();
     return -1;
   }
+#endif
+
+#ifdef USE_BTREE
+  uint mainleafxtra = 0;
+  uint maxleaves = 1000000;
+  uint poolsize = 500;
+  uint leafxtra = 0;
+  uint mainpool = 500;
+  uint mainbits = 16;
+  uint bits = 16;
+
+  if (!utils::isFolderExist(db_path_.c_str())) {
+    mkdir(db_path_.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+  }
+
+  string cache_file = db_path_ + string("/cache_") + ".dis";
+  string main_file = db_path_ + string("/main_") + ".dis";
+
+  remove(cache_file.c_str());
+  remove(main_file.c_str());
+
+  cache_mgr_ =
+      bt_mgr(const_cast<char *>(cache_file.c_str()), bits, leafxtra, poolsize);
+  cache_mgr_->maxleaves = maxleaves;
+  main_mgr_ = bt_mgr(const_cast<char *>(main_file.c_str()), mainbits,
+                     mainleafxtra, mainpool);
+  main_mgr_->maxleaves = maxleaves;
 #endif
 
   table_created_ = true;
@@ -249,11 +300,31 @@ int Profile::AddField(const string &name, enum DataType ftype, int is_index) {
   return 0;
 }
 
-int Profile::GetDocIDByKey(const std::string &key, int &doc_id) {
-  if (item_to_docid_.find(key, doc_id)) {
+int Profile::GetDocIDByKey(std::string &key, int &doc_id) {
+#ifdef USE_BTREE
+  BtDb *bt = bt_open(cache_mgr_, main_mgr_);
+  int ret = bt_findkey(bt, reinterpret_cast<unsigned char *>(&key), sizeof(key),
+                       (unsigned char *)&doc_id, sizeof(int));
+  bt_close(bt);
+
+  if (ret >= 0) {
     return 0;
   }
+#else
+  if (id_type_ == 0) {
+    if (item_to_docid_str_.find(key, doc_id)) {
+      return 0;
+    }
+  } else {
+    long key_long = -1;
+    memcpy(&key_long, key.data(), sizeof(key_long));
 
+    if (item_to_docid_.find(key_long, doc_id)) {
+      return 0;
+    }
+  }
+
+#endif
   return -1;
 }
 
@@ -270,7 +341,7 @@ int Profile::Add(const std::vector<Field *> &fields, int doc_id,
     return -1;
   }
   std::vector<Field *> fields_reorder(fields.size());
-  string key;
+  std::string key;
   for (size_t i = 0; i < fields.size(); ++i) {
     const auto field_value = fields[i];
     const string &name =
@@ -284,22 +355,38 @@ int Profile::Add(const std::vector<Field *> &fields, int doc_id,
     int field_idx = it->second;
     fields_reorder[field_idx] = field_value;
     if (name == "_id") {
-      key = string(field_value->value->value, field_value->value->len);
+      key = std::string(field_value->value->value, field_value->value->len);
     }
   }
 #ifdef DEBUG__
   printDoc(doc);
 #endif
-  if (key.empty()) {
+  if (key.size() == 0) {
     LOG(ERROR) << "Add item error : _id is null!";
     return -1;
   }
 
-  if (is_existed) {
-    item_to_docid_.erase(key);
+#ifdef USE_BTREE
+  BtDb *bt = bt_open(cache_mgr_, main_mgr_);
+
+  BTERR bterr = bt_insertkey(bt->main, reinterpret_cast<unsigned char *>(&key.data()),
+                             sizeof(key), 0, static_cast<void *>(&doc_id),
+                             sizeof(int), Unique);
+  if (bterr) {
+    LOG(ERROR) << "Error " << bt->mgr->err;
+  }
+  bt_close(bt);
+#else
+if (id_type_ == 0) {
+    item_to_docid_str_.insert(key, doc_id);
+  } else {
+    long key_long = -1;
+    memcpy(&key_long, key.data(), sizeof(key_long));
+
+    item_to_docid_.insert(key_long, doc_id);
   }
 
-  item_to_docid_.insert(key, doc_id);
+#endif
 
   for (size_t i = 0; i < fields_reorder.size(); ++i) {
     const auto field_value = fields_reorder[i];
@@ -508,9 +595,10 @@ Field *Profile::GetFieldInfo(const int docid, const string &field_name) {
   return field;
 }
 
-int Profile::GetDocInfo(const std::string &key, Doc *&doc) {
+int Profile::GetDocInfo(ByteArray *key, Doc *&doc) {
   int doc_id = 0;
-  int ret = GetDocIDByKey(key, doc_id);
+  std::string key_str = std::string(key->value, key->len);
+  int ret = GetDocIDByKey(key_str, doc_id);
   if (ret < 0) {
     return ret;
   }
@@ -552,6 +640,16 @@ int Profile::GetFieldRawValue(int docid, int field_id, unsigned char **value,
     data_len =
         GetFieldString(docid, field_id, reinterpret_cast<char **>(value));
   }
+  return 0;
+}
+
+int Profile::GetFieldType(const std::string &field_name, enum DataType &type) {
+  const auto &it = attr_type_map_.find(field_name);
+  if (it == attr_type_map_.end()) {
+    LOG(ERROR) << "Cannot find field [" << field_name << "]";
+    return -1;
+  }
+  type = it->second;
   return 0;
 }
 

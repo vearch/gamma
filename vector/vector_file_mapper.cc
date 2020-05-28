@@ -16,16 +16,21 @@
 
 namespace tig_gamma {
 
-VectorFileMapper::VectorFileMapper(std::string file_path, int offset,
-                                   int max_vector_size, int dimension)
-    : file_path_(file_path), offset_(offset), max_vector_size_(max_vector_size),
+template <typename DataType>
+VectorFileMapper<DataType>::VectorFileMapper(std::string file_path, int offset,
+                                             int max_vector_size, int dimension)
+    : file_path_(file_path),
+      offset_(offset),
+      max_vector_size_(max_vector_size),
       dimension_(dimension) {
-  mapped_byte_size_ = (size_t)max_vector_size * dimension * sizeof(float) + offset;
+  mapped_byte_size_ =
+      (size_t)max_vector_size * dimension * sizeof(DataType) + offset;
   buf_ = nullptr;
   vectors_ = nullptr;
 }
 
-VectorFileMapper::~VectorFileMapper() {
+template <typename DataType>
+VectorFileMapper<DataType>::~VectorFileMapper() {
   if (buf_ != nullptr) {
     int ret = munmap(buf_, mapped_byte_size_);
     if (ret != 0) {
@@ -36,7 +41,8 @@ VectorFileMapper::~VectorFileMapper() {
   }
 }
 
-int VectorFileMapper::Init() {
+template <typename DataType>
+int VectorFileMapper<DataType>::Init() {
   int fd = open(file_path_.c_str(), O_RDONLY, 0);
   if (-1 == fd) {
     LOG(ERROR) << "open vector file error, path=" << file_path_;
@@ -48,10 +54,10 @@ int VectorFileMapper::Init() {
     LOG(ERROR) << "mmap error:" << strerror(errno);
     return -1;
   }
-  vectors_ = (float *)((char *)buf_ + offset_);
+  vectors_ = (DataType *)((char *)buf_ + offset_);
 
   long file_size = utils::get_file_size(file_path_.c_str());
-  mapped_num_ = (file_size - offset_) / (sizeof(float) * dimension_);
+  mapped_num_ = (file_size - offset_) / (sizeof(DataType) * dimension_);
 
   int ret = madvise(static_cast<void *>(buf_), mapped_byte_size_, MADV_RANDOM);
   if (ret != 0) {
@@ -64,12 +70,17 @@ int VectorFileMapper::Init() {
   return 0;
 }
 
-const float *VectorFileMapper::GetVector(int id) {
-  if (id < 0 || id >= max_vector_size_)
-    return nullptr;
+template <typename DataType>
+const DataType *VectorFileMapper<DataType>::GetVector(int id) {
+  if (id < 0 || id >= max_vector_size_) return nullptr;
   return vectors_ + ((long)id) * dimension_;
 }
 
-const float *VectorFileMapper::GetVectors() { return vectors_; }
+template <typename DataType>
+const DataType *VectorFileMapper<DataType>::GetVectors() {
+  return vectors_;
+}
 
-} // namespace tig_gamma
+template class VectorFileMapper<float>;
+template class VectorFileMapper<uint8_t>;
+}  // namespace tig_gamma

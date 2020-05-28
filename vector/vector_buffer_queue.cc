@@ -18,8 +18,9 @@
 
 using namespace std;
 
-VectorBufferQueue::VectorBufferQueue(int max_vector_size, int dimension,
-                                     int chunk_num) {
+template <typename DataType>
+VectorBufferQueue<DataType>::VectorBufferQueue(int max_vector_size,
+                                               int dimension, int chunk_num) {
   max_vector_size_ = max_vector_size;
   dimension_ = dimension;
   chunk_num_ = chunk_num;
@@ -29,7 +30,8 @@ VectorBufferQueue::VectorBufferQueue(int max_vector_size, int dimension,
   stored_num_ = 0;
 }
 
-VectorBufferQueue::~VectorBufferQueue() {
+template <typename DataType>
+VectorBufferQueue<DataType>::~VectorBufferQueue() {
   if (buffer_ != NULL) {
     free(buffer_);
     buffer_ = nullptr;
@@ -46,7 +48,8 @@ VectorBufferQueue::~VectorBufferQueue() {
   }
 }
 
-int VectorBufferQueue::Init() {
+template <typename DataType>
+int VectorBufferQueue<DataType>::Init() {
   if (dimension_ <= 0) {
     return 1;
   }
@@ -57,8 +60,8 @@ int VectorBufferQueue::Init() {
   }
   chunk_size_ = max_vector_size_ / chunk_num_;
 
-  vector_byte_size_ = sizeof(float) * dimension_;
-  buffer_ = (float *)malloc((size_t)max_vector_size_ * vector_byte_size_);
+  vector_byte_size_ = sizeof(DataType) * dimension_;
+  buffer_ = (DataType *)malloc((size_t)max_vector_size_ * vector_byte_size_);
   if (buffer_ == NULL) {
     cerr << "malloc buffer failed" << endl;
     return 2;
@@ -80,7 +83,9 @@ int VectorBufferQueue::Init() {
             << ", stored number=" << stored_num_;
   return 0;
 }
-int VectorBufferQueue::Push(const float *v, int dim, int timeout) {
+
+template <typename DataType>
+int VectorBufferQueue<DataType>::Push(const DataType *v, int dim, int timeout) {
   if (v == NULL || dim != dimension_) return 1;
 
   if (!WaitFor(timeout, 1, 1)) {
@@ -95,7 +100,9 @@ int VectorBufferQueue::Push(const float *v, int dim, int timeout) {
   return 0;
 }
 
-int VectorBufferQueue::Push(const float *v, int dim, int num, int timeout) {
+template <typename DataType>
+int VectorBufferQueue<DataType>::Push(const DataType *v, int dim, int num,
+                                      int timeout) {
   if (v == NULL || dim != dimension_ || num <= 0) return 1;
 
   if (!WaitFor(timeout, 1, num)) {
@@ -118,7 +125,8 @@ int VectorBufferQueue::Push(const float *v, int dim, int num, int timeout) {
   return 0;
 }
 
-int VectorBufferQueue::Pop(float *v, int dim, int timeout) {
+template <typename DataType>
+int VectorBufferQueue<DataType>::Pop(DataType *v, int dim, int timeout) {
   if (v == nullptr || dim != dimension_) return 1;
 
   if (!WaitFor(timeout, 2, 1)) {
@@ -130,7 +138,10 @@ int VectorBufferQueue::Pop(float *v, int dim, int timeout) {
   pop_index_++;
   return 0;
 }
-int VectorBufferQueue::Pop(float *v, int dim, int num, int timeout) {
+
+template <typename DataType>
+int VectorBufferQueue<DataType>::Pop(DataType *v, int dim, int num,
+                                     int timeout) {
   if (v == nullptr || dim != dimension_ || num <= 0 || num > max_vector_size_)
     return 1;
 
@@ -153,7 +164,8 @@ int VectorBufferQueue::Pop(float *v, int dim, int num, int timeout) {
   return 0;
 }
 
-int VectorBufferQueue::GetVector(int id, float *v, int dim) {
+template <typename DataType>
+int VectorBufferQueue<DataType>::GetVector(int id, DataType *v, int dim) {
   if (v == nullptr || dim != dimension_) return 1;
   int id_in_queue = id;
   int chunk_id = id_in_queue / chunk_size_ % chunk_num_;
@@ -168,28 +180,37 @@ int VectorBufferQueue::GetVector(int id, float *v, int dim) {
   return 0;
 }
 
-int VectorBufferQueue::GetVectorHead(int id, float **vec_head, int dim) {
+template <typename DataType>
+int VectorBufferQueue<DataType>::GetVectorHead(int id, DataType **vec_head,
+                                               int dim) {
   if (vec_head == nullptr || dim != dimension_ || (uint64_t)id >= push_index_)
     return 1;
   *vec_head = buffer_ + (long)id % max_vector_size_ * dimension_;
   return 0;
 }
 
-int VectorBufferQueue::Update(int id, float *v, int dim) {
+template <typename DataType>
+int VectorBufferQueue<DataType>::Update(int id, DataType *v, int dim) {
   if (v == nullptr || dim != dimension_ || (uint64_t)id >= push_index_)
     return 1;
-  float *dst_vec = buffer_ + (long)id % max_vector_size_ * dimension_;
+  DataType *dst_vec = buffer_ + (long)id % max_vector_size_ * dimension_;
   memcpy((void *)dst_vec, (void *)v, vector_byte_size_);
   return 0;
 }
 
-int VectorBufferQueue::GetPopSize() const { return push_index_ - pop_index_; }
-int VectorBufferQueue::Size() const {
+template <typename DataType>
+int VectorBufferQueue<DataType>::GetPopSize() const {
+  return push_index_ - pop_index_;
+}
+
+template <typename DataType>
+int VectorBufferQueue<DataType>::Size() const {
   uint64_t idx = push_index_;
   return idx > (uint64_t)max_vector_size_ ? max_vector_size_ : idx;
 }
 
-bool VectorBufferQueue::WaitFor(int timeout, int type, int num) {
+template <typename DataType>
+bool VectorBufferQueue<DataType>::WaitFor(int timeout, int type, int num) {
   int cost = 0;
   while (timeout == -1 || cost < timeout) {
     bool status = false;
@@ -210,3 +231,6 @@ bool VectorBufferQueue::WaitFor(int timeout, int type, int num) {
   }
   return false;
 }
+
+template class VectorBufferQueue<float>;
+template class VectorBufferQueue<uint8_t>;

@@ -9,12 +9,13 @@
 #define REALTIME_INVERT_INDEX_H_
 
 #include <stdlib.h>
+
 #include <map>
 #include <vector>
+
 #include "bitmap.h"
 #include "faiss/Index.h"
 #include "faiss/IndexIVF.h"
-
 #include "realtime_mem_data.h"
 
 namespace tig_gamma {
@@ -23,8 +24,8 @@ namespace realtime {
 struct RTInvertIndex {
  public:
   // bucket_keys should not be larger than bucket_keys_limit
-  RTInvertIndex(faiss::Index *index, long max_vec_size,
-                const char *docids_bitmap, int *vid2docid,
+  RTInvertIndex(size_t nlist, size_t code_size, long max_vec_size,
+                VIDMgr *vid_mgr, const char *docids_bitmap,
                 size_t bucket_keys = 10000, size_t bucket_keys_limit = 1000000);
 
   ~RTInvertIndex();
@@ -39,13 +40,11 @@ struct RTInvertIndex {
 
   int Update(int bucket_no, int vid, std::vector<uint8_t> &codes);
 
-  inline faiss::IndexIVF *GetIndexIVF() { return _index_ivf; }
-
   bool GetIvtList(const size_t &bucket_no, long *&ivt_list, size_t &ivt_size,
                   uint8_t *&ivt_codes_list);
 
   long GetTotalMemBytes() {
-    return _cur_ptr ? _cur_ptr->GetTotalMemBytes() : 0;
+    return cur_ptr_ ? cur_ptr_->GetTotalMemBytes() : 0;
   }
 
   int RetrieveCodes(int *vids, size_t vid_size,
@@ -62,20 +61,58 @@ struct RTInvertIndex {
            const std::string &vec_name);
 
   void PrintBucketSize();
-  int CompactBucket(int bucket_no);
-  int RetrieveBucketId(int vid);
-
-  bool Compactable(int deleted_doc_num);
+  int CompactIfNeed();
+  int Delete(int *vids, int n);
 
  private:
-  size_t _bucket_keys;
-  size_t _bucket_keys_limit;
-  long _max_vec_size;
-  faiss::IndexIVF *_index_ivf;
+  size_t nlist_;
+  size_t code_size_;
+  size_t bucket_keys_;
+  size_t bucket_keys_limit_;
+  long max_vec_size_;
+  VIDMgr *vid_mgr_;
   const char *docids_bitmap_;
-  int *vid2docid_;
 
-  RealTimeMemData *_cur_ptr;
+  RealTimeMemData *cur_ptr_;
+};
+
+using idx_t = faiss::Index::idx_t;
+struct RTInvertedLists : faiss::InvertedLists {
+  RTInvertedLists(realtime::RTInvertIndex *rt_invert_index_ptr, size_t nlist,
+                  size_t code_size);
+
+  /*************************
+   *  Read only functions */
+
+  // get the size of a list
+  size_t list_size(size_t list_no) const override;
+
+  /** get the codes for an inverted list
+   * must be released by release_codes
+   *
+   * @return codes    size list_size * code_size
+   */
+  const uint8_t *get_codes(size_t list_no) const override;
+
+  /** get the ids for an inverted list
+   * must be released by release_ids
+   *
+   * @return ids      size list_size
+   */
+  const idx_t *get_ids(size_t list_no) const override;
+
+  /*************************
+   * writing functions     */
+
+  size_t add_entries(size_t list_no, size_t n_entry, const idx_t *ids,
+                     const uint8_t *code) override;
+
+  void resize(size_t list_no, size_t new_size) override;
+
+  void update_entries(size_t list_no, size_t offset, size_t n_entry,
+                      const idx_t *ids_in, const uint8_t *codes_in) override;
+
+  realtime::RTInvertIndex *rt_invert_index_ptr_;
 };
 
 }  // namespace realtime

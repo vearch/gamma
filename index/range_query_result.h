@@ -139,6 +139,9 @@ class MultiRangeQueryResults {
 
   // Take full advantage of multi-core while recalling
   bool Has(int doc) const {
+    if (all_results_ == nullptr) {
+      return false;
+    }
     return all_results_->Has(doc);
   }
 
@@ -170,9 +173,7 @@ class MultiRangeQueryResults {
    */
   std::vector<int> ToDocs() const;
 
-  const RangeQueryResult *GetAllResult() const {
-    return all_results_;
-  }
+  const RangeQueryResult *GetAllResult() const { return all_results_; }
 
  private:
   int min_;

@@ -81,7 +81,7 @@ class MultiFieldsRangeIndex {
   long MemorySize(long &dense, long &sparse);
 
  private:
-  int Intersect(RangeQueryResult **results, int j, int k,
+  int Intersect(RangeQueryResult *results, int j, int k,
                 RangeQueryResult *out);
   void ResourceRecoveryWorker();
   void FieldOperateWorker();

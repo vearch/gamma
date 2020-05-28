@@ -143,14 +143,32 @@ if(BUILD_WITH_GPU)
 
     aux_source_directory(${GAMMA_GPU} DIR_SRCS)
 
+    include(cmake/Modules/gpu/CUDA.cmake)
+    
+    file(GLOB_RECURSE FAISS_GPU_HEADERS ${GAMMA_GPU}/*.h)
+    file(GLOB_RECURSE FAISS_GPU_CPP ${GAMMA_GPU}/*.cpp)
+    file(GLOB_RECURSE FAISS_GPU_CC ${GAMMA_GPU}/*.cc)
+    file(GLOB_RECURSE FAISS_GPU_CUH ${GAMMA_GPU}/*.cuh)
+    file(GLOB_RECURSE FAISS_GPU_CU ${GAMMA_GPU}/*.cu)
+
     include_directories(
         ${GAMMA_GPU}
+        ${FAISS_INCLUDE_DIR}
+        ${CUDA_INCLUDE_DIRS}
     )
+
+    CUDA_ADD_LIBRARY(gamma SHARED 
+    ${FAISS_GPU_HEADERS}
+    ${FAISS_GPU_CPP}
+    ${FAISS_GPU_CC}
+    ${FAISS_GPU_CUH}
+    ${FAISS_GPU_CU}
+    ${LIB_SRCS})
+else (BUILD_WITH_GPU)
+    add_library(gamma SHARED ${LIB_SRCS})
 endif(BUILD_WITH_GPU)
 
 set(LIB_SRCS ${DIR_SRCS})
-
-add_library(gamma SHARED ${LIB_SRCS})
 
 target_link_libraries(gamma ${LIBRARIES})
 
@@ -170,46 +188,3 @@ if(BUILD_TOOLS)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tools)
 endif(BUILD_TOOLS)
 
-if (BUILD_PYTHON STREQUAL "ON")
-    message(STATUS "Build Gamma python SDK")
-    add_definitions(-DPYTHON)
-
-    find_package(SWIG REQUIRED)
-    include(${SWIG_USE_FILE})
-    find_package(PythonInterp REQUIRED)
-    find_package(PythonLibs REQUIRED)
-
-    include_directories(${PYTHON_INCLUDE_DIR})
-
-    #numpy include path
-    execute_process(
-        COMMAND "${PYTHON_EXECUTABLE}" -c
-            "from __future__ import print_function\ntry: import numpy; print(numpy.get_include(), end='')\nexcept:pass\n"
-            OUTPUT_VARIABLE __numpy_path)
-
-    #numpy version
-    execute_process(
-        COMMAND "${PYTHON_EXECUTABLE}" -c
-            "from __future__ import print_function\ntry: import numpy; print(numpy.__version__, end='')\nexcept:pass\n"
-    OUTPUT_VARIABLE __numpy_version)
-    find_path(PYTHON_NUMPY_INCLUDE_DIR numpy/arrayobject.h
-      HINTS "${__numpy_path}" "${PYTHON_INCLUDE_PATH}" NO_DEFAULT_PATH)
-    message(STATUS "Find numpy=${__numpy_version}")
-    include_directories(${PYTHON_NUMPY_INCLUDE_DIR})
-
-    # set the flags
-    set(CMAKE_SWIG_FLAGS "-DSWIGWORDSIZE64")
-    set(SWIGVEARCH_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../python/swigvearch.i)
-
-    # Set the properties for the interface file.
-    set_property(SOURCE ${SWIGVEARCH_PATH} PROPERTY CPLUSPLUS ON)
-    
-    if(POLICY CMP0078)
-        cmake_policy(SET CMP0078 NEW)
-    endif()
-    
-    swig_add_library( swigvearch LANGUAGE python SOURCES ${SWIGVEARCH_PATH} ${LIB_SRCS} )
-
-    swig_link_libraries( swigvearch ${LIBRARIES} )
-
-endif (BUILD_PYTHON STREQUAL "ON")

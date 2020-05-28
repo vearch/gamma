@@ -22,8 +22,7 @@ struct Options {
     doc_id = 0;
     d = 512;
     max_doc_size = 10000 * 10;
-    add_doc_num = 10000 * 1;
-    search_num = 10000 * 3;
+    search_num = 10000 * 10;
     fields_vec = {"sku", "_id", "cid1", "cid2", "cid3"};
     fields_type = {STRING, STRING, INT, INT, INT};
     vector_name = "abc";
@@ -47,7 +46,6 @@ struct Options {
   int doc_id;
   int d;
   int max_doc_size;
-  long add_doc_num;
   int search_num;
   std::vector<string> fields_vec;
   std::vector<enum DataType> fields_type;
@@ -68,17 +66,24 @@ struct Options {
 
 static struct Options opt;
 
-string profile_file =
-    "./profile_10w.txt";
-string feature_file =
-    "./feat_10w.dat";
+string profile_file = "./profile_10w.txt";
+string feature_file = "./feat_10w.dat";
 
-int AddDoc(void *engine, int start_id, int end_id, int interval = 0) {
+int AddDoc(void *engine, int start_id, int end_id, int interval = 0,
+           long fet_offset = 0) {
   FILE *fet_fp = fopen(feature_file.c_str(), "rb");
   if (fet_fp == nullptr) {
     LOG(ERROR) << "open feature file error";
     return -1;
   }
+  if (fet_offset == 0) {
+    fet_offset = start_id * opt.d * sizeof(float);
+  }
+  if (fseek(fet_fp, fet_offset, SEEK_SET)) {
+    LOG(ERROR) << "fseek error, offset=" << fet_offset;
+    return -1;
+  }
+  LOG(INFO) << "add feature file offset=" << fet_offset;
   std::ifstream fin;
   fin.open(profile_file.c_str());
   std::string str;
@@ -100,15 +105,16 @@ int AddDoc(void *engine, int start_id, int end_id, int interval = 0) {
         opt.profiles[i * opt.fields_vec.size() + j] = profile[j];
       }
     }
+    if (i < start_id) {
+      continue;
+    }
+
     float vector[opt.d];
     size_t ret = fread((void *)vector, sizeof(float), opt.d, fet_fp);
     assert(ret == (size_t)opt.d);
     if (i < opt.search_num) {
       memcpy((void *)(opt.feature + i * opt.d), (void *)vector,
              sizeof(float) * opt.d);
-    }
-    if (i < start_id) {
-      continue;
     }
 
     Field **fields = MakeFields(opt.fields_vec.size() + 1);
@@ -140,6 +146,10 @@ int AddDoc(void *engine, int start_id, int end_id, int interval = 0) {
       SetField(fields, j, field);
     }
 
+    if (i == 6) {
+      LOG(INFO) << "i=6, vector=" << utils::join(vector, 10, ',');
+    }
+
     ByteArray *value = FloatToByteArray(vector, opt.d);
     ByteArray *name = StringToByteArray(opt.vector_name);
     ByteArray *source = StringToByteArray(string(
@@ -162,25 +172,83 @@ int AddDoc(void *engine, int start_id, int end_id, int interval = 0) {
   return 0;
 }
 
-int SearchThread(void *engine, int num, int start_id) {
+int DeleteDoc(void *engine, int start_id, int end_id) {
+  std::ifstream fin;
+  fin.open(profile_file.c_str());
+  std::string str;
+
+  for (int i = 0; i < end_id; ++i) {
+    double start = utils::getmillisecs();
+    if (fin.eof()) {
+      LOG(ERROR) << "profile is eof, i=" << i;
+      return -1;
+    }
+    std::getline(fin, str);
+    if (str == "") {
+      LOG(ERROR) << "profile get empty line, i=" << i;
+      return -1;
+    }
+    vector<string> profile = std::move(utils::split(str, "\t"));
+    if (i < opt.search_num) {
+      for (size_t j = 0; j < opt.fields_vec.size(); j++) {
+        opt.profiles[i * opt.fields_vec.size() + j] = profile[j];
+      }
+    }
+    if (i < start_id) {
+      continue;
+    }
+    ByteArray *doc_key = StringToByteArray(profile[1]);
+    DelDoc(engine, doc_key);
+    DestroyByteArray(doc_key);
+
+    double elap = utils::getmillisecs() - start;
+    if (i % 10000 == 0) {
+      LOG(INFO) << "AddDoc use [" << elap << "]ms";
+    }
+  }
+  fin.close();
+  return 0;
+}
+
+int SearchThread(void *engine, int num, int start_id, long fet_offset = 0) {
+  FILE *fet_fp = fopen(feature_file.c_str(), "rb");
+  if (fet_fp == nullptr) {
+    LOG(ERROR) << "open feature file error";
+    return -1;
+  }
+  if (fet_offset == 0) {
+    fet_offset = start_id * opt.d * sizeof(float);
+  }
+
+  if (fseek(fet_fp, fet_offset, SEEK_SET)) {
+    LOG(ERROR) << "fseek error, offset=" << fet_offset;
+    return -1;
+  }
+  LOG(INFO) << "search feature file offset=" << fet_offset;
   int idx = 0;
   double time = 0;
   int failed_count = 0;
   int req_num = 1;
   string error;
+  float *feature = new float[opt.d * req_num];
   while (idx < num) {
     double start = utils::getmillisecs();
     VectorQuery **vector_querys = MakeVectorQuerys(1);
     int docid = start_id + idx;
-    ByteArray *value = FloatToByteArray(opt.feature + (uint64_t)docid * opt.d,
-                                        opt.d * req_num);
+    size_t ret = fread((void *)feature, sizeof(float) * opt.d, req_num, fet_fp);
+    assert(ret == (size_t)req_num);
+    if (docid == 6) {
+      LOG(INFO) << "idx=6, feature=" << utils::join(feature, 10, ',');
+    }
+    ByteArray *value = FloatToByteArray(feature, opt.d * req_num);
     VectorQuery *vector_query = MakeVectorQuery(
         StringToByteArray(opt.vector_name), value, 0, 10000, 0.1, 0);
     SetVectorQuery(vector_querys, 0, vector_query);
 
     string c3_lower = opt.profiles[docid * (opt.fields_vec.size()) + 4];
-    Request *request = MakeRequest(100, vector_querys, 1, nullptr, 0, nullptr,
-                                   0, nullptr, 0, req_num, 0, nullptr, TRUE, 0);
+    Request *request =
+        MakeRequest(100, vector_querys, 1, nullptr, 0, nullptr, 0, nullptr, 0,
+                    req_num, 0, nullptr, TRUE, 0, FALSE, FALSE, 20, FALSE);
 
     Response *response = Search(engine, request);
     for (int i = 0; i < response->req_num; ++i) {
@@ -235,7 +303,8 @@ int SearchThread(void *engine, int num, int start_id) {
     }
     idx += req_num;
   }
-  LOG(ERROR) << error;
+  delete[] feature;
+  LOG(INFO) << error;
   return failed_count;
 }
 
@@ -265,12 +334,14 @@ int CreateTable(void *engine, string &name, string store_type = "Mmap") {
   VectorInfo **vectors_info = MakeVectorInfos(1);
   VectorInfo *vector_info = MakeVectorInfo(
       StringToByteArray(opt.vector_name), FLOAT, TRUE, opt.d,
-      StringToByteArray(opt.model_id), StringToByteArray(opt.retrieval_type),
-      StringToByteArray(store_type), StringToByteArray(opt.store_param));
+      StringToByteArray(opt.model_id),
+      StringToByteArray(store_type), StringToByteArray(opt.store_param), FALSE);
   SetVectorInfo(vectors_info, 0, vector_info);
 
   Table *table = MakeTable(table_name, field_infos, opt.fields_vec.size(),
-                           vectors_info, 1, GetIVFPQParam());
+                           vectors_info, 1, 
+                           StringToByteArray(opt.retrieval_type),
+                           GetIVFPQParam());
   enum ResponseCode ret = ::CreateTable(engine, table);
   DestroyTable(table);
   return ret;
@@ -456,13 +527,13 @@ void TestDumpNotDone(const string &store_type) {
 
   // search
   ASSERT_EQ(0, SearchThread(engine, 1 * 10000, 0));
-  ASSERT_EQ(3, SearchThread(engine, 3, 1 * 10000));
+  ASSERT_EQ(0, SearchThread(engine, 3, 1 * 10000));
 
   // readd
-  EXPECT_EQ(0, AddDoc(engine, 1 * 10000, 1 * 10000 + 3));
+  EXPECT_EQ(0, AddDoc(engine, 1 * 10000, 2 * 10000));
   Sleep(5000);
 
-  ASSERT_EQ(0, SearchThread(engine, 1 * 10000 + 3, 0));
+  ASSERT_EQ(0, SearchThread(engine, 2 * 10000, 0));
   ASSERT_EQ(0, Dump(engine));
   Close(engine);
   engine = nullptr;
@@ -518,6 +589,58 @@ TEST(Engine, CreateTableFromLocal) {
 
   ASSERT_EQ(0, SearchThread(engine, 2 * 10000, 0));
   ASSERT_EQ(0, Dump(engine));
+  Close(engine);
+  engine = nullptr;
+}
+
+TEST(Engine, UpdateAndCompactIndex) {
+  string case_name = GetCurrentCaseName();
+  string table_name = "test_compact_index";
+  int max_doc_size = 10000 * 10;
+  utils::remove_dir(case_name.c_str());
+  utils::make_dir(case_name.c_str());
+  string root_path = "./" + case_name;
+
+  LOG(INFO) << "------------------create table--------------------";
+  void *engine = CreateEngine(root_path, max_doc_size);
+  ASSERT_NE(nullptr, engine);
+  ASSERT_EQ(0, CreateTable(engine, table_name));
+
+  LOG(INFO) << "------------------add doc and build--------------------";
+  ASSERT_EQ(0, AddDoc(engine, 0, 1 * 10000));
+  BuildIdx(engine);
+
+  LOG(INFO) << "------------------update docs--------------------";
+  long fet_offset = (long)50000 * opt.d * 4;
+  ASSERT_EQ(0, AddDoc(engine, 0, 10000, 0, fet_offset));
+
+  Sleep(1000 * 10);
+  ASSERT_EQ(0, SearchThread(engine, 10000, 0, fet_offset));
+
+  LOG(INFO) << "------------------delete docs--------------------";
+  ASSERT_EQ(0, DeleteDoc(engine, 0, 4 * 1000));
+
+  Sleep(1000 * 6);
+  LOG(INFO) << "------------------add docs--------------------";
+  ASSERT_EQ(0, AddDoc(engine, 1 * 10000, 14000));
+
+  // LOG(INFO) << "------------------dump and close--------------------";
+  // ASSERT_EQ(0, Dump(engine));
+  // Close(engine);
+  // engine = nullptr;
+
+  // LOG(INFO) << "------------------reload--------------------";
+  // engine = CreateEngine(root_path, max_doc_size);
+  // ASSERT_NE(nullptr, engine);
+  // ASSERT_EQ(0, CreateTable(engine, table_name));
+  // ASSERT_EQ(0, Load(engine));
+  // BuildIdx(engine);
+
+  Sleep(1000 * 10);
+  fet_offset += 4000 * opt.d * 4;
+  ASSERT_EQ(0, SearchThread(engine, 6000, 4000, fet_offset));
+  ASSERT_EQ(0, SearchThread(engine, 4000, 10000));
+
   Close(engine);
   engine = nullptr;
 }

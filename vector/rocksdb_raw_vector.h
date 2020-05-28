@@ -19,22 +19,23 @@
 
 namespace tig_gamma {
 
-class RocksDBRawVector : public RawVector {
+template <typename DataType>
+class RocksDBRawVector : public RawVector<DataType> {
  public:
   RocksDBRawVector(const std::string &name, int dimension, int max_vector_size,
                    const std::string &root_path,
                    const StoreParams &store_params);
   ~RocksDBRawVector();
   /* RawVector */
-  int Init() override;
-  int AddToStore(float *v, int len) override;
-  int GetVectorHeader(int start, int end, ScopeVector &vec) override;
-  int UpdateToStore(int vid, float *v, int len);
+  int InitStore() override;
+  int AddToStore(DataType *v, int len) override;
+  int GetVectorHeader(int start, int end, ScopeVector<DataType> &vec) override;
+  int UpdateToStore(int vid, DataType *v, int len);
 
   size_t GetStoreMemUsage();
 
  protected:
-  int GetVector(long vid, const float *&vec, bool &deletable) const override;
+  int GetVector(long vid, const DataType *&vec, bool &deletable) const override;
 
  private:
   void ToRowKey(int vid, std::string &key) const;
@@ -43,7 +44,7 @@ class RocksDBRawVector : public RawVector {
   rocksdb::DB *db_;
   rocksdb::BlockBasedTableOptions table_options_;
   size_t block_cache_size_;
-  RawVectorIO *raw_vector_io_;
+  RawVectorIO<DataType> *raw_vector_io_;
   StoreParams *store_params_;
 };
 }  // namespace tig_gamma

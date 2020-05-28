@@ -9,9 +9,11 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+
 #include <chrono>
 #include <iostream>
 #include <sstream>
+
 #include "gamma_api_generated.h"
 #include "gamma_engine.h"
 #include "log.h"
@@ -88,8 +90,8 @@ VectorInfo **MakeVectorInfos(int num) {
 
 VectorInfo *MakeVectorInfo(ByteArray *name, enum DataType data_type,
                            BOOL is_index, int dimension, ByteArray *model_id,
-                           ByteArray *retrieval_type, ByteArray *store_type,
-                           ByteArray *store_param) {
+                           ByteArray *store_type, ByteArray *store_param,
+                           BOOL has_source) {
   VectorInfo *vectorInfo =
       static_cast<VectorInfo *>(malloc(sizeof(VectorInfo)));
   memset(vectorInfo, 0, sizeof(VectorInfo));
@@ -98,9 +100,9 @@ VectorInfo *MakeVectorInfo(ByteArray *name, enum DataType data_type,
   vectorInfo->is_index = is_index;
   vectorInfo->dimension = dimension;
   vectorInfo->model_id = model_id;
-  vectorInfo->retrieval_type = retrieval_type;
   vectorInfo->store_type = store_type;
   vectorInfo->store_param = store_param;
+  vectorInfo->has_source = has_source;
   return vectorInfo;
 }
 
@@ -114,7 +116,6 @@ enum ResponseCode DestroyVectorInfo(VectorInfo *vector_info) {
   if (vector_info != nullptr) {
     DestroyByteArray(vector_info->name);
     DestroyByteArray(vector_info->model_id);
-    DestroyByteArray(vector_info->retrieval_type);
     DestroyByteArray(vector_info->store_type);
     free(vector_info);
   }
@@ -203,30 +204,10 @@ enum ResponseCode DestroyFields(Field **field, int num) {
   return ResponseCode::SUCCESSED;
 }
 
-IVFPQParameters *MakeIVFPQParameters(int metric_type, int nprobe,
-                                     int ncentroids, int nsubvector,
-                                     int nbits_per_idx) {
-  IVFPQParameters *param =
-      static_cast<IVFPQParameters *>(malloc(sizeof(IVFPQParameters)));
-  memset(param, 0, sizeof(IVFPQParameters));
-  param->metric_type = metric_type;
-  param->nprobe = nprobe;
-  param->ncentroids = ncentroids;
-  param->nsubvector = nsubvector;
-  param->nbits_per_idx = nbits_per_idx;
-  return param;
-}
-
-enum ResponseCode DestroyIVFPQParameters(IVFPQParameters *param) {
-  if (param != nullptr) {
-    free(param);
-  }
-  return ResponseCode::SUCCESSED;
-}
-
 Table *MakeTable(ByteArray *name, FieldInfo **fields, int fields_num,
                  VectorInfo **vectors_info, int vectors_num,
-                 IVFPQParameters *ivfpq_param) {
+                 ByteArray *retrieval_type, ByteArray *retrieval_param,
+                 unsigned char id_type) {
   Table *table = static_cast<Table *>(malloc(sizeof(Table)));
   memset(table, 0, sizeof(Table));
   table->name = name;
@@ -234,7 +215,9 @@ Table *MakeTable(ByteArray *name, FieldInfo **fields, int fields_num,
   table->fields_num = fields_num;
   table->vectors_info = vectors_info;
   table->vectors_num = vectors_num;
-  table->ivfpq_param = ivfpq_param;
+  table->retrieval_type = retrieval_type;
+  table->retrieval_param = retrieval_param;
+  table->id_type = id_type;
 
   return table;
 }
@@ -244,7 +227,8 @@ enum ResponseCode DestroyTable(Table *table) {
     DestroyByteArray(table->name);
     DestroyFieldInfos(table->fields, table->fields_num);
     DestroyVectorInfos(table->vectors_info, table->vectors_num);
-    DestroyIVFPQParameters(table->ivfpq_param);
+    DestroyByteArray(table->retrieval_type);
+    DestroyByteArray(table->retrieval_param);
     free(table);
   }
   return ResponseCode::SUCCESSED;
@@ -278,6 +262,7 @@ enum ResponseCode SetLogDictionary(ByteArray *log_dir) {
   defaultConf.setGlobally(el::ConfigurationType::Format,
                           "%level %datetime %fbase:%line %msg");
   defaultConf.setGlobally(el::ConfigurationType::ToFile, "true");
+  defaultConf.setGlobally(el::ConfigurationType::ToStandardOutput, "false");
   defaultConf.setGlobally(el::ConfigurationType::MaxLogFileSize,
                           "209715200");  // 200MB
   defaultConf.setGlobally(el::ConfigurationType::Filename, dir + "/gamma.log");
@@ -344,9 +329,8 @@ enum ResponseCode UpdateDoc(void *engine, Doc *doc) {
 }
 
 enum ResponseCode DelDoc(void *engine, ByteArray *doc_id) {
-  string doc_id_str = string(doc_id->value, doc_id->len);
   enum ResponseCode ret = static_cast<enum ResponseCode>(
-      static_cast<tig_gamma::GammaEngine *>(engine)->Del(doc_id_str));
+      static_cast<tig_gamma::GammaEngine *>(engine)->Del(doc_id));
   return ret;
 }
 
@@ -364,9 +348,7 @@ long GetMemoryBytes(void *engine) {
 }
 
 Doc *GetDocByID(void *engine, ByteArray *doc_id) {
-  string doc_id_str = string(doc_id->value, doc_id->len);
-
-  Doc *doc = static_cast<tig_gamma::GammaEngine *>(engine)->GetDoc(doc_id_str);
+  Doc *doc = static_cast<tig_gamma::GammaEngine *>(engine)->GetDoc(doc_id);
   return doc;
 }
 
@@ -538,7 +520,8 @@ Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
                      TermFilter **term_filters, int term_filters_num,
                      int req_num, int direct_search_type,
                      ByteArray *online_log_level, int has_rank,
-                     int multi_vector_rank, BOOL parallel_based_on_query) {
+                     int multi_vector_rank, BOOL parallel_based_on_query,
+                     BOOL l2_sqrt, int nprobe, BOOL ivf_flat) {
   Request *request = static_cast<Request *>(malloc(sizeof(Request)));
   memset(request, 0, sizeof(Request));
   request->topn = topn;
@@ -556,7 +539,9 @@ Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
   request->has_rank = has_rank;
   request->multi_vector_rank = multi_vector_rank;
   request->parallel_based_on_query = parallel_based_on_query;
-  request->l2_sqrt = FALSE;
+  request->l2_sqrt = l2_sqrt;
+  request->nprobe = nprobe;
+  request->ivf_flat = ivf_flat;
   return request;
 }
 

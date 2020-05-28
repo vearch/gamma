@@ -15,6 +15,10 @@
 #include "gamma_api.h"
 #include "log.h"
 
+#ifdef USE_BTREE
+#include "threadskv10h.h"
+#endif
+
 #ifdef WITH_ROCKSDB
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -61,7 +65,7 @@ class Profile {
    * @param doc_id output, the docid to key
    * @return 0 if successed, -1 key not found
    */
-  int GetDocIDByKey(const std::string &key, int &doc_id);
+  int GetDocIDByKey(std::string &key, int &doc_id);
 
   /** dump datas to disk
    *
@@ -71,7 +75,7 @@ class Profile {
 
   long GetMemoryBytes();
 
-  int GetDocInfo(const std::string &id, Doc *&doc);
+  int GetDocInfo(ByteArray *key, Doc *&doc);
   int GetDocInfo(const int docid, Doc *&doc);
 
   Field *GetFieldInfo(const int docid, const std::string &field_name);
@@ -100,6 +104,8 @@ class Profile {
 
   int GetFieldRawValue(int docid, int field_id, unsigned char **value,
                        int &data_len);
+
+  int GetFieldType(const std::string &field, enum DataType &type);
 
   int GetAttrType(std::map<std::string, enum DataType> &attr_type_map);
 
@@ -136,7 +142,10 @@ class Profile {
   std::map<std::string, int> attr_is_index_map_;
   std::vector<int> idx_attr_offset_;
   std::vector<enum DataType> attrs_;
-  cuckoohash_map<std::string, int> item_to_docid_;
+
+  uint8_t id_type_; // 0 string, 1 long, default 1
+  cuckoohash_map<long, int> item_to_docid_;
+  cuckoohash_map<std::string, int> item_to_docid_str_;
 
   char *mem_;
   char *str_mem_;
@@ -149,6 +158,11 @@ class Profile {
   rocksdb::DB *db_;
 #endif
   std::string db_path_;
+
+#ifdef USE_BTREE
+  BtMgr *main_mgr_;
+  BtMgr *cache_mgr_;
+#endif
 };
 
 inline struct ByteArray *StringToByteArray(const std::string &str) {

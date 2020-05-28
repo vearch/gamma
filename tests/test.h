@@ -30,12 +30,27 @@ using std::string;
 using namespace std;
 namespace {
 
-IVFPQParameters *kIVFPQParam =
-    MakeIVFPQParameters(InnerProduct, 10, 256, 64, 8);
+string kIVFPQParam_str =
+    "{\"nprobe\" : 10, \"metric_type\" : \"InnerProduct\", \"ncentroids\" : "
+    "256,\"nsubvector\" : 64}";
 
-IVFPQParameters *GetIVFPQParam() {
-  return MakeIVFPQParameters(InnerProduct, 20, 256, 64, 8);
+ByteArray *kIVFPQParam =
+    MakeByteArray(kIVFPQParam_str.c_str(), kIVFPQParam_str.length());
+
+ByteArray *GetIVFPQParam() {
+  return MakeByteArray(kIVFPQParam_str.c_str(), kIVFPQParam_str.length());
 }
+
+string kHNSWParam_str =
+    "{\"nlinks\" : 32, \"metric_type\" : \"InnerProduct\", \"efSearch\" : "
+    "64,\"efConstruction\" : 40}";
+
+ByteArray *kHNSWParam =
+    MakeByteArray(kHNSWParam_str.c_str(), kHNSWParam_str.length());
+
+string kFLATParam_str = "{\"metric_type\" : \"InnerProduct\"}";
+ByteArray *kFLATParam =
+    MakeByteArray(kFLATParam_str.c_str(), kFLATParam_str.length());
 
 inline ByteArray *StringToByteArray(const std::string &str) {
   ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
@@ -53,7 +68,7 @@ inline ByteArray *FloatToByteArray(const float *feature, int dimension) {
   return ba;
 }
 
-inline ByteArray *Uint8ToByteArray(const uint8_t* feature, int dimension) {
+inline ByteArray *Uint8ToByteArray(const uint8_t *feature, int dimension) {
   ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
   ba->len = dimension * sizeof(uint8_t);
   ba->value = static_cast<char *>(malloc(ba->len));

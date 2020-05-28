@@ -165,6 +165,13 @@ int DeviceMemoryManager::Erase(std::thread::id tid) {
   return 0;
 }
 
+DeviceMemoryManager *GammaMemManager::GetManager(int device) {
+  if (not is_initialized_) {
+    return nullptr;
+  }
+  return memorys_[device];
+}
+
 GammaMemManager::GammaMemManager() {}
 
 int GammaMemManager::Init(int ngpus) {
@@ -190,7 +197,7 @@ int GammaMemManager::Init(int ngpus) {
             << "]";
   LOG(INFO) << "------------------------------------------";
 
-  total_mem_num_ = devProp.totalGlobalMem / 2 / kTmpMemorySize;
+  total_mem_num_ = 2;  // one for query, other for adding
 
   memorys_.resize(ngpus_);
 
@@ -201,13 +208,6 @@ int GammaMemManager::Init(int ngpus) {
 
   is_initialized_ = true;
   return total_mem_num_;
-}
-
-DeviceMemoryManager *GammaMemManager::GetManager(int device) {
-  if (not is_initialized_) {
-    return nullptr;
-  }
-  return memorys_[device];
 }
 
 int GammaMemManager::ReturnMem(std::thread::id tid) {

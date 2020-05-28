@@ -18,32 +18,34 @@ namespace tig_gamma {
 
 static const int kDefaultBufferChunkNum = 1024;
 
-class MmapRawVector : public RawVector, public AsyncFlusher {
+template <typename DataType>
+class MmapRawVector : public RawVector<DataType>, public AsyncFlusher {
  public:
   MmapRawVector(const std::string &name, int dimension, int max_vector_size,
                 const std::string &root_path, const StoreParams &store_params);
   ~MmapRawVector();
-  int Init() override;
-  int AddToStore(float *v, int len) override;
-  int GetVectorHeader(int start, int end, ScopeVector &vec) override;
-  int UpdateToStore(int vid, float *v, int len);
+  int InitStore() override;
+  int AddToStore(DataType *v, int len) override;
+  int GetVectorHeader(int start, int end, ScopeVector<DataType> &vec) override;
+  int UpdateToStore(int vid, DataType *v, int len);
+  int GetMemoryMode() { return memory_only_; }
 
  protected:
   int FlushOnce() override;
-  int GetVector(long vid, const float *&vec, bool &deletable) const override;
+  int GetVector(long vid, const DataType *&vec, bool &deletable) const override;
   int DumpVectors(int dump_vid, int max_vid);
   int LoadVectors(int vec_num) override;
   int LoadUpdatedVectors();
 
  private:
-  VectorBufferQueue *vector_buffer_queue_;
-  VectorFileMapper *vector_file_mapper_;
+  VectorBufferQueue<DataType> *vector_buffer_queue_;
+  VectorFileMapper<DataType> *vector_file_mapper_;
   int max_buffer_size_;
   int buffer_chunk_num_;
   int flush_batch_size_;
   int flush_write_retry_;
   int init_vector_num_;
-  float *flush_batch_vectors_;
+  DataType *flush_batch_vectors_;
   std::string fet_file_path_;
   std::string updated_fet_file_path_;
   int fet_fd_;

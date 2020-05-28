@@ -12,45 +12,39 @@
 namespace tig_gamma {
 namespace realtime {
 
-RTInvertIndex::RTInvertIndex(faiss::Index *index, long max_vec_size,
-                             const char *docids_bitmap, int *vid2docid,
+RTInvertIndex::RTInvertIndex(size_t nlist, size_t code_size, long max_vec_size,
+                             VIDMgr *vid_mgr, const char *docids_bitmap,
                              size_t bucket_keys, size_t bucket_keys_limit)
-    : _bucket_keys(bucket_keys),
-      _bucket_keys_limit(bucket_keys_limit),
-      _max_vec_size(max_vec_size),
-      docids_bitmap_(docids_bitmap),
-      vid2docid_(vid2docid) {
-  _cur_ptr = nullptr;
-  if (index) {
-    _index_ivf = dynamic_cast<faiss::IndexIVF *>(index);
-  } else {
-    _index_ivf = nullptr;
-  }
+    : nlist_(nlist),
+      code_size_(code_size),
+      bucket_keys_(bucket_keys),
+      bucket_keys_limit_(bucket_keys_limit),
+      max_vec_size_(max_vec_size),
+      vid_mgr_(vid_mgr),
+      docids_bitmap_(docids_bitmap) {
+  cur_ptr_ = nullptr;
 }
 
 RTInvertIndex::~RTInvertIndex() {
-  if (_cur_ptr) {
-    delete _cur_ptr;
-    _cur_ptr = nullptr;
+  if (cur_ptr_) {
+    delete cur_ptr_;
+    cur_ptr_ = nullptr;
   }
 }
 
 bool RTInvertIndex::Init() {
-  if (nullptr == _index_ivf) return false;
-  _cur_ptr = new (std::nothrow)
-      RealTimeMemData(_index_ivf->nlist, _max_vec_size, docids_bitmap_,
-                      vid2docid_, _bucket_keys, _index_ivf->code_size);
-  if (nullptr == _cur_ptr) return false;
+  CHECK_DELETE(cur_ptr_);
+  cur_ptr_ = new (std::nothrow)
+      RealTimeMemData(nlist_, max_vec_size_, vid_mgr_, docids_bitmap_,
+                      bucket_keys_, bucket_keys_limit_, code_size_);
+  if (nullptr == cur_ptr_) return false;
 
-  if (!_cur_ptr->Init()) return false;
+  if (!cur_ptr_->Init()) return false;
   return true;
 }
 
 bool RTInvertIndex::AddKeys(std::map<int, std::vector<long>> &new_keys,
                             std::map<int, std::vector<uint8_t>> &new_codes) {
-  // error, not index_ivf
-  if (!_index_ivf) return false;
-
   std::map<int, std::vector<long>>::iterator new_keys_iter = new_keys.begin();
 
   for (; new_keys_iter != new_keys.end(); new_keys_iter++) {
@@ -59,55 +53,18 @@ bool RTInvertIndex::AddKeys(std::map<int, std::vector<long>> &new_keys,
       continue;
     }
 
-    if (((new_keys_iter->second).size() * _index_ivf->code_size) !=
+    if (((new_keys_iter->second).size() * code_size_) !=
         new_codes[bucket_no].size()) {
       LOG(ERROR) << "the pairs of new_keys and new_codes are not suitable!";
       continue;
     }
 
     size_t keys_size = new_keys[bucket_no].size();
-    if (_cur_ptr->_cur_invert_ptr->_retrieve_idx_pos[bucket_no] +
-            (int)keys_size <=
-        _cur_ptr->_cur_invert_ptr->_cur_bucket_keys[bucket_no]) {
-      std::vector<long> &new_keys_vec = new_keys[bucket_no];
-      std::vector<uint8_t> &new_codes_vec = new_codes[bucket_no];
-      _cur_ptr->AddKeys((size_t)bucket_no, (size_t)keys_size, new_keys_vec,
-                        new_codes_vec);
-    } else {  // can not add new keys any more
-      if (_cur_ptr->_cur_invert_ptr->_cur_bucket_keys[bucket_no] * 2 >=
-          (int)_bucket_keys_limit) {
-        LOG(WARNING)
-            << "exceed the max bucket keys [" << _bucket_keys_limit
-            << "], not extend memory any more!"
-            << " keys_size [" << keys_size << "] "
-            << "bucket_no [" << bucket_no << "]"
-            << " _cur_ptr->_cur_invert_ptr->_cur_bucket_keys[bucket_no] ["
-            << _cur_ptr->_cur_invert_ptr->_cur_bucket_keys[bucket_no] << "]";
-        return false;
-      } else {
-#if 0  // memory limit
-        utils::MEM_PACK *p = utils::get_memoccupy();
-        if (p->used_rate > 80) {
-          LOG(WARNING)
-              << "System memory used [" << p->used_rate
-              << "]%, cannot add doc, keys_size [" << keys_size << "]"
-              << "bucket_no [" << bucket_no << "]"
-              << " _cur_ptr->_cur_invert_ptr->_cur_bucket_keys[bucket_no] ["
-              << _cur_ptr->_cur_invert_ptr->_cur_bucket_keys[bucket_no] << "]";
-          free(p);
-          return false;
-        } else {
-          LOG(INFO) << "System memory used [" << p->used_rate << "]%";
-          free(p);
-        }
-#endif
-        if (!_cur_ptr->ExtendBucketMem(bucket_no)) {
-          return false;
-        }
-
-        _cur_ptr->AddKeys((size_t)bucket_no, (size_t)keys_size,
-                          new_keys[bucket_no], new_codes[bucket_no]);
-      }
+    if (!cur_ptr_->AddKeys((size_t)bucket_no, (size_t)keys_size,
+                           new_keys[bucket_no], new_codes[bucket_no])) {
+      LOG(ERROR) << "add keys error, bucket no=" << bucket_no
+                 << ", key size=" << keys_size;
+      return false;
     }
   }
 
@@ -115,53 +72,97 @@ bool RTInvertIndex::AddKeys(std::map<int, std::vector<long>> &new_keys,
 }
 
 int RTInvertIndex::Update(int bucket_no, int vid, std::vector<uint8_t> &codes) {
-  return _cur_ptr->Update(bucket_no, vid, codes);
+  return cur_ptr_->Update(bucket_no, vid, codes);
 }
 
 bool RTInvertIndex::GetIvtList(const size_t &bucket_no, long *&ivt_list,
                                size_t &ivt_size, uint8_t *&ivt_codes_list) {
-  ivt_size = _cur_ptr->_cur_invert_ptr->_retrieve_idx_pos[bucket_no];
-  return _cur_ptr->GetIvtList(bucket_no, ivt_list, ivt_codes_list);
+  ivt_size = cur_ptr_->cur_invert_ptr_->retrieve_idx_pos_[bucket_no];
+  return cur_ptr_->GetIvtList(bucket_no, ivt_list, ivt_codes_list);
 }
 
 int RTInvertIndex::RetrieveCodes(
     int *vids, size_t vid_size,
     std::vector<std::vector<const uint8_t *>> &bucket_codes,
     std::vector<std::vector<long>> &bucket_vids) {
-  return _cur_ptr->RetrieveCodes(vids, vid_size, bucket_codes, bucket_vids);
+  return cur_ptr_->RetrieveCodes(vids, vid_size, bucket_codes, bucket_vids);
 }
 
 int RTInvertIndex::RetrieveCodes(
     int **vids_list, size_t vids_list_size,
     std::vector<std::vector<const uint8_t *>> &bucket_codes,
     std::vector<std::vector<long>> &bucket_vids) {
-  return _cur_ptr->RetrieveCodes(vids_list, vids_list_size, bucket_codes,
+  return cur_ptr_->RetrieveCodes(vids_list, vids_list_size, bucket_codes,
                                  bucket_vids);
 }
 
 int RTInvertIndex::Dump(const std::string &dir, const std::string &vec_name,
                         int max_vid) {
-  return _cur_ptr->Dump(dir, vec_name, max_vid);
+  return cur_ptr_->Dump(dir, vec_name, max_vid);
 }
 
 int RTInvertIndex::Load(const std::vector<std::string> &index_dirs,
                         const std::string &vec_name) {
-  return _cur_ptr->Load(index_dirs, vec_name);
+  return cur_ptr_->Load(index_dirs, vec_name);
 }
 
-void RTInvertIndex::PrintBucketSize() { _cur_ptr->PrintBucketSize(); }
+void RTInvertIndex::PrintBucketSize() { cur_ptr_->PrintBucketSize(); }
 
-int RTInvertIndex::CompactBucket(int bucket_no) {
-  return _cur_ptr->CompactBucket(bucket_no);
+int RTInvertIndex::CompactIfNeed() { return cur_ptr_->CompactIfNeed(); }
+
+int RTInvertIndex::Delete(int *vids, int n) {
+  return cur_ptr_->Delete(vids, n);
 }
 
-int RTInvertIndex::RetrieveBucketId(int vid) {
-  return _cur_ptr->RetrieveBucketId(vid);
+RTInvertedLists::RTInvertedLists(realtime::RTInvertIndex *rt_invert_index_ptr,
+                                 size_t nlist, size_t code_size)
+    : InvertedLists(nlist, code_size),
+      rt_invert_index_ptr_(rt_invert_index_ptr) {}
+
+size_t RTInvertedLists::list_size(size_t list_no) const {
+  if (!rt_invert_index_ptr_) return 0;
+  long *ivt_list = nullptr;
+  size_t list_size = 0;
+  uint8_t *ivt_codes_list = nullptr;
+  bool ret = rt_invert_index_ptr_->GetIvtList(list_no, ivt_list, list_size,
+                                              ivt_codes_list);
+  if (!ret) return 0;
+  return list_size;
 }
 
-bool RTInvertIndex::Compactable(int deleted_doc_num) {
-  return _cur_ptr->Compactable(deleted_doc_num);
+const uint8_t *RTInvertedLists::get_codes(size_t list_no) const {
+  if (!rt_invert_index_ptr_) return nullptr;
+  long *ivt_list = nullptr;
+  size_t list_size = 0;
+  uint8_t *ivt_codes_list = nullptr;
+  bool ret = rt_invert_index_ptr_->GetIvtList(list_no, ivt_list, list_size,
+                                              ivt_codes_list);
+  if (!ret) return nullptr;
+  return ivt_codes_list;
 }
+
+const idx_t *RTInvertedLists::get_ids(size_t list_no) const {
+  if (!rt_invert_index_ptr_) return nullptr;
+  long *ivt_list = nullptr;
+  size_t list_size = 0;
+  uint8_t *ivt_codes_list = nullptr;
+  bool ret = rt_invert_index_ptr_->GetIvtList(list_no, ivt_list, list_size,
+                                              ivt_codes_list);
+  if (!ret) return nullptr;
+  idx_t *ivt_lists = reinterpret_cast<idx_t *>(ivt_list);
+  return ivt_lists;
+}
+
+size_t RTInvertedLists::add_entries(size_t list_no, size_t n_entry,
+                                    const idx_t *ids, const uint8_t *code) {
+  return 0;
+}
+
+void RTInvertedLists::resize(size_t list_no, size_t new_size) {}
+
+void RTInvertedLists::update_entries(size_t list_no, size_t offset,
+                                     size_t n_entry, const idx_t *ids_in,
+                                     const uint8_t *codes_in) {}
 
 }  // namespace realtime
 }  // namespace tig_gamma

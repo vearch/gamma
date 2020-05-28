@@ -21,13 +21,8 @@
 #define GAMMA_INDEX_IVFPQ_H_
 
 #include <unistd.h>
+
 #include <atomic>
-#include "field_range_index.h"
-#include "gamma_common_data.h"
-#include "gamma_index.h"
-#include "log.h"
-#include "raw_vector.h"
-#include "realtime_invert_index.h"
 
 #include "faiss/IndexIVF.h"
 #include "faiss/IndexIVFPQ.h"
@@ -39,6 +34,13 @@
 #include "faiss/utils/distances.h"
 #include "faiss/utils/hamming.h"
 #include "faiss/utils/utils.h"
+#include "field_range_index.h"
+#include "gamma_common_data.h"
+#include "gamma_index.h"
+#include "gamma_index_flat.h"
+#include "log.h"
+#include "raw_vector.h"
+#include "realtime_invert_index.h"
 
 namespace tig_gamma {
 
@@ -529,7 +531,7 @@ struct GammaInvertedListScanner : faiss::InvertedListScanner {
                                     idx_t *heap_ids, size_t k) = 0;
 
   inline void SetVecFilter(const char *docids_bitmap,
-                           const RawVector *raw_vec) {
+                           const RawVector<float> *raw_vec) {
     if (docids_bitmap == nullptr) {
       LOG(ERROR) << "docids_bitmap is NULL!";
       return;
@@ -551,7 +553,7 @@ struct GammaInvertedListScanner : faiss::InvertedListScanner {
   }
 
   const char *docids_bitmap_;
-  const RawVector *raw_vec_;
+  const RawVector<float> *raw_vec_;
   MultiRangeQueryResults *range_index_ptr_;
 };
 
@@ -614,35 +616,35 @@ struct GammaIVFPQScanner : IVFPQScannerT<idx_t, METRIC_TYPE>,
       };
     }
 
-#define HANDLE_ONE                                 \
-  do {                                             \
-    if (res.ids[j] & 0x80000000) {                 \
-      codes += this->pq.M;                         \
-      j++;                                         \
-      continue;                                    \
-    }                                              \
-    int vid = res.ids[j] & 0x7fffffff;             \
-    int doc_id = raw_vec_->vid2docid_[vid];        \
-    if ((range_index_ptr_ != nullptr &&            \
-         (not range_index_ptr_->Has(doc_id))) ||   \
-        bitmap::test(docids_bitmap_, doc_id)) {    \
-      codes += this->pq.M; /* increment pointer */ \
-      j++;                 /* increment j*/        \
-      continue;                                    \
-    }                                              \
-                                                   \
-    float dis = this->dis0;                        \
-    const float *tab = this->sim_table;            \
-    for (size_t m = 0; m < this->pq.M; m += 4) {   \
-      dis += tab[*codes++], tab += this->pq.ksub;  \
-      dis += tab[*codes++], tab += this->pq.ksub;  \
-      dis += tab[*codes++], tab += this->pq.ksub;  \
-      dis += tab[*codes++], tab += this->pq.ksub;  \
-    }                                              \
-                                                   \
-    res.add(j, dis);                               \
-                                                   \
-    j++; /* increment j */                         \
+#define HANDLE_ONE                                                             \
+  do {                                                                         \
+    if (res.ids[j] & realtime::kDelIdxMask) {                                  \
+      codes += this->pq.M;                                                     \
+      j++;                                                                     \
+      continue;                                                                \
+    }                                                                          \
+    int doc_id =                                                               \
+        raw_vec_->vid_mgr_->VID2DocID(res.ids[j] & realtime::kRecoverIdxMask); \
+    if ((range_index_ptr_ != nullptr &&                                        \
+         (not range_index_ptr_->Has(doc_id))) ||                               \
+        bitmap::test(docids_bitmap_, doc_id)) {                                \
+      codes += this->pq.M; /* increment pointer */                             \
+      j++;                 /* increment j*/                                    \
+      continue;                                                                \
+    }                                                                          \
+                                                                               \
+    float dis = this->dis0;                                                    \
+    const float *tab = this->sim_table;                                        \
+    for (size_t m = 0; m < this->pq.M; m += 4) {                               \
+      dis += tab[*codes++], tab += this->pq.ksub;                              \
+      dis += tab[*codes++], tab += this->pq.ksub;                              \
+      dis += tab[*codes++], tab += this->pq.ksub;                              \
+      dis += tab[*codes++], tab += this->pq.ksub;                              \
+    }                                                                          \
+                                                                               \
+    res.add(j, dis);                                                           \
+                                                                               \
+    j++; /* increment j */                                                     \
   } while (0)
     size_t j = 0;
     size_t loops = ncode / 8;
@@ -800,228 +802,88 @@ struct GammaIVFPQScanner : IVFPQScannerT<idx_t, METRIC_TYPE>,
   }
 };
 
-//} // anonymous namespace
+template<faiss::MetricType metric, class C>
+struct GammaIVFFlatScanner: GammaInvertedListScanner {
+  size_t d;
 
-struct RTInvertedLists : faiss::InvertedLists {
-  RTInvertedLists(realtime::RTInvertIndex *rt_invert_index_ptr, size_t nlist,
-                  size_t code_size);
+  GammaIVFFlatScanner(size_t d):d(d) {}
 
-  /*************************
-   *  Read only functions */
-
-  // get the size of a list
-  size_t list_size(size_t list_no) const override;
-
-  /** get the codes for an inverted list
-   * must be released by release_codes
-   *
-   * @return codes    size list_size * code_size
-   */
-  const uint8_t *get_codes(size_t list_no) const override;
-
-  /** get the ids for an inverted list
-   * must be released by release_ids
-   *
-   * @return ids      size list_size
-   */
-  const idx_t *get_ids(size_t list_no) const override;
-
-  /*************************
-   * writing functions     */
-
-  size_t add_entries(size_t list_no, size_t n_entry, const idx_t *ids,
-                     const uint8_t *code) override;
-
-  void resize(size_t list_no, size_t new_size) override;
-
-  void update_entries(size_t list_no, size_t offset, size_t n_entry,
-                      const idx_t *ids_in, const uint8_t *codes_in) override;
-
-  realtime::RTInvertIndex *rt_invert_index_ptr_;
-};
-
-/*************************************************************
- * I/O macros
- *
- * we use macros so that we have a line number to report in abort
- * (). This makes debugging a lot easier. The IOReader or IOWriter is
- * always called f and thus is not passed in as a macro parameter.
- **************************************************************/
-
-#define WRITEANDCHECK(ptr, n)                                                 \
-  {                                                                           \
-    size_t ret = (*f)(ptr, sizeof(*(ptr)), n);                                \
-    FAISS_THROW_IF_NOT_FMT(ret == (n), "write error in %s: %ld != %ld (%s)",  \
-                           f->name.c_str(), ret, size_t(n), strerror(errno)); \
+  const float *xi;
+  void set_query (const float *query) override {
+    this->xi = query;
   }
 
-#define READANDCHECK(ptr, n)                                                  \
-  {                                                                           \
-    size_t ret = (*f)(ptr, sizeof(*(ptr)), n);                                \
-    FAISS_THROW_IF_NOT_FMT(ret == (n), "read error in %s: %ld != %ld (%s)",   \
-                           f->name.c_str(), ret, size_t(n), strerror(errno)); \
+  idx_t list_no;
+  void set_list (idx_t list_no, float /* coarse_dis */) override {
+    this->list_no = list_no;
   }
 
-#define WRITE1(x) WRITEANDCHECK(&(x), 1)
-#define READ1(x) READANDCHECK(&(x), 1)
+  float distance_to_code (const uint8_t *code) const override {
+    const float *yj = (float*)code;
+    float dis = metric == faiss::METRIC_INNER_PRODUCT ?
+      faiss::fvec_inner_product (xi, yj, d) : faiss::fvec_L2sqr (xi, yj, d);
+    return dis;
+   }
 
-#define WRITEVECTOR(vec)               \
-  {                                    \
-    size_t size = (vec).size();        \
-    WRITEANDCHECK(&size, 1);           \
-    WRITEANDCHECK((vec).data(), size); \
-  }
+  inline size_t scan_codes (size_t list_size,
+                       const uint8_t *codes,
+                       const idx_t *ids,
+                       float *simi, idx_t *idxi,
+                       size_t k) const override
+  {
+    // set filter func
+    std::function<bool(int)> is_filterable;
 
-// will fail if we write 256G of data at once...
-#define READVECTOR(vec)                                 \
-  {                                                     \
-    size_t size;                                        \
-    READANDCHECK(&size, 1);                             \
-    FAISS_THROW_IF_NOT(size >= 0 && size < (1L << 40)); \
-    (vec).resize(size);                                 \
-    READANDCHECK((vec).data(), size);                   \
-  }
+    if (range_index_ptr_ != nullptr) {
+      is_filterable = [this](int doc_id) -> bool {
+        return (bitmap::test(docids_bitmap_, doc_id) ||
+                (not range_index_ptr_->Has(doc_id)));
+      };
+    } else {
+      is_filterable = [this](int doc_id) -> bool {
+        return (bitmap::test(docids_bitmap_, doc_id));
+      };
+    }
 
-/****************************************************************
- * Write
- *****************************************************************/
-static void write_index_header(const faiss::Index *idx, faiss::IOWriter *f) {
-  WRITE1(idx->d);
-  WRITE1(idx->ntotal);
-  faiss::Index::idx_t dummy = 1 << 20;
-  WRITE1(dummy);
-  WRITE1(dummy);
-  WRITE1(idx->is_trained);
-  WRITE1(idx->metric_type);
-}
+    const float *list_vecs = (const float*)codes;
+    size_t nup = 0;
+    for (size_t j = 0; j < list_size; j++) {
+      if(ids[j] & realtime::kDelIdxMask) continue;
+      idx_t vid = ids[j] & realtime::kRecoverIdxMask;
+      if(vid < 0) continue;
+      int doc_id = raw_vec_->vid_mgr_->VID2DocID(vid);
+      if(doc_id < 0) continue;
+      if(is_filterable(doc_id)) continue;
 
-static void write_ivf_header(const faiss::IndexIVF *ivf, faiss::IOWriter *f) {
-  write_index_header(ivf, f);
-  WRITE1(ivf->nlist);
-  WRITE1(ivf->nprobe);
-  faiss::write_index(ivf->quantizer, f);
-  WRITE1(ivf->maintain_direct_map);
-  WRITEVECTOR(ivf->direct_map);
-}
-
-static void read_index_header(faiss::Index *idx, faiss::IOReader *f) {
-  READ1(idx->d);
-  READ1(idx->ntotal);
-  faiss::Index::idx_t dummy;
-  READ1(dummy);
-  READ1(dummy);
-  READ1(idx->is_trained);
-  READ1(idx->metric_type);
-  idx->verbose = false;
-}
-
-static void read_ivf_header(
-    faiss::IndexIVF *ivf, faiss::IOReader *f,
-    std::vector<std::vector<faiss::Index::idx_t>> *ids = nullptr) {
-  read_index_header(ivf, f);
-  READ1(ivf->nlist);
-  READ1(ivf->nprobe);
-  ivf->quantizer = faiss::read_index(f);
-  ivf->own_fields = true;
-  if (ids) {  // used in legacy "Iv" formats
-    ids->resize(ivf->nlist);
-    for (size_t i = 0; i < ivf->nlist; i++) READVECTOR((*ids)[i]);
-  }
-  READ1(ivf->maintain_direct_map);
-  READVECTOR(ivf->direct_map);
-}
-
-static void write_ProductQuantizer(const faiss::ProductQuantizer *pq,
-                                   faiss::IOWriter *f) {
-  WRITE1(pq->d);
-  WRITE1(pq->M);
-  WRITE1(pq->nbits);
-  WRITEVECTOR(pq->centroids);
-}
-
-static void read_ProductQuantizer(faiss::ProductQuantizer *pq,
-                                  faiss::IOReader *f) {
-  READ1(pq->d);
-  READ1(pq->M);
-  READ1(pq->nbits);
-  pq->set_derived_values();
-  READVECTOR(pq->centroids);
-}
-
-// namespace {
-
-struct FileIOReader : faiss::IOReader {
-  FILE *f = nullptr;
-  bool need_close = false;
-
-  FileIOReader(FILE *rf) : f(rf) {}
-
-  FileIOReader(const char *fname) {
-    name = fname;
-    f = fopen(fname, "rb");
-    FAISS_THROW_IF_NOT_FMT(f, "could not open %s for reading: %s", fname,
-                           strerror(errno));
-    need_close = true;
-  }
-
-  ~FileIOReader() override {
-    if (need_close) {
-      int ret = fclose(f);
-      if (ret != 0) {  // we cannot raise and exception in the destructor
-        fprintf(stderr, "file %s close error: %s", name.c_str(),
-                strerror(errno));
+      const float *yj = list_vecs + d * vid;
+      float dis = metric == faiss::METRIC_INNER_PRODUCT ?
+        faiss::fvec_inner_product (xi, yj, d) : faiss::fvec_L2sqr (xi, yj, d);
+      if (C::cmp (simi[0], dis)) {
+        faiss::heap_pop<C> (k, simi, idxi);
+        faiss::heap_push<C> (k, simi, idxi, dis, doc_id);
+        nup++;
       }
     }
+    return nup;
   }
 
-  size_t operator()(void *ptr, size_t size, size_t nitems) override {
-    return fread(ptr, size, nitems, f);
-  }
+  size_t scan_codes_pointer(size_t ncode, const uint8_t **codes,
+                            const idx_t *ids, float *heap_sim,
+                            idx_t *heap_ids, size_t k) { return 0; }
 
-  int fileno() override { return ::fileno(f); }
 };
 
-struct FileIOWriter : faiss::IOWriter {
-  FILE *f = nullptr;
-  bool need_close = false;
-
-  FileIOWriter(FILE *wf) : f(wf) {}
-
-  FileIOWriter(const char *fname) {
-    name = fname;
-    f = fopen(fname, "wb");
-    FAISS_THROW_IF_NOT_FMT(f, "could not open %s for writing: %s", fname,
-                           strerror(errno));
-    need_close = true;
-  }
-
-  ~FileIOWriter() override {
-    if (need_close) {
-      int ret = fclose(f);
-      if (ret != 0) {
-        // we cannot raise and exception in the destructor
-        fprintf(stderr, "file %s close error: %s", name.c_str(),
-                strerror(errno));
-      }
-    }
-  }
-
-  size_t operator()(const void *ptr, size_t size, size_t nitems) override {
-    return fwrite(ptr, size, nitems, f);
-  }
-  int fileno() override { return ::fileno(f); }
-};
-
-// } // anonymous namespace
-
-struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
+struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
   GammaIVFPQIndex(faiss::Index *quantizer, size_t d, size_t nlist, size_t M,
                   size_t nbits_per_idx, const char *docids_bitmap,
-                  RawVector *raw_vec, int nprobe, GammaCounters *counters);
-  ~GammaIVFPQIndex();
+                  RawVector<float> *raw_vec,
+                  GammaCounters *counters);
+  virtual ~GammaIVFPQIndex();
 
   faiss::InvertedListScanner *get_InvertedListScanner(
       bool store_pairs) const override;
+
+  GammaInvertedListScanner *GetGammaIVFFlatScanner(size_t d) const;
 
   GammaInvertedListScanner *GetGammaInvertedListScanner(bool store_pairs) const;
 
@@ -1029,7 +891,7 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
 
   int AddRTVecsToIndex() override;
 
-  bool Add(int n, const float *vec) override;
+  bool Add(int n, const float *vec);
 
   int Update(int doc_id, const float *vec) { return -1; }
   int AddUpdatedVecToIndex();
@@ -1038,18 +900,20 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
              VectorResult &result) override;
 
   void search_preassigned(int n, const float *x,
-                          GammaSearchCondition *condition, const idx_t *assign,
-                          const float *centroid_dis, float *distances,
+                          GammaSearchCondition *condition, const idx_t *keys,
+                          const float *coarse_dis, float *distances,
+                          idx_t *labels, int *total, bool store_pairs,
+                          const faiss::IVFSearchParameters *params = nullptr);
+  
+  void search_ivf_flat(int n, const float *x,
+                          GammaSearchCondition *condition, const idx_t *keys,
+                          const float *coarse_dis, float *distances,
                           idx_t *labels, int *total, bool store_pairs,
                           const faiss::IVFSearchParameters *params = nullptr);
 
   // assign the vectors, then call search_preassign
   void SearchIVFPQ(int n, const float *x, GammaSearchCondition *condition,
                    float *distances, idx_t *labels, int *total);
-
-  void SearchDirectly(int n, const float *x,
-                      const GammaSearchCondition *condition, float *distances,
-                      idx_t *labels, int *total);
 
   long GetTotalMemBytes() override {
     if (!rt_invert_index_ptr_) {
@@ -1058,90 +922,14 @@ struct GammaIVFPQIndex : GammaIndex, faiss::IndexIVFPQ {
     return rt_invert_index_ptr_->GetTotalMemBytes();
   }
 
-  int Dump(const std::string &dir, int max_vid) override {
-    if (!rt_invert_index_ptr_) {
-      LOG(INFO) << "realtime invert index ptr is null";
-      return -1;
-    }
-    if (!this->is_trained) {
-      LOG(INFO) << "gamma index is not trained, skip dumping";
-      return 0;
-    }
-    string vec_name = raw_vec_->GetName();
-    string info_file = dir + "/" + vec_name + ".index.param";
-    faiss::IOWriter *f = new FileIOWriter(info_file.c_str());
-    const IndexIVFPQ *ivpq = static_cast<const IndexIVFPQ *>(this);
-    write_ivf_header(ivpq, f);
-    WRITE1(ivpq->by_residual);
-    WRITE1(ivpq->code_size);
-    tig_gamma::write_ProductQuantizer(&ivpq->pq, f);
-    delete f;
+  int Dump(const std::string &dir, int max_vid) override;
 
-    LOG(INFO) << "dump: d=" << ivpq->d << ", ntotal=" << ivpq->ntotal
-              << ", is_trained=" << ivpq->is_trained
-              << ", metric_type=" << ivpq->metric_type
-              << ", nlist=" << ivpq->nlist << ", nprobe=" << ivpq->nprobe
-              << ", maintain_direct_map=" << ivpq->maintain_direct_map
-              << ", by_residual=" << ivpq->by_residual
-              << ", code_size=" << ivpq->code_size << ", pq: d=" << ivpq->pq.d
-              << ", M=" << ivpq->pq.M << ", nbits=" << ivpq->pq.nbits;
+  int Load(const std::vector<std::string> &index_dirs);
 
-    if (indexed_vec_count_ <= 0) {
-      LOG(INFO) << "no vector is indexed, do not need dump";
-      return 0;
-    }
+  virtual void copy_subset_to(faiss::IndexIVF &other, int subset_type, idx_t a1,
+                              idx_t a2) const;
 
-    /* return rt_invert_index_ptr_->Dump( */
-    /*     dir, vec_name, std::min(max_vid, indexed_vec_count_ - 1)); */
-    return 0;
-  }
-
-  int Load(const std::vector<std::string> &index_dirs) {
-    if (!rt_invert_index_ptr_) {
-      return -1;
-    }
-
-    string vec_name = raw_vec_->GetName();
-    string info_file =
-        index_dirs[index_dirs.size() - 1] + "/" + vec_name + ".index.param";
-    if (access(info_file.c_str(), F_OK) != 0) {
-      LOG(INFO) << info_file << " isn't existed, skip loading";
-      return 0;  // it should train again after load
-    }
-
-    faiss::IOReader *f = new FileIOReader(info_file.c_str());
-    IndexIVFPQ *ivpq = static_cast<IndexIVFPQ *>(this);
-    read_ivf_header(ivpq, f, nullptr);  // not legacy
-    READ1(ivpq->by_residual);
-    READ1(ivpq->code_size);
-    read_ProductQuantizer(&ivpq->pq, f);
-
-    // precomputed table not stored. It is cheaper to recompute it
-    ivpq->use_precomputed_table = 0;
-    if (ivpq->by_residual) ivpq->precompute_table();
-    delete f;
-
-    if (!this->is_trained) {
-      LOG(ERROR) << "unexpected, gamma index information is loaded, but it "
-                    "isn't trained";
-      return 0;  // it should train again after load
-    }
-
-    /* indexed_vec_count_ = rt_invert_index_ptr_->Load(index_dirs, vec_name); */
-    indexed_vec_count_ = 0;
-
-    LOG(INFO) << "load: d=" << ivpq->d << ", ntotal=" << ivpq->ntotal
-              << ", is_trained=" << ivpq->is_trained
-              << ", metric_type=" << ivpq->metric_type
-              << ", nlist=" << ivpq->nlist << ", nprobe=" << ivpq->nprobe
-              << ", maintain_direct_map=" << ivpq->maintain_direct_map
-              << ", by_residual=" << ivpq->by_residual
-              << ", code_size=" << ivpq->code_size << ", pq: d=" << ivpq->pq.d
-              << ", M=" << ivpq->pq.M << ", nbits=" << ivpq->pq.nbits
-              << ", indexed vector count=" << indexed_vec_count_;
-
-    return indexed_vec_count_;
-  }
+  int Delete(int docid);
 
   int indexed_vec_count_;
   realtime::RTInvertIndex *rt_invert_index_ptr_;

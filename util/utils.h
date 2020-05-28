@@ -93,7 +93,7 @@ template <class T>
 std::string join(const T *a, int n, char separator) {
   std::stringstream ss;
   ss << "[";
-  for (size_t i = 0; i < n; i++) {
+  for (int i = 0; i < n; i++) {
     if (i != 0) {
       ss << separator;
     }
@@ -123,6 +123,7 @@ struct JsonParser {
   JsonParser();
   ~JsonParser();
   int Parse(const char *str);
+  int GetInt(const std::string &name, int &value);
   int GetDouble(const std::string &name, double &value);
   int GetString(const std::string &name, std::string &value);
   bool Contains(const std::string &name);
@@ -152,6 +153,29 @@ void AsyncWait(int after, callable &&f, arguments &&... args) {
   })
       .detach();
 }
+
+/** bare-bones unique_ptr
+ * this one deletes with delete [] */
+template <class T>
+struct ScopeDeleter {
+  const T *ptr;
+  explicit ScopeDeleter(const T *ptr = nullptr) : ptr(ptr) {}
+  void release() { ptr = nullptr; }
+  void set(const T *ptr_in) { ptr = ptr_in; }
+  void swap(ScopeDeleter<T> &other) { std::swap(ptr, other.ptr); }
+  ~ScopeDeleter() { delete[] ptr; }
+};
+
+/** same but deletes with the simple delete (least common case) */
+template <class T>
+struct ScopeDeleter1 {
+  const T *ptr;
+  explicit ScopeDeleter1(const T *ptr = nullptr) : ptr(ptr) {}
+  void release() { ptr = nullptr; }
+  void set(const T *ptr_in) { ptr = ptr_in; }
+  void swap(ScopeDeleter1<T> &other) { std::swap(ptr, other.ptr); }
+  ~ScopeDeleter1() { delete ptr; }
+};
 
 }  // namespace utils
 

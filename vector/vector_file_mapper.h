@@ -12,19 +12,22 @@
 
 namespace tig_gamma {
 
+template <typename DataType>
 class VectorFileMapper {
-public:
+ public:
   VectorFileMapper(std::string file_path, int offset, int max_vector_size,
                    int dimension);
   ~VectorFileMapper();
   int Init();
-  const float *GetVector(int id);
-  const float *GetVectors();
-  int GetMappedNum() const { return mapped_num_; };
+  const DataType *GetVector(int id);
+  const DataType *GetVectors();
+  int GetMappedNum() const {
+    return mapped_num_;
+  };
 
-private:
+ private:
   void *buf_;
-  float *vectors_;
+  DataType *vectors_;
   std::string file_path_;
   int offset_;
   int max_vector_size_;
@@ -33,6 +36,6 @@ private:
   int mapped_num_;
 };
 
-} // namespace tig_gamma
+}  // namespace tig_gamma
 
 #endif

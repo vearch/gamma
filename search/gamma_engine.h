@@ -40,10 +40,10 @@ class GammaEngine {
 
   /**
    * Delete doc
-   * @param doc_id
+   * @param key
    * @return 0 if successed
    */
-  int Del(const std::string &doc_id);
+  int Del(ByteArray *key);
 
   /**
    * Delete doc by query
@@ -52,7 +52,7 @@ class GammaEngine {
    */
   int DelDocByQuery(Request *request);
 
-  Doc *GetDoc(const std::string &id);
+  Doc *GetDoc(ByteArray *id);
 
   /**
    * blocking to build index
@@ -74,6 +74,8 @@ class GammaEngine {
  private:
   GammaEngine(const std::string &index_root_path);
   int CreateTableFromLocal(std::string &table_name);
+
+  int Indexing();
 
  private:
   std::string index_root_path_;
@@ -115,11 +117,14 @@ class GammaEngine {
   int dump_docid_;  // next dump docid
   int bitmap_bytes_size_;
   const std::string date_time_format_;
+  std::string last_bitmap_filename_; // it should be delete after next dump
 
   bool created_table_;
   string dump_backup_path_;
 
   int indexed_field_num_;
+
+  bool b_loading_;
 
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;

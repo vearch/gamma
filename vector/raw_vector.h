@@ -14,53 +14,16 @@
 #include <vector>
 #include "concurrentqueue/concurrentqueue.h"
 #include "gamma_api.h"
+#include "raw_vector_common.h"
+#include "utils.h"
+#include "log.h"
 
 namespace tig_gamma {
 
-const static int MAX_VECTOR_NUM_PER_DOC = 10;
-const static int MAX_CACHE_SIZE = 1024 * 1024;  // M bytes, it is equal to 1T
-
+template <typename DataType>
 class RawVectorIO;
 
-struct ScopeVector {
-  const float *ptr_;
-  bool deletable_;
-
-  explicit ScopeVector(const float *ptr = nullptr) : ptr_(ptr) {}
-  void Set(const float *ptr_in, bool deletable = true) {
-    ptr_ = ptr_in;
-    deletable_ = deletable;
-  }
-  const float *Get() { return ptr_; }
-  ~ScopeVector() {
-    if (deletable_ && ptr_) delete[] ptr_;
-  }
-};
-
-struct ScopeVectors {
-  const float **ptr_;
-  int size_;
-  bool *deletable_;
-
-  explicit ScopeVectors(int size) : size_(size) {
-    ptr_ = new const float *[size_];
-    deletable_ = new bool[size_];
-  }
-  void Set(int idx, const float *ptr_in, bool deletable = true) {
-    ptr_[idx] = ptr_in;
-    deletable_[idx] = deletable;
-  }
-  const float **Get() { return ptr_; }
-  const float *Get(int idx) { return ptr_[idx]; }
-  ~ScopeVectors() {
-    for (int i = 0; i < size_; i++) {
-      if (deletable_[i] && ptr_[i]) delete[] ptr_[i];
-    }
-    delete[] deletable_;
-    delete[] ptr_;
-  }
-};
-
+template <typename DataType>
 class RawVector {
  public:
   RawVector(const std::string &name, int dimension, int max_vector_size,
@@ -71,7 +34,7 @@ class RawVector {
    *
    * @return 0 if successed
    */
-  virtual int Init() = 0;
+  int Init(bool has_source, bool multi_vids);
 
   /** get the header of all vectors, so it can access all vecotors through the
    * header if dimension is known
@@ -80,7 +43,8 @@ class RawVector {
    * @param end end vector id(exclude)
    * @return vectors header address if successed, null if failed
    */
-  virtual int GetVectorHeader(int start, int end, ScopeVector &vec) = 0;
+  virtual int GetVectorHeader(int start, int end,
+                              ScopeVector<DataType> &vec) = 0;
 
   /** dump vectors and sources to disk file
    *
@@ -101,7 +65,7 @@ class RawVector {
    * @param id vector id
    * @return vector if successed, null if failed
    */
-  int GetVector(long vid, ScopeVector &vec);
+  int GetVector(long vid, ScopeVector<DataType> &vec);
 
   /** get vectors by vecotor id list
    *
@@ -111,7 +75,7 @@ class RawVector {
    * Destroy()
    * @return 0 if successed
    */
-  int Gets(int k, long *ids_list, ScopeVectors &vecs) const;
+  int Gets(int k, long *ids_list, ScopeVectors<DataType> &vecs) const;
 
   /** get source of one vector, source is a string, for example the image url of
    * vector
@@ -126,16 +90,13 @@ class RawVector {
   /** add one vector field
    *
    * @param docid doc id, one doc may has multiple vectors
-   * @param field vector field, it contains vector(float array) and
+   * @param field vector field, it contains vector(DataType array) and
    * source(string)
    * @return 0 if successed
    */
   int Add(int docid, Field *&field);
 
   int Update(int docid, Field *&field);
-
-  int GetFirstVectorID(int docid);
-  int GetLastVectorID(int docid);
 
   virtual size_t GetStoreMemUsage() { return 0; }
 
@@ -147,18 +108,16 @@ class RawVector {
   int GetMaxVectorSize() const { return max_vector_size_; }
   std::string GetName() { return vector_name_; }
 
- public:
   /** add vector to the specific implementation of RawVector(memory or disk)
    *it is called by next common function Add()
    */
-  virtual int AddToStore(float *v, int len) = 0;
+  virtual int AddToStore(DataType *v, int len) = 0;
 
-  virtual int UpdateToStore(int vid, float *v, int len) = 0;
+  virtual int UpdateToStore(int vid, DataType *v, int len) = 0;
 
   int GetDimension() { return dimension_; };
 
-  std::vector<int> vid2docid_;    // vector id to doc id
-  std::vector<int *> docid2vid_;  // doc id to vector id list
+  VIDMgr *vid_mgr_;
   moodycamel::ConcurrentQueue<int> *updated_vids_;
 
  protected:
@@ -167,13 +126,14 @@ class RawVector {
    * @param id vector id
    * @return vector if successed, null if failed
    */
-  virtual int GetVector(long vid, const float *&vec, bool &deletable) const = 0;
+  virtual int GetVector(long vid, const DataType *&vec,
+                        bool &deletable) const = 0;
   virtual int DumpVectors(int dump_vid, int n) { return 0; }
   virtual int LoadVectors(int vec_num) { return 0; }
-  int CreateSourceMem();
+  virtual int InitStore() = 0;
 
  protected:
-  friend RawVectorIO;
+  friend RawVectorIO<DataType>;
   std::string vector_name_;  // vector name
   int dimension_;            // vector dimension
   int max_vector_size_;
@@ -183,18 +143,20 @@ class RawVector {
   long total_mem_bytes_;              // total used memory bytes
   char *str_mem_ptr_;                 // source memory
   std::vector<long> source_mem_pos_;  // position of each source
+  bool has_source_;
 };
 
+template <typename DataType>
 class RawVectorIO {
  public:
-  RawVectorIO(RawVector *raw_vector);
+  RawVectorIO(RawVector<DataType> *raw_vector);
   ~RawVectorIO();
   int Init();
   int Dump(int start, int n);
   int Load(int doc_num);
 
  private:
-  RawVector *raw_vector_;
+  RawVector<DataType> *raw_vector_;
   int docid_fd_;
   int src_fd_;
   int src_pos_fd_;
@@ -222,8 +184,24 @@ class AsyncFlusher {
   int interval_;
 };
 
-void StartFlushingIfNeed(RawVector *vec);
-void StopFlushingIfNeed(RawVector *vec);
+template <typename DataType>
+void StartFlushingIfNeed(RawVector<DataType> *vec) {
+  AsyncFlusher *flusher = nullptr;
+  if ((flusher = dynamic_cast<AsyncFlusher *>(vec))) {
+    flusher->Start();
+    LOG(INFO) << "start flushing, raw vector=" << vec->GetName();
+  }
+}
+
+template <typename DataType>
+void StopFlushingIfNeed(RawVector<DataType> *vec) {
+  AsyncFlusher *flusher = nullptr;
+  if ((flusher = dynamic_cast<AsyncFlusher *>(vec))) {
+    flusher->Until(vec->GetVectorNum());
+    flusher->Stop();
+    LOG(INFO) << "stop flushing, raw vector=" << vec->GetName();
+  }
+}
 
 struct StoreParams {
   long cache_size_;  // bytes

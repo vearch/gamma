@@ -12,6 +12,7 @@
 #include "gamma_api.h"
 #include "log.h"
 #include "online_logger.h"
+#include "profile.h"
 #include "utils.h"
 
 namespace tig_gamma {
@@ -31,7 +32,7 @@ enum class ResultCode : std::uint16_t {
 };
 
 enum VectorStorageType { Mmap, RocksDB };
-enum RetrievalModel { IVFPQ, GPU_IVFPQ };
+enum RetrievalModel { IVFPQ, GPU_IVFPQ, BINARYIVF, HNSW, FLAT };
 
 struct VectorDocField {
   std::string name;
@@ -90,6 +91,17 @@ struct GammaSearchCondition {
     parallel_mode = 1;  // default to parallelize over inverted list
     use_direct_search = false;
     l2_sqrt = false;
+    nprobe = 20;
+    ivf_flat = false;
+
+#ifdef BUILD_GPU
+    range_filters = nullptr;
+    range_filters_num = 0;
+    term_filters = nullptr;
+    term_filters_num = 0;
+    profile = nullptr;
+#endif  // BUILD_GPU
+
 #ifdef PERFORMANCE_TESTING
     start_time = utils::getmillisecs();
     cur_time = start_time;
@@ -109,13 +121,39 @@ struct GammaSearchCondition {
     parallel_mode = condition->parallel_mode;
     use_direct_search = condition->use_direct_search;
     l2_sqrt = condition->l2_sqrt;
+    nprobe = condition->nprobe;
+    ivf_flat = condition->ivf_flat;
+
+#ifdef BUILD_GPU
+    range_filters = condition->range_filters;
+    range_filters_num = condition->range_filters_num;
+    term_filters = condition->term_filters;
+    term_filters_num = condition->term_filters_num;
+    profile = condition->profile;
+#endif  // BUILD_GPU
   }
 
   ~GammaSearchCondition() {
     range_query_result = nullptr;  // should not delete
+
+#ifdef BUILD_GPU
+    range_filters = nullptr;  // should not delete
+    term_filters = nullptr;   // should not delete
+    profile = nullptr;        // should not delete
+#endif                        // BUILD_GPU
   }
 
   MultiRangeQueryResults *range_query_result;
+
+#ifdef BUILD_GPU
+  RangeFilter **range_filters;
+  int range_filters_num;
+
+  TermFilter **term_filters;
+  int term_filters_num;
+
+  Profile *profile;
+#endif  // BUILD_GPU
 
   int topn;
   bool has_rank;
@@ -129,6 +167,9 @@ struct GammaSearchCondition {
   int parallel_mode;
   bool use_direct_search;
   bool l2_sqrt;
+  int nprobe;
+  bool ivf_flat;
+
 #ifdef PERFORMANCE_TESTING
   double cur_time;
   double start_time;
@@ -180,7 +221,7 @@ struct GammaBinaryQuery {
 
   ~GammaBinaryQuery() {}
 
-  int *vec_id; // binary vector id
+  int *vec_id;  // binary vector id
   std::vector<int> start_pos;
   std::vector<int> sequence_len;
 
@@ -240,36 +281,136 @@ struct GammaResult {
   VectorDoc **docs;
 };
 
-struct IVFPQParamHelper {
-  IVFPQParamHelper(IVFPQParameters *ivfpq_param) { ivfpq_param_ = ivfpq_param; }
-  void SetDefaultValue() {
-    if (ivfpq_param_->metric_type == -1)
-      ivfpq_param_->metric_type = InnerProduct;
-    if (ivfpq_param_->nprobe == -1) ivfpq_param_->nprobe = 20;
-    if (ivfpq_param_->ncentroids == -1) ivfpq_param_->ncentroids = 256;
-    if (ivfpq_param_->nsubvector == -1) ivfpq_param_->nsubvector = 64;
-    if (ivfpq_param_->nbits_per_idx == -1) ivfpq_param_->nbits_per_idx = 8;
+struct RetrievalParams {
+  DistanceMetricType metric_type;
+
+  RetrievalParams() { metric_type = InnerProduct; }
+
+  virtual ~RetrievalParams(){};
+
+  bool Validate() {
+    if (metric_type < InnerProduct || metric_type > L2) return false;
+    return true;
+  }
+
+  virtual int Parse(const char *str) {
+    utils::JsonParser jp;
+    if (jp.Parse(str)) {
+      LOG(ERROR) << "parse retrieval parameters error: " << str;
+      return -1;
+    }
+
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = L2;
+      else
+        this->metric_type = InnerProduct;
+    } else {
+      LOG(ERROR) << "cannot get metric type, set it when create space";
+      this->metric_type = L2;
+    }
+
+    return 0;
+  }
+
+  virtual std::string ToString() {
+    std::stringstream ss;
+    ss << "metric_type = " << metric_type;
+    return ss.str();
+  }
+};
+
+struct IVFPQRetrievalParams : RetrievalParams {
+  int ncentroids;     // coarse cluster center number
+  int nsubvector;     // number of sub cluster center
+  int nbits_per_idx;  // bit number of sub cluster center
+
+  IVFPQRetrievalParams() : RetrievalParams() {
+    ncentroids = 256;
+    nsubvector = 64;
+    nbits_per_idx = 8;
+  }
+
+  int Parse(const char *str) {
+    utils::JsonParser jp;
+    if (jp.Parse(str)) {
+      LOG(ERROR) << "parse IVFPQ retrieval parameters error: " << str;
+      return -1;
+    }
+
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = L2;
+      else
+        this->metric_type = InnerProduct;
+    } else {
+      LOG(ERROR) << "cannot get metric type, set it when create space";
+      return -1;
+    }
+
+    int ncentroids;
+    int nsubvector;
+    int nbits_per_idx;
+
+    // -1 as default
+    if (!jp.GetInt("ncentroids", ncentroids)) {
+      if (ncentroids < -1) {
+        LOG(ERROR) << "invalid ncentroids =" << ncentroids;
+        return -1;
+      }
+      if (ncentroids > 0) this->ncentroids = ncentroids;
+    } else {
+      LOG(ERROR) << "cannot get ncentroids for ivfpq, set it when create space";
+      return -1;
+    }
+
+    if (!jp.GetInt("nsubvector", nsubvector)) {
+      if (nsubvector < -1) {
+        LOG(ERROR) << "invalid nsubvector =" << nsubvector;
+        return -1;
+      }
+      if (nsubvector > 0) this->nsubvector = nsubvector;
+    } else {
+      LOG(ERROR) << "cannot get nsubvector for ivfpq, set it when create space";
+      return -1;
+    }
+
+    if (!jp.GetInt("nbits_per_idx", nbits_per_idx)) {
+      if (nbits_per_idx < -1) {
+        LOG(ERROR) << "invalid nbits_per_idx =" << nbits_per_idx;
+        return -1;
+      }
+      if (nbits_per_idx > 0) this->nbits_per_idx = nbits_per_idx;
+    }
+    if(!Validate())
+      return -1;
+    return 0;
   }
 
   bool Validate() {
-    if (ivfpq_param_->metric_type < InnerProduct ||
-        ivfpq_param_->metric_type > L2 || ivfpq_param_->nprobe <= 0 ||
-        ivfpq_param_->ncentroids <= 0 || ivfpq_param_->nsubvector <= 0 ||
-        ivfpq_param_->nbits_per_idx <= 0)
+    if (metric_type < InnerProduct || metric_type > L2) return false;
+    if (ncentroids <= 0 || nsubvector <= 0 || nbits_per_idx <= 0)
       return false;
-    if (ivfpq_param_->nsubvector % 4 != 0) {
-      LOG(ERROR) << "only support multiple of 4 now, nsubvector="
-                 << ivfpq_param_->nsubvector;
+    if (nsubvector % 4 != 0) {
+      LOG(ERROR) << "only support multiple of 4 now, nsubvector=" << nsubvector;
       return false;
     }
-    if (ivfpq_param_->nbits_per_idx != 8) {
-      LOG(ERROR) << "only support 8 now, nbits_per_idx="
-                 << ivfpq_param_->nbits_per_idx;
-      return false;
-    }
-    if (ivfpq_param_->nprobe > ivfpq_param_->ncentroids) {
-      LOG(ERROR) << "nprobe=" << ivfpq_param_->nprobe
-                 << " > ncentroids=" << ivfpq_param_->ncentroids;
+    if (nbits_per_idx != 8) {
+      LOG(ERROR) << "only support 8 now, nbits_per_idx=" << nbits_per_idx;
       return false;
     }
     return true;
@@ -277,15 +418,167 @@ struct IVFPQParamHelper {
 
   std::string ToString() {
     std::stringstream ss;
-    ss << "ivfpq parameters: metric_type=" << ivfpq_param_->metric_type
-       << ", nprobe=" << ivfpq_param_->nprobe
-       << ", ncentroids=" << ivfpq_param_->ncentroids
-       << ", nsubvector=" << ivfpq_param_->nsubvector
-       << ", nbits_per_idx=" << ivfpq_param_->nbits_per_idx;
+    ss << "metric_type = " << metric_type << ", ";
+    ss << "ncentroids =" << ncentroids << ", ";
+    ss << "nsubvector =" << nsubvector << ", ";
+    ss << "nbits_per_idx =" << nbits_per_idx;
     return ss.str();
   }
+};
 
-  IVFPQParameters *ivfpq_param_;
+struct BinaryRetrievalParams : RetrievalParams {
+  int nprobe;      // scan nprobe
+  int ncentroids;  // coarse cluster center number
+
+  BinaryRetrievalParams() : RetrievalParams() {
+    nprobe = 20;
+    ncentroids = 256;
+  }
+
+  int Parse(const char *str) {
+    utils::JsonParser jp;
+    if (jp.Parse(str)) {
+      LOG(ERROR) << "parse IVF retrieval parameters error: " << str;
+      return -1;
+    }
+
+    int nprobe;
+    int ncentroids;
+
+    if (!jp.GetInt("nprobe", nprobe)) {
+      if (nprobe < -1) {
+        LOG(ERROR) << "invalid nprobe =" << nprobe;
+        return -1;
+      }
+      if (nprobe > 0) this->nprobe = nprobe;
+    } else {
+      LOG(ERROR) << "cannot get nprobe for ivf, set it when create space";
+      return -1;
+    }
+
+    // -1 as default
+    if (!jp.GetInt("ncentroids", ncentroids)) {
+      if (ncentroids < -1) {
+        LOG(ERROR) << "invalid ncentroids =" << ncentroids;
+        return -1;
+      }
+      if (ncentroids > 0) this->ncentroids = ncentroids;
+    } else {
+      LOG(ERROR) << "cannot get ncentroids for ivf, set it when create space";
+      return -1;
+    }
+
+    return 0;
+  }
+
+  bool Validate() {
+    if (nprobe <= 0 || ncentroids <= 0) return false;
+
+    if (nprobe > ncentroids) {
+      LOG(ERROR) << "nprobe=" << nprobe << " > ncentroids=" << ncentroids;
+      return false;
+    }
+    return true;
+  }
+
+  std::string ToString() {
+    std::stringstream ss;
+    ss << "nprobe =" << nprobe << ", ";
+    ss << "ncentroids =" << ncentroids << ", ";
+    return ss.str();
+  }
+};
+
+struct HNSWRetrievalParams : RetrievalParams {
+  int nlinks;          // link number for hnsw graph
+  int efSearch;        // search parameter for searching in hnsw graph
+  int efConstruction;  // construction parameter for building hnsw graph
+
+  HNSWRetrievalParams() : RetrievalParams() {
+    nlinks = 32;
+    efSearch = 64;
+    efConstruction = 40;
+  }
+
+  bool Validate() {
+    if (metric_type < InnerProduct || metric_type > L2) return false;
+    if (nlinks < 0 || efSearch < 0 || efConstruction < 0) return false;
+    return true;
+  }
+
+  int Parse(const char *str) {
+    utils::JsonParser jp;
+    if (jp.Parse(str)) {
+      LOG(ERROR) << "parse HNSW retrieval parameters error: " << str;
+      return -1;
+    }
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = L2;
+      else
+        this->metric_type = InnerProduct;
+    } else {
+      LOG(ERROR) << "cannot get metric_type, set it when create space";
+      return -1;
+    }
+
+    int nlinks;
+    int efSearch;
+    int efConstruction;
+
+    // for -1, set as default
+    if (!jp.GetInt("nlinks", nlinks)) {
+      if (nlinks < -1) {
+        LOG(ERROR) << "invalid nlinks = " << nlinks;
+        return -1;
+      }
+      if (nlinks > 0) this->nlinks = nlinks;
+    } else {
+      LOG(ERROR) << "cannot get nlinks for hnsw, set it when create space";
+      return -1;
+    }
+
+    if (!jp.GetInt("efSearch", efSearch)) {
+      if (efSearch < -1) {
+        LOG(ERROR) << "invalid efSearch = " << efSearch;
+        return -1;
+      }
+      if (efSearch > 0) this->efSearch = efSearch;
+    } else {
+      LOG(ERROR) << "cannot get efSearch for hnsw, set it when create space";
+      return -1;
+    }
+
+    if (!jp.GetInt("efConstruction", efConstruction)) {
+      if (efConstruction < -1) {
+        LOG(ERROR) << "invalid efConstruction = " << efConstruction;
+        return -1;
+      }
+      if (efConstruction > 0) this->efConstruction = efConstruction;
+    } else {
+      LOG(ERROR)
+          << "cannot get efConstruction for hnsw, set it when create space";
+      return -1;
+    }
+
+    return 0;
+  }
+
+  std::string ToString() {
+    std::stringstream ss;
+    ss << "metric_type = " << metric_type << ", ";
+    ss << "nlinks =" << nlinks << ", ";
+    ss << "efSearch =" << efSearch << ", ";
+    ss << "efConstruction =" << efConstruction;
+    return ss.str();
+  }
 };
 
 struct GammaCounters {

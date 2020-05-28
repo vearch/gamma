@@ -94,14 +94,14 @@ enum DataType { INT = 0, LONG, FLOAT, DOUBLE, STRING, VECTOR };
 
 // VectorInfo
 typedef struct VectorInfo {
-  ByteArray *name;            // vector's name
-  enum DataType data_type;    // vector data type, float only supported now
-  BOOL is_index;              // whether index to be trained
-  int dimension;              // dimension
-  ByteArray *model_id;        // model_id, temporarily useless
-  ByteArray *retrieval_type;  // "IVFPQ"
-  ByteArray *store_type;      // "Mmap", "RocksDB"
-  ByteArray *store_param;     // parameters of store, json format
+  ByteArray *name;          // vector's name
+  enum DataType data_type;  // vector data type, float only supported now
+  BOOL is_index;            // whether index to be trained
+  int dimension;            // dimension
+  ByteArray *model_id;      // model_id, temporarily useless
+  ByteArray *store_type;    // "Mmap", "RocksDB"
+  ByteArray *store_param;   // parameters of store, json format
+  BOOL has_source;
 } VectorInfo;
 
 /** make vector infos array
@@ -122,8 +122,8 @@ VectorInfo **MakeVectorInfos(int num);
  */
 VectorInfo *MakeVectorInfo(ByteArray *name, enum DataType data_type,
                            BOOL is_index, int dimension, ByteArray *model_id,
-                           ByteArray *retrieval_type, ByteArray *store_type,
-                           ByteArray *store_param);
+                           ByteArray *store_type, ByteArray *store_param,
+                           BOOL has_source);
 
 /** Setting VectorInfo content
  *
@@ -235,48 +235,16 @@ enum ResponseCode DestroyField(Field *field);
  */
 enum ResponseCode DestroyFields(Field **fields, int num);
 
-#pragma pack(1)
-typedef struct IVFPQParameters {
-  int metric_type;
-  int nprobe;      // scan nprobe
-  int ncentroids;  // coarse cluster center number
-  int nsubvector;
-  int nbits_per_idx;  // bit number of sub cluster center
-} IVFPQParameters;
-#pragma pack()
-
-/** make a IVFPQParameters pointer
- *
- * @param metric_type   metric type, 0 inner product, 1 L2, default(-1) inner
- * product
- * @param nprobe        scan nprobe, default(-1) 20, it should be less than
- * ncentroids
- * @param ncentroids    coarse cluster center number, default(-1) 256
- * @param nsubvector    the number of sub vector, default(-1) 64, only the value
- * which is multiple of 4 is supported now
- * @param nbits_per_idx bit number of sub cluster center, default(-1) 8, and 8
- * is the only value now
- * @return IVFPQParameters pointer
- */
-IVFPQParameters *MakeIVFPQParameters(int metric_type, int nprobe,
-                                     int ncentroids, int nsubvector,
-                                     int nbits_per_idx);
-
-/** destroy IVFPQParameters pointer
- *
- * @param param IVFPQParameters pointer
- * @return ResponseCode
- */
-enum ResponseCode DestroyIVFPQParameters(IVFPQParameters *param);
-
 // table info
 typedef struct Table {
-  ByteArray *name;            // table name
-  FieldInfo **fields;         // FieldInfo array head pointer
-  int fields_num;             // field num
-  VectorInfo **vectors_info;  // VectorInfo array head pointer
-  int vectors_num;            // vector num
-  IVFPQParameters *ivfpq_param;
+  ByteArray *name;             // table name
+  FieldInfo **fields;          // FieldInfo array head pointer
+  int fields_num;              // field num
+  VectorInfo **vectors_info;   // VectorInfo array head pointer
+  int vectors_num;             // vector num
+  ByteArray *retrieval_type;   // retrieval type
+  ByteArray *retrieval_param;  // retrieval parameters, json format
+  unsigned char id_type;             // 0 string, 1 long, default 0
 } Table;
 
 /** make a Table pointer
@@ -290,7 +258,8 @@ typedef struct Table {
  */
 Table *MakeTable(ByteArray *name, FieldInfo **fields, int fields_num,
                  VectorInfo **vectors_info, int vectors_num,
-                 IVFPQParameters *ivfpq_param);
+                 ByteArray *retrieval_type, ByteArray *retrieval_param,
+                 unsigned char id_type);
 
 /** destroy Table
  *
@@ -405,13 +374,7 @@ long GetMemoryBytes(void *engine);
  */
 Doc *GetDocByID(void *engine, ByteArray *doc_id);
 
-/** This is a blocking fuction, its role is to establish a faiss index,
- * after the completion, monitor the changes in the profile.
- * If an error occurs during the creation process,
- * the function returns immediately
- * Example:
- *   std::thread t(BuildIndex);
- *   t.join();
+/** build vector index
  *
  * @param engine  search engine pointer
  * @return ResponseCode
@@ -624,6 +587,8 @@ typedef struct Request {
   BOOL parallel_based_on_query;  // TRUE: parallelize over queries
                                  // FALSE: parallelize over inverted lists
   BOOL l2_sqrt;
+  int nprobe;  // just for ivfpq, how many lists will be visited at search time
+  BOOL ivf_flat;  // just for ivfpq, ivf flat means no quantization of vector
 } Request;
 
 /** make a Request
@@ -644,6 +609,9 @@ typedef struct Request {
  * @param multi_vector_rank
  * @param parallel_based_on_query
  * @param l2_sqrt             default FALSE, don't do sqrt; TRUE, do sqrt
+ * @param nprobe              default 20, just for ivfpq
+ * @param ivf_flat            default FALSE, don't use ivf flat; TURE, use ivf
+ * flat, just for ivfpq,
  * @return  a request pointer
  */
 Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
@@ -652,7 +620,8 @@ Request *MakeRequest(int topn, VectorQuery **vec_fields, int vec_fields_num,
                      TermFilter **term_filters, int term_filters_num,
                      int req_num, int direct_search_type,
                      ByteArray *online_log_level, int has_rank,
-                     int multi_vector_rank, BOOL parallel_based_on_query);
+                     int multi_vector_rank, BOOL parallel_based_on_query,
+                     BOOL l2_sqrt, int nprobe, BOOL ivf_flat);
 
 /** destroy Request
  *

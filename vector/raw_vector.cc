@@ -18,20 +18,23 @@ using namespace std;
 
 namespace tig_gamma {
 
-RawVectorIO::RawVectorIO(RawVector *raw_vector) {
+template <typename DataType>
+RawVectorIO<DataType>::RawVectorIO(RawVector<DataType> *raw_vector) {
   raw_vector_ = raw_vector;
   docid_fd_ = -1;
   src_fd_ = -1;
   src_pos_fd_ = -1;
 }
 
-RawVectorIO::~RawVectorIO() {
+template <typename DataType>
+RawVectorIO<DataType>::~RawVectorIO() {
   if (docid_fd_ != -1) close(docid_fd_);
   if (src_fd_ != -1) close(src_fd_);
   if (src_pos_fd_ != -1) close(src_pos_fd_);
 }
 
-int RawVectorIO::Init() {
+template <typename DataType>
+int RawVectorIO<DataType>::Init() {
   string docid_file_path =
       raw_vector_->root_path_ + "/" + raw_vector_->vector_name_ + ".docid";
   string src_file_path =
@@ -48,32 +51,42 @@ int RawVectorIO::Init() {
   }
   return 0;
 }
-int RawVectorIO::Dump(int start, int n) {
-  char *str_mem_ptr = raw_vector_->str_mem_ptr_;
-  long *source_mem_pos = raw_vector_->source_mem_pos_.data();
-  int *vid2docid = raw_vector_->vid2docid_.data();
+template <typename DataType>
+int RawVectorIO<DataType>::Dump(int start, int n) {
+  if (raw_vector_->has_source_) {
+    char *str_mem_ptr = raw_vector_->str_mem_ptr_;
+    long *source_mem_pos = raw_vector_->source_mem_pos_.data();
 
-  // dump source
-  if (str_mem_ptr) {
-    write(src_fd_, (void *)(str_mem_ptr + source_mem_pos[start]),
-          source_mem_pos[start + n] - source_mem_pos[start]);
+    // dump source
+    if (str_mem_ptr) {
+      write(src_fd_, (void *)(str_mem_ptr + source_mem_pos[start]),
+            source_mem_pos[start + n] - source_mem_pos[start]);
+    }
+
+    // dump source position
+    if (start == 0) {
+      write(src_pos_fd_, (void *)(source_mem_pos + start),
+            (n + 1) * sizeof(long));
+    } else {
+      write(src_pos_fd_, (void *)(source_mem_pos + start + 1),
+            n * sizeof(long));
+    }
   }
 
-  // dump source position
-  if (start == 0) {
-    write(src_pos_fd_, (void *)(source_mem_pos + start),
-          (n + 1) * sizeof(long));
-  } else {
-    write(src_pos_fd_, (void *)(source_mem_pos + start + 1), n * sizeof(long));
+  if (raw_vector_->vid_mgr_->multi_vids_) {
+    int *vid2docid = raw_vector_->vid_mgr_->vid2docid_.data();
+    write(docid_fd_, (void *)(vid2docid + start), n * sizeof(int));
   }
 
 #ifdef DEBUG
   LOG(INFO) << "io dump,  start=" << start << ", n=" << n;
 #endif
-  write(docid_fd_, (void *)(vid2docid + start), n * sizeof(int));
+
   return 0;
 }
-int RawVectorIO::Load(int doc_num) {
+
+template <typename DataType>
+int RawVectorIO<DataType>::Load(int doc_num) {
   if (doc_num == 0) {
     if (ftruncate(docid_fd_, 0)) {
       LOG(ERROR) << "truncate docid file error:" << strerror(errno);
@@ -89,126 +102,133 @@ int RawVectorIO::Load(int doc_num) {
     }
     return 0;
   }
-  string docid_file_path =
-      raw_vector_->root_path_ + "/" + raw_vector_->vector_name_ + ".docid";
-  long docid_file_size = utils::get_file_size(docid_file_path.c_str());
-  if (docid_file_size <= 0 || docid_file_size % sizeof(int) != 0) {
-    LOG(ERROR) << "invalid docid file size=" << docid_file_size;
-    return -1;
-  }
-  int num = docid_file_size / sizeof(int);
-  read(docid_fd_, (void *)raw_vector_->vid2docid_.data(), num * sizeof(int));
-  // create docid2vid_ from vid2docid_
-  int vid = 0;
-  for (; vid < num; vid++) {
-    int docid = raw_vector_->vid2docid_[vid];
-    if (docid == -1) {
-      continue;
+  int n = 0;
+  if (raw_vector_->vid_mgr_->multi_vids_) {
+    string docid_file_path =
+        raw_vector_->root_path_ + "/" + raw_vector_->vector_name_ + ".docid";
+    long docid_file_size = utils::get_file_size(docid_file_path.c_str());
+    if (docid_file_size <= 0 || docid_file_size % sizeof(int) != 0) {
+      LOG(ERROR) << "invalid docid file size=" << docid_file_size;
+      return -1;
     }
-    if (docid >= doc_num) {
-      break;
-    }
-    if (raw_vector_->docid2vid_[docid] == nullptr) {
-      raw_vector_->docid2vid_[docid] = utils::NewArray<int>(
-          MAX_VECTOR_NUM_PER_DOC + 1, "load_init_vid_list");
-      raw_vector_->docid2vid_[docid][0] = 1;
-      raw_vector_->docid2vid_[docid][1] = vid;
-    } else {
-      int *vid_list = raw_vector_->docid2vid_[docid];
-      if (vid_list[0] + 1 > MAX_VECTOR_NUM_PER_DOC) {
-        LOG(ERROR) << "vid list size=" << vid_list[0] + 1 << " > "
-                   << MAX_VECTOR_NUM_PER_DOC << ", vid=" << vid
-                   << ", docid=" << docid << ", vid list="
-                   << utils::join(vid_list + 1, vid_list[0], ',');
-        return -1;
+    int num = docid_file_size / sizeof(int);
+    read(docid_fd_, (void *)raw_vector_->vid_mgr_->vid2docid_.data(),
+         num * sizeof(int));
+    // create docid2vid_ from vid2docid_
+    int vid = 0;
+    for (; vid < num; vid++) {
+      int docid = raw_vector_->vid_mgr_->vid2docid_[vid];
+      if (docid == -1) {
+        continue;
       }
-      vid_list[vid_list[0]] = vid;
-      vid_list[0]++;
+      if (docid >= doc_num) {
+        break;
+      }
+      raw_vector_->vid_mgr_->Add(vid, docid);
     }
-  }
-  int n = vid;
-  // set [n, num) to be -1
-  for (int i = n; i < num; i++) {
-    raw_vector_->vid2docid_[i] = -1;
-  }
-  read(src_pos_fd_, (void *)raw_vector_->source_mem_pos_.data(),
-       (n + 1) * sizeof(long));
-  if (raw_vector_->source_mem_pos_[n] > 0) {
-    raw_vector_->CreateSourceMem();
-    read(src_fd_, (void *)raw_vector_->str_mem_ptr_,
-         raw_vector_->source_mem_pos_[n]);
+    n = vid;
+    // set [n, num) to be -1
+    for (int i = n; i < num; i++) {
+      raw_vector_->vid_mgr_->vid2docid_[i] = -1;
+    }
+
+    // truncate docid file to vid_num length
+    if (ftruncate(docid_fd_, n * sizeof(int))) {
+      LOG(ERROR) << "truncate docid file error:" << strerror(errno);
+      return -1;
+    }
   }
 
-  // truncate docid and str file to vid_num length
-  if (ftruncate(docid_fd_, n * sizeof(int))) {
-    LOG(ERROR) << "truncate docid file error:" << strerror(errno);
-    return -1;
+  if (raw_vector_->has_source_) {
+    read(src_pos_fd_, (void *)raw_vector_->source_mem_pos_.data(),
+         (n + 1) * sizeof(long));
+    if (raw_vector_->source_mem_pos_[n] > 0) {
+      read(src_fd_, (void *)raw_vector_->str_mem_ptr_,
+           raw_vector_->source_mem_pos_[n]);
+    }
+
+    // truncate str file to vid_num length
+    if (ftruncate(src_pos_fd_, (n + 1) * sizeof(long))) {
+      LOG(ERROR) << "truncate source position file error:" << strerror(errno);
+      return -1;
+    }
+    if (ftruncate(src_fd_, raw_vector_->source_mem_pos_[n])) {
+      LOG(ERROR) << "truncate source file error:" << strerror(errno);
+      return -1;
+    }
   }
-  if (ftruncate(src_pos_fd_, (n + 1) * sizeof(long))) {
-    LOG(ERROR) << "truncate source position file error:" << strerror(errno);
-    return -1;
-  }
-  if (ftruncate(src_fd_, raw_vector_->source_mem_pos_[n])) {
-    LOG(ERROR) << "truncate source file error:" << strerror(errno);
-    return -1;
-  }
-  return n;
+  if (raw_vector_->vid_mgr_->multi_vids_)
+    return n;
+  else
+    return doc_num;
 }
 
-RawVector::RawVector(const string &name, int dimension, int max_vector_size,
-                     const string &root_path)
+template <typename DataType>
+RawVector<DataType>::RawVector(const string &name, int dimension,
+                               int max_vector_size, const string &root_path)
     : vector_name_(name),
       dimension_(dimension),
       max_vector_size_(max_vector_size),
       root_path_(root_path),
       ntotal_(0),
-      total_mem_bytes_(0) {
-  str_mem_ptr_ = nullptr;
-  // uint64_t len = (uint64_t)max_vector_size_ * 100;
-  // str_mem_ptr_ = new (std::nothrow) char[len];
-  // total_mem_bytes_ += len;
-  source_mem_pos_.resize(max_vector_size_ + 1, 0);
-  total_mem_bytes_ += max_vector_size_ * sizeof(long);
-  vid2docid_.resize(max_vector_size_, -1);
-  total_mem_bytes_ += max_vector_size_ * sizeof(int);
-  docid2vid_.resize(max_vector_size_, nullptr);
-  total_mem_bytes_ += max_vector_size_ * sizeof(docid2vid_[0]);
-  vector_byte_size_ = dimension * sizeof(float);
-  updated_vids_ = new moodycamel::ConcurrentQueue<int>();
-}
+      total_mem_bytes_(0) {}
 
-RawVector::~RawVector() {
-  if (str_mem_ptr_) {
-    delete[] str_mem_ptr_;
-    str_mem_ptr_ = nullptr;
-  }
-  for (size_t i = 0; i < docid2vid_.size(); i++) {
-    if (docid2vid_[i] != nullptr) {
-      delete[] docid2vid_[i];
-      docid2vid_[i] = nullptr;
-    }
-  }
+template <typename DataType>
+RawVector<DataType>::~RawVector() {
+  CHECK_DELETE_ARRAY(str_mem_ptr_);
   CHECK_DELETE(updated_vids_);
+  CHECK_DELETE(vid_mgr_);
 }
 
-int RawVector::GetVector(long vid, ScopeVector &vec) {
+template <typename DataType>
+int RawVector<DataType>::Init(bool has_source, bool multi_vids) {
+  // source
+  str_mem_ptr_ = nullptr;
+  if (has_source) {
+    uint64_t len = (uint64_t)max_vector_size_ * 100;
+    str_mem_ptr_ = new (std::nothrow) char[len];
+    total_mem_bytes_ += len;
+    source_mem_pos_.resize(max_vector_size_ + 1, 0);
+    total_mem_bytes_ += max_vector_size_ * sizeof(long);
+  }
+  has_source_ = has_source;
+
+  // vid2docid
+  vid_mgr_ = new VIDMgr(multi_vids);
+  vid_mgr_->Init(max_vector_size_, total_mem_bytes_);
+
+  vector_byte_size_ = dimension_ * sizeof(DataType);
+  updated_vids_ = new moodycamel::ConcurrentQueue<int>();
+  int ret = InitStore();
+  if (ret) return ret;
+  LOG(INFO) << "raw vector init success! name=" << vector_name_
+            << ", has source=" << has_source << ", multi_vids=" << multi_vids;
+  return 0;
+}
+
+template <typename DataType>
+int RawVector<DataType>::GetVector(long vid, ScopeVector<DataType> &vec) {
   return GetVector(vid, vec.ptr_, vec.deletable_);
 }
 
-int RawVector::Dump(const std::string &path, int dump_docid, int max_docid) {
+template <typename DataType>
+int RawVector<DataType>::Dump(const std::string &path, int dump_docid,
+                              int max_docid) {
   LOG(INFO) << "dump_docid=" << dump_docid << ", max_docid=" << max_docid;
-  int start = GetFirstVectorID(dump_docid);
-  int end = GetLastVectorID(max_docid);
+  int start = vid_mgr_->GetFirstVID(dump_docid);
+  int end = vid_mgr_->GetLastVID(max_docid);
   int n = end - start + 1;
-  RawVectorIO *raw_vector_io = new RawVectorIO(this);
+  RawVectorIO<DataType> *raw_vector_io = new RawVectorIO<DataType>(this);
   if (raw_vector_io->Init()) return -1;
   raw_vector_io->Dump(start, n);
   delete raw_vector_io;
   return DumpVectors(start, n);
 };
 
-int RawVector::Load(const std::vector<std::string> &path, int doc_num) {
-  RawVectorIO *raw_vector_io = new RawVectorIO(this);
+template <typename DataType>
+int RawVector<DataType>::Load(const std::vector<std::string> &path,
+                              int doc_num) {
+  RawVectorIO<DataType> *raw_vector_io = new RawVectorIO<DataType>(this);
   if (raw_vector_io->Init()) return -1;
   int num = raw_vector_io->Load(doc_num);
   delete raw_vector_io;
@@ -221,11 +241,12 @@ int RawVector::Load(const std::vector<std::string> &path, int doc_num) {
   return 0;
 }
 
-int RawVector::Gets(int k, long *ids_list, ScopeVectors &vecs) const {
-  const float *vec;
+template <typename DataType>
+int RawVector<DataType>::Gets(int k, long *ids_list,
+                              ScopeVectors<DataType> &vecs) const {
   bool deletable;
   for (int i = 0; i < k; i++) {
-    vec = nullptr;
+    const DataType *vec = nullptr;
     deletable = false;
     GetVector(ids_list[i], vec, deletable);
     vecs.Set(i, vec, deletable);
@@ -233,9 +254,10 @@ int RawVector::Gets(int k, long *ids_list, ScopeVectors &vecs) const {
   return 0;
 }
 
-int RawVector::GetSource(int vid, char *&str, int &len) {
+template <typename DataType>
+int RawVector<DataType>::GetSource(int vid, char *&str, int &len) {
   if (vid < 0 || vid >= ntotal_) return -1;
-  if (str_mem_ptr_ == nullptr) {
+  if (!has_source_) {
     str = nullptr;
     len = 0;
     return 0;
@@ -245,79 +267,51 @@ int RawVector::GetSource(int vid, char *&str, int &len) {
   return 0;
 }
 
-int RawVector::CreateSourceMem() {
-  uint64_t len = (uint64_t)max_vector_size_ * 100;
-  str_mem_ptr_ = new char[len];
-  total_mem_bytes_ += len;
-  return 0;
-}
-
-int RawVector::Add(int docid, Field *&field) {
+template <typename DataType>
+int RawVector<DataType>::Add(int docid, Field *&field) {
   if (ntotal_ >= max_vector_size_) {
     return -1;
   }
-  AddToStore((float *)field->value->value, field->value->len / sizeof(float));
-
-  // add to source
-  int len = field->source ? field->source->len : 0;
-  if (len > 0) {
-    if (str_mem_ptr_ == nullptr) CreateSourceMem();
-    memcpy(str_mem_ptr_ + source_mem_pos_[ntotal_], field->source->value,
-           len * sizeof(char));
-    source_mem_pos_[ntotal_ + 1] = source_mem_pos_[ntotal_] + len;
-  } else {
-    source_mem_pos_[ntotal_ + 1] = source_mem_pos_[ntotal_];
-  }
-
-  // add to vid2docid_ and docid2vid_
-  vid2docid_[ntotal_] = docid;
-  if (docid2vid_[docid] == nullptr) {
-    docid2vid_[docid] =
-        utils::NewArray<int>(MAX_VECTOR_NUM_PER_DOC + 1, "init_vid_list");
-    total_mem_bytes_ += (MAX_VECTOR_NUM_PER_DOC + 1) * sizeof(int);
-    docid2vid_[docid][0] = 1;
-    docid2vid_[docid][1] = ntotal_;
-  } else {
-    int *vid_list = docid2vid_[docid];
-    if (vid_list[0] + 1 > MAX_VECTOR_NUM_PER_DOC) {
-      return -1;
-    }
-    vid_list[vid_list[0]] = ntotal_;
-    vid_list[0]++;
-  }
-  ntotal_++;
-  return 0;
-}
-
-int RawVector::Update(int docid, Field *&field) {
-  if (docid >= ntotal_) return -1;
-  int *vids = docid2vid_[docid];
-  if (!vids || vids[0] > 1) {
-    LOG(ERROR) << "can't update when docid has multiple vids, docid=" << docid
-               << ", vid num=" << vids[0];
+  if (field->value->len / sizeof(DataType) <= 0) {
+    LOG(ERROR) << "Doc [" << docid << "] len " << field->value->len << "]";
     return -1;
   }
-  int vid = vids[1];
+  AddToStore((DataType *)field->value->value,
+             field->value->len / sizeof(DataType));
 
-  if (UpdateToStore(vid, (float *)field->value->value,
-                    field->value->len / sizeof(float))) {
+  // add to source
+  if (has_source_) {
+    int len = field->source ? field->source->len : 0;
+    if (len > 0) {
+      memcpy(str_mem_ptr_ + source_mem_pos_[ntotal_], field->source->value,
+             len * sizeof(char));
+      source_mem_pos_[ntotal_ + 1] = source_mem_pos_[ntotal_] + len;
+    } else {
+      source_mem_pos_[ntotal_ + 1] = source_mem_pos_[ntotal_];
+    }
+  }
+
+  return vid_mgr_->Add(ntotal_++, docid);
+}
+
+template <typename DataType>
+int RawVector<DataType>::Update(int docid, Field *&field) {
+  if (vid_mgr_->multi_vids_ || docid >= ntotal_) return -1;
+  int vid = docid;
+
+  if (field->value->len / sizeof(DataType) <= 0) {
+    LOG(ERROR) << "Doc [" << docid << "] len " << field->value->len << "]";
+    return -1;
+  }
+
+  if (UpdateToStore(vid, (DataType *)field->value->value,
+                    field->value->len / sizeof(DataType))) {
     LOG(ERROR) << "update to store error, docid=" << docid;
     return -1;
   }
   updated_vids_->enqueue(vid);
   // TODO: update source
   return 0;
-}
-
-int RawVector::GetFirstVectorID(int docid) {
-  int *vid_list = docid2vid_[docid];
-  if (vid_list[0] <= 0) return -1;
-  return vid_list[1];
-}
-int RawVector::GetLastVectorID(int docid) {
-  int *vid_list = docid2vid_[docid];
-  if (vid_list[0] <= 0) return -1;
-  return vid_list[vid_list[0]];
 }
 
 AsyncFlusher::AsyncFlusher(string name) : name_(name) {
@@ -374,28 +368,12 @@ int AsyncFlusher::Flush() {
   }
   return 0;
 }
+
 void AsyncFlusher::Until(int nexpect) {
   while (nflushed_ < nexpect) {
     LOG(INFO) << "flusher waiting......, expected num=" << nexpect
               << ", flushed num=" << nflushed_;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-}
-
-void StartFlushingIfNeed(RawVector *vec) {
-  AsyncFlusher *flusher = nullptr;
-  if ((flusher = dynamic_cast<AsyncFlusher *>(vec))) {
-    flusher->Start();
-    LOG(INFO) << "start flushing, raw vector=" << vec->GetName();
-  }
-}
-
-void StopFlushingIfNeed(RawVector *vec) {
-  AsyncFlusher *flusher = nullptr;
-  if ((flusher = dynamic_cast<AsyncFlusher *>(vec))) {
-    flusher->Until(vec->GetVectorNum());
-    flusher->Stop();
-    LOG(INFO) << "stop flushing, raw vector=" << vec->GetName();
   }
 }
 
@@ -418,5 +396,11 @@ int StoreParams::Parse(const char *str) {
 
   return 0;
 }
+
+template class RawVector<float>;
+template class RawVector<uint8_t>;
+
+template class RawVectorIO<float>;
+template class RawVectorIO<uint8_t>;
 
 }  // namespace tig_gamma

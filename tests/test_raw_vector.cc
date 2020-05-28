@@ -70,7 +70,7 @@ bool floatArrayEquals(const float *a, int m, const float *b, int n) {
   return true;
 }
 
-void AddToRawVector(RawVector *raw_vector, int start_id, int num,
+void AddToRawVector(RawVector<float> *raw_vector, int start_id, int num,
                     int dimension) {
   int end = start_id + num;
   for (int i = start_id; i < end; i++) {
@@ -81,11 +81,22 @@ void AddToRawVector(RawVector *raw_vector, int start_id, int num,
   }
 }
 
-void ValidateVector(RawVector *raw_vector, int start_id, int num,
-                    int dimension) {
+void UpdateToRawVector(RawVector<float> *raw_vector, int start_id, int num,
+                       int dimension, float addition = 0.0f) {
+  int end = start_id + num;
+  for (int i = start_id; i < end; i++) {
+    Field *field = BuildVectorField(dimension, i + addition);
+    int ret = raw_vector->Update(i, field);
+    assert(0 == ret);
+    DestroyField(field);
+  }
+}
+
+void ValidateVector(RawVector<float> *raw_vector, int start_id, int num, int dimension,
+                    float addition = 0.0f) {
   for (int i = start_id; i < num; i++) {
-    const float *expect = BuildVector(dimension, i);
-    ScopeVector scope_vec;
+    const float *expect = BuildVector(dimension, i + addition);
+    ScopeVector<float> scope_vec;
     raw_vector->GetVector(i, scope_vec);
     const float *peek_vector = scope_vec.Get();
     ASSERT_TRUE(floatArrayEquals(expect, dimension, peek_vector, dimension))
@@ -96,9 +107,9 @@ void ValidateVector(RawVector *raw_vector, int start_id, int num,
   }
 }
 
-void ValidateVectorHeader(RawVector *raw_vector, int start_id, int num,
+void ValidateVectorHeader(RawVector<float> *raw_vector, int start_id, int num,
                           int dimension) {
-  ScopeVector scope_vec;
+  ScopeVector<float> scope_vec;
   raw_vector->GetVectorHeader(start_id, start_id + num, scope_vec);
   const float *vectors = scope_vec.Get();
   for (int i = start_id; i < start_id + num; i++) {
@@ -122,8 +133,8 @@ TEST(FileMapper, Normal) {
   assert(-1 != fd);
   close(fd);
 
-  VectorFileMapper *mapper =
-      new VectorFileMapper(file_path, offset, max_size, dimension);
+  VectorFileMapper<float> *mapper =
+      new VectorFileMapper<float>(file_path, offset, max_size, dimension);
   assert(0 == mapper->Init());
   assert(0 == mapper->GetMappedNum());
 
@@ -157,8 +168,8 @@ void TestFileMapperLoad() {
   int offset = 9;
   int max_size = 1000000;
   int dimension = 512;
-  VectorFileMapper *mapper =
-      new VectorFileMapper(file_path, offset, max_size, dimension);
+  VectorFileMapper<float> *mapper =
+      new VectorFileMapper<float>(file_path, offset, max_size, dimension);
   assert(0 == mapper->Init());
   int map_num = mapper->GetMappedNum();
   const float *features = mapper->GetVectors();
@@ -179,8 +190,8 @@ void TestFileMapperRandRead() {
   int offset = 9;
   int max_size = 1000000;
   int dimension = 512;
-  VectorFileMapper *mapper =
-      new VectorFileMapper(file_path, offset, max_size, dimension);
+  VectorFileMapper<float> *mapper =
+      new VectorFileMapper<float>(file_path, offset, max_size, dimension);
   assert(0 == mapper->Init());
   std::this_thread::sleep_for(std::chrono::milliseconds(20000));
   int map_num = mapper->GetMappedNum();
@@ -201,6 +212,29 @@ void TestFileMapperRandRead() {
        << utils::getmillisecs() - begin << "ms, times=" << times << endl;
 }
 
+TEST(MmapRawVector, Update) {
+  string root_path = "./" + GetCurrentCaseName();
+  string name = "abc";
+  int max_size = 100000;
+  int dimension = 511;
+  utils::remove_dir(root_path.c_str());
+  utils::make_dir(root_path.c_str());
+
+  StoreParams store_params;
+  store_params.cache_size_ = max_size * dimension * sizeof(float);
+  RawVector<float> *raw_vector =
+      new MmapRawVector<float>(name, dimension, max_size, root_path, store_params);
+  ASSERT_EQ(0, raw_vector->Init(false, false));
+  StartFlushingIfNeed(raw_vector);
+  AddToRawVector(raw_vector, 0, 10, dimension);
+  float addition = 0.5f;
+  int update_num = 5;
+  UpdateToRawVector(raw_vector, 0, update_num, dimension, addition);
+  ValidateVector(raw_vector, 0, update_num, dimension, addition);
+  StopFlushingIfNeed(raw_vector);
+  delete raw_vector;
+}
+
 TEST(MmapRawVector, Normal) {
   string root_path = "./" + GetCurrentCaseName();
   string name = "abc";
@@ -213,9 +247,9 @@ TEST(MmapRawVector, Normal) {
 
   CreateFile(file_path);
 
-  RawVector *raw_vector = RawVectorFactory::Create(
+  RawVector<float> *raw_vector = RawVectorFactory::Create(
       Mmap, name, dimension, max_size, root_path, "{\"cache_size\": 4}");
-  assert(0 == raw_vector->Init());
+  assert(0 == raw_vector->Init(false, false));
   StartFlushingIfNeed(raw_vector);
   int doc_num = 50000;
   int ret = -1;
@@ -229,7 +263,12 @@ TEST(MmapRawVector, Normal) {
 
   int added_doc_num = raw_vector->GetVectorNum();
   assert(doc_num == added_doc_num);
+  ValidateVector(raw_vector, 0, added_doc_num, dimension);
   ValidateVectorHeader(raw_vector, 0, added_doc_num, dimension);
+  std::srand(std::time(nullptr));
+  int start_vid = std::rand() / added_doc_num;
+  ValidateVectorHeader(raw_vector, start_vid, added_doc_num - start_vid,
+                       dimension);
   ASSERT_EQ(0, raw_vector->Dump("", 0, doc_num - 1));
   StopFlushingIfNeed(raw_vector);
   delete raw_vector;
@@ -237,10 +276,16 @@ TEST(MmapRawVector, Normal) {
   raw_vector =
       RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
   assert(nullptr != raw_vector);
-  assert(0 == raw_vector->Init());
+  assert(0 == raw_vector->Init(false, false));
   vector<string> paths;
   ASSERT_EQ(0, raw_vector->Load(paths, doc_num));
+  ASSERT_EQ(added_doc_num, raw_vector->GetVectorNum());
   ValidateVector(raw_vector, 0, doc_num, dimension);
+  ValidateVectorHeader(raw_vector, 0, doc_num, dimension);
+  start_vid = std::rand() / added_doc_num;
+  cout << "memory mode, ValidateVectorHeader start_vid=" << start_vid << endl;
+  ValidateVectorHeader(raw_vector, start_vid, added_doc_num - start_vid,
+                       dimension);
 }
 
 TEST(MmapRawVector, DumpLoad) {
@@ -254,9 +299,9 @@ TEST(MmapRawVector, DumpLoad) {
   utils::make_dir(root_path.c_str());
   CreateFile(file_path);
 
-  RawVector *raw_vector =
+  RawVector<float> *raw_vector =
       RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
-  ASSERT_EQ(0, raw_vector->Init());
+  ASSERT_EQ(0, raw_vector->Init(false, false));
   StartFlushingIfNeed(raw_vector);
 
   int doc_num = 500;
@@ -264,6 +309,12 @@ TEST(MmapRawVector, DumpLoad) {
 
   ASSERT_EQ(doc_num, raw_vector->GetVectorNum());
   ValidateVectorHeader(raw_vector, 0, doc_num, dimension);
+
+  int update_num = 100;
+  UpdateToRawVector(raw_vector, 0, update_num, dimension, 0.5f);
+  ValidateVector(raw_vector, 0, update_num, dimension, 0.5f);
+  UpdateToRawVector(raw_vector, 400, update_num, dimension, 0.5f);
+  ValidateVector(raw_vector, 400, update_num, dimension, 0.5f);
 
   ASSERT_EQ(0, raw_vector->Dump(root_path + "/dump/1", 0, doc_num - 1));
   StopFlushingIfNeed(raw_vector);
@@ -277,10 +328,12 @@ TEST(MmapRawVector, DumpLoad) {
   raw_vector =
       RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
   ASSERT_NE(nullptr, raw_vector);
-  ASSERT_EQ(0, raw_vector->Init());
+  ASSERT_EQ(0, raw_vector->Init(false, false));
   StartFlushingIfNeed(raw_vector);
   ASSERT_EQ(0, raw_vector->Load(paths, load_num));
-  ValidateVector(raw_vector, 0, load_num, dimension);
+  ValidateVector(raw_vector, 0, update_num, dimension, 0.5f);
+  ValidateVector(raw_vector, 400, update_num, dimension, 0.5f);
+  ValidateVector(raw_vector, 100, load_num - update_num * 2, dimension);
   ASSERT_EQ(load_num, raw_vector->GetVectorNum());
   StopFlushingIfNeed(raw_vector);
   delete raw_vector;
@@ -289,43 +342,54 @@ TEST(MmapRawVector, DumpLoad) {
   // load: load_num < disk_doc_num;
   load_num = doc_num - 100;
   raw_vector =
-    RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
+      RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
   ASSERT_NE(nullptr, raw_vector);
-  ASSERT_EQ(0, raw_vector->Init());
+  ASSERT_EQ(0, raw_vector->Init(false, false));
   StartFlushingIfNeed(raw_vector);
   ASSERT_EQ(0, raw_vector->Load(paths, load_num));
-  ValidateVector(raw_vector, 0, load_num, dimension);
+  ValidateVector(raw_vector, 0, update_num, dimension, 0.5f);
+  ValidateVector(raw_vector, 100, load_num - update_num, dimension);
   ASSERT_EQ(load_num, raw_vector->GetVectorNum());
-  ASSERT_EQ(load_num * sizeof(int), utils::get_file_size(root_path + "/" + name + ".docid"));
-  ASSERT_EQ(load_num * dimension * sizeof(float), utils::get_file_size(root_path + "/" + name + ".fet"));
-  ASSERT_EQ((load_num + 1) * sizeof(long), utils::get_file_size(root_path + "/" + name + ".src.pos"));
+  // ASSERT_EQ(load_num * sizeof(int),
+  //           utils::get_file_size(root_path + "/" + name + ".docid"));
+  ASSERT_EQ(load_num * dimension * sizeof(float),
+            utils::get_file_size(root_path + "/" + name + ".fet"));
+  ASSERT_EQ(update_num * (dimension * sizeof(float) + sizeof(int)),
+            utils::get_file_size(root_path + "/" + name + "_updated.fet"));
+  // ASSERT_EQ((load_num + 1) * sizeof(long),
+  //           utils::get_file_size(root_path + "/" + name + ".src.pos"));
   char *source1 = nullptr, *source2 = nullptr;
   int len1 = 0, len2 = 0;
   raw_vector->GetSource(0, source1, len1);
   raw_vector->GetSource(load_num - 1, source2, len2);
-  ASSERT_EQ(source2 + len2 - source1, utils::get_file_size(root_path + "/" + name + ".src"));
+  ASSERT_EQ(source2 + len2 - source1,
+            utils::get_file_size(root_path + "/" + name + ".src"));
 
   LOG(INFO) << "---------------dump after load and add----------------";
   // dump after load and add
   int add_num = 200;
   AddToRawVector(raw_vector, load_num, add_num, dimension);
-  ASSERT_EQ(0, raw_vector->Dump(root_path + "/dump/2", load_num, load_num + add_num - 1));
+  UpdateToRawVector(raw_vector, load_num, update_num, dimension, 0.8f);
+  ASSERT_EQ(0, raw_vector->Dump(root_path + "/dump/2", load_num,
+                                load_num + add_num - 1));
   StopFlushingIfNeed(raw_vector);
   delete raw_vector;
 
   LOG(INFO) << "---------------reload after dump----------------";
   load_num = load_num + add_num;
   raw_vector =
-    RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
+      RawVectorFactory::Create(Mmap, name, dimension, max_size, root_path, "");
   ASSERT_NE(nullptr, raw_vector);
-  ASSERT_EQ(0, raw_vector->Init());
+  ASSERT_EQ(0, raw_vector->Init(false, false));
   StartFlushingIfNeed(raw_vector);
   ASSERT_EQ(0, raw_vector->Load(paths, load_num));
-  ValidateVector(raw_vector, 0, load_num, dimension);
+  ValidateVector(raw_vector, 0, update_num, dimension, 0.5f);
+  ValidateVector(raw_vector, 400, update_num, dimension, 0.8f);
+  ValidateVector(raw_vector, 100, 300, dimension);
+  ValidateVector(raw_vector, 500, 100, dimension);
   ASSERT_EQ(load_num, raw_vector->GetVectorNum());
   StopFlushingIfNeed(raw_vector);
   delete raw_vector;
-
 }
 
 int CreateFeatureFile(string file_path, int max_size, int dimension) {
@@ -382,10 +446,10 @@ void TestMemoryDiskRawFeatureRandomGet(int m_size, int r_times) {
   params.cache_size_ =
       max_buffer_size * dimension * sizeof(float) / (1024 * 1024);
 
-  RawVector *raw_feature = new MmapRawVector("test_memory_disk_random_get",
+  RawVector<float> *raw_feature = new MmapRawVector<float>("test_memory_disk_random_get",
                                              dimension, max_size, "./", params);
   // raw_feature->SetFlushBatchSize(500);
-  assert(0 == raw_feature->Init());
+  assert(0 == raw_feature->Init(false, false));
   StartFlushingIfNeed(raw_feature);
 
   int *ids = new int[max_size];
@@ -400,7 +464,7 @@ void TestMemoryDiskRawFeatureRandomGet(int m_size, int r_times) {
   double begin = utils::getmillisecs();
   for (int i = 0; i < read_times; i++) {
     int id = ids[i];
-    ScopeVector scope_vec;
+    ScopeVector<float> scope_vec;
     raw_feature->GetVector(id, scope_vec);
     const float *feature = scope_vec.Get();
     if (i % 10000 == 0) {
@@ -420,8 +484,8 @@ TEST(VectorBufferQueue, Normal) {
   int max_buffer_size = 2000;
   int chunk_num = 10;
 
-  VectorBufferQueue *queue =
-      new VectorBufferQueue(max_buffer_size, dimension, chunk_num);
+  VectorBufferQueue<float> *queue =
+      new VectorBufferQueue<float>(max_buffer_size, dimension, chunk_num);
   assert(0 == queue->Init());
   assert(0 == queue->GetPopSize());
   assert(0 == queue->Size());
@@ -489,8 +553,8 @@ TEST(VectorBufferQueue, RandRead) {
   int read_times = 10 * 10000;
   int chunk_num = 1000;
 
-  VectorBufferQueue *queue =
-      new VectorBufferQueue(max_buffer_size, dimension, chunk_num);
+  VectorBufferQueue<float> *queue =
+      new VectorBufferQueue<float>(max_buffer_size, dimension, chunk_num);
   assert(0 == queue->Init());
   assert(0 == queue->GetPopSize());
   assert(0 == queue->Size());
@@ -525,8 +589,8 @@ TEST(VectorBufferQueue, BatchPush) {
   int max_buffer_size = 2000;
   int chunk_num = 10;
 
-  VectorBufferQueue *queue =
-      new VectorBufferQueue(max_buffer_size, dimension, chunk_num);
+  VectorBufferQueue<float> *queue =
+      new VectorBufferQueue<float>(max_buffer_size, dimension, chunk_num);
   assert(0 == queue->Init());
 
   int batch = max_buffer_size / chunk_num - 1;
@@ -556,7 +620,7 @@ TEST(VectorBufferQueue, BatchPush) {
 }
 
 int added_num = 0;
-void AddFunc(VectorBufferQueue *qu, int check_num, int dim) {
+void AddFunc(VectorBufferQueue<float> *qu, int check_num, int dim) {
   cerr << "****AddFunc: check num=" << check_num << ", dimension=" << dim
        << endl;
   srand(time(NULL));
@@ -574,7 +638,7 @@ void AddFunc(VectorBufferQueue *qu, int check_num, int dim) {
 }
 
 int flushed_num = 0;
-int Flush(VectorBufferQueue *feature_buffer_queue, int check_num, int dimension,
+int Flush(VectorBufferQueue<float> *feature_buffer_queue, int check_num, int dimension,
           int flush_batch) {
   cerr << "****FlushFunc: check num=" << check_num
        << ", dimension=" << dimension << ", flush batch=" << flush_batch;
@@ -621,7 +685,7 @@ int Flush(VectorBufferQueue *feature_buffer_queue, int check_num, int dimension,
   return 0;
 }
 
-void GetFunc(VectorBufferQueue *queue, int num, int dimension,
+void GetFunc(VectorBufferQueue<float> *queue, int num, int dimension,
              int buffer_size) {
   srand(time(NULL));
   float peek_feature[dimension];
@@ -657,8 +721,8 @@ void TestVectorBufferQueueTwoThreads() {
 
   // CreateFile(file_path);
 
-  VectorBufferQueue *queue =
-      new VectorBufferQueue(max_buffer_size, dimension, chunk_num);
+  VectorBufferQueue<float> *queue =
+      new VectorBufferQueue<float>(max_buffer_size, dimension, chunk_num);
   assert(0 == queue->Init());
   std::thread addThread(AddFunc, queue, check_num, dimension);
   std::thread flushThread(Flush, queue, check_num, dimension, flush_batch);
@@ -681,24 +745,24 @@ TEST(RocksDBRawVector, Normal) {
   utils::remove_dir(root_path.c_str());
   utils::make_dir(root_path.c_str());
 
-  RawVector *raw_vector =
-      new RocksDBRawVector(name, dim, 20000, root_path, params);
-  int ret = raw_vector->Init();
+  RawVector<float> *raw_vector =
+      new RocksDBRawVector<float>(name, dim, 20000, root_path, params);
+  int ret = raw_vector->Init(false, false);
   assert(0 == ret);
   StartFlushingIfNeed(raw_vector);
   int doc_num = 1234;
   AddToRawVector(raw_vector, 0, doc_num, dim);
   ValidateVector(raw_vector, 0, doc_num, dim);
   ValidateVectorHeader(raw_vector, 0, doc_num, dim);
-  string dump_path = ""; // do not need it
+  string dump_path = "";  // do not need it
   int dump_docid = 0, max_dump_docid = doc_num - 1;
   ASSERT_EQ(0, raw_vector->Dump(dump_path, dump_docid, max_dump_docid));
   StopFlushingIfNeed(raw_vector);
   dump_docid = max_dump_docid + 1;
   delete raw_vector;
 
-  raw_vector = new RocksDBRawVector(name, dim, 20000, root_path, params);
-  ret = raw_vector->Init();
+  raw_vector = new RocksDBRawVector<float>(name, dim, 20000, root_path, params);
+  ret = raw_vector->Init(false, false);
   ASSERT_EQ(0, ret);
   StartFlushingIfNeed(raw_vector);
   vector<string> load_paths;
@@ -712,8 +776,8 @@ TEST(RocksDBRawVector, Normal) {
   dump_docid = max_dump_docid + 1;
   delete raw_vector;
 
-  raw_vector = new RocksDBRawVector(name, dim, 20000, root_path, params);
-  ret = raw_vector->Init();
+  raw_vector = new RocksDBRawVector<float>(name, dim, 20000, root_path, params);
+  ret = raw_vector->Init(false, false);
   ASSERT_EQ(0, ret);
   StartFlushingIfNeed(raw_vector);
   ASSERT_EQ(0, raw_vector->Load(load_paths, doc_num + 100));
@@ -736,9 +800,9 @@ void TestRocksDBRawVectorRandomGet(int max_size, int read_times) {
   int existed = access(root_path.c_str(), F_OK);
   cerr << "max_size=" << max_size << ", read_times=" << read_times
        << ", path existed=" << existed;
-  RawVector *raw_vector =
-      new RocksDBRawVector(name, dim, max_size, root_path, params);
-  int ret = raw_vector->Init();
+  RawVector<float> *raw_vector =
+      new RocksDBRawVector<float>(name, dim, max_size, root_path, params);
+  int ret = raw_vector->Init(false, false);
   assert(0 == ret);
   StartFlushingIfNeed(raw_vector);
   if (existed != 0) {
@@ -764,7 +828,7 @@ void TestRocksDBRawVectorRandomGet(int max_size, int read_times) {
   double begin = utils::getmillisecs();
   for (int i = 0; i < read_times; i++) {
     int id = ids[i];
-    ScopeVector scope_vec;
+    ScopeVector<float> scope_vec;
     raw_vector->GetVector(id, scope_vec);
     const float *feature = scope_vec.Get();
     if (i % 10000 == 0) {

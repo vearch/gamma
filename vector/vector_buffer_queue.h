@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 
+template <typename DataType>
 class VectorBufferQueue {
  public:
   /**
@@ -31,7 +32,7 @@ class VectorBufferQueue {
 
   /**
    * push one vector to queue
-   * @param v the float array of vector
+   * @param v the DataType array of vector
    * @param dim the dimension of vector, it must be equal to dimension of
    * constructor
    * @param timeout the timeout of waiting enough space to store this vector, -1
@@ -39,11 +40,11 @@ class VectorBufferQueue {
    * timeout=100, it means to waiting 100ms
    * @return 0 success; 1 parameter error; 3 timeout
    */
-  int Push(const float *v, int dim, int timeout);
+  int Push(const DataType *v, int dim, int timeout);
 
   /**
    * push multiple vector to queue
-   * @param v the float array of all multiple vector
+   * @param v the DataType array of all multiple vector
    * @param dim the dimension of each vector, it must be equal to dimension of
    * constructor
    * @num the number of vector
@@ -52,11 +53,11 @@ class VectorBufferQueue {
    * timeout=100, it means to waiting 100ms
    * @return 0 success; 1 parameter error; 3 timeout
    */
-  int Push(const float *v, int dim, int num, int timeout);  // batch push
+  int Push(const DataType *v, int dim, int num, int timeout);  // batch push
 
   /**
    * pop one vector from queue
-   * @param v the float array to store vector
+   * @param v the DataType array to store vector
    * @param dim the dimension of vector, it must be equal to dimension of
    * constructor
    * @param timeout the timeout of waiting enough vector to poll from the queue,
@@ -64,11 +65,11 @@ class VectorBufferQueue {
    * example: timeout=100, it means to waiting 100ms
    * @return 0 success; 1 parameter error; 3 timeout
    */
-  int Pop(float *v, int dim, int timeout);
+  int Pop(DataType *v, int dim, int timeout);
 
   /**
    * pop multiple vector from queue
-   * @param v the float array to store multiple vector
+   * @param v the DataType array to store multiple vector
    * @param dim the dimension of each vector, it is equal to dimension of
    * constructor
    * @num the number of vector to poll
@@ -77,9 +78,9 @@ class VectorBufferQueue {
    * example: timeout=100, it means to waiting 100ms
    * @return 0 success; 1 parameter error; 3 timeout
    */
-  int Pop(float *v, int dim, int num, int timeout);  // batch pop
+  int Pop(DataType *v, int dim, int num, int timeout);  // batch pop
 
-  int GetVector(int id, float *v, int dim);
+  int GetVector(int id, DataType *v, int dim);
   /**
    * get the head address of sequential vectors begin with id
    * warning: this function is unsafe, it is only for memory only mode of
@@ -89,8 +90,8 @@ class VectorBufferQueue {
    * @param dim dimension
    * @return 0 success; 1 parameter error
    */
-  int GetVectorHead(int id, float **vec_head, int dim);
-  int Update(int id, float *v, int dim);
+  int GetVectorHead(int id, DataType **vec_head, int dim);
+  int Update(int id, DataType *v, int dim);
   int Size() const;
   int GetPopSize() const;
   long GetTotalMemBytes() { return total_mem_bytes_; }
@@ -100,7 +101,7 @@ class VectorBufferQueue {
   bool WaitFor(int timeout, int type, int num);
 
  private:
-  float *buffer_;
+  DataType *buffer_;
   int max_vector_size_;
   int chunk_num_;
   int chunk_size_;

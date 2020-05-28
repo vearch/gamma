@@ -1,3 +1,4 @@
+#pragma once
 
 typedef unsigned long long uid;
 typedef unsigned long long logseqno;
