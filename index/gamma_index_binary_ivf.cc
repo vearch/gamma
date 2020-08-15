@@ -237,6 +237,7 @@ int GammaIndexBinaryIVF::Search(const VectorQuery *query,
       real_score[i * condition->topn + pos] = -1;
     }
   }
+  delete result.dists;
   result.dists = real_score;
 
   return 0;
