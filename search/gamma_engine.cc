@@ -1149,6 +1149,7 @@ int GammaEngine::Load() {
 
   if (folders_tm.size() == 0) {
     LOG(INFO) << "no folder is found, skip loading!";
+    b_loading_ = false;
     return 0;
   }
 

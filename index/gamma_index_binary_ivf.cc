@@ -189,6 +189,7 @@ int GammaIndexBinaryIVF::Search(const VectorQuery *query,
 
   int32_t dists[n * condition->topn];
   SearchHamming(n, vec_q, condition, dists, idx, result.total.data());
+  float *real_score = new float[n * condition->topn];
 
   for (size_t i = 0; i < n; i++) {
     int pos = 0;
@@ -204,7 +205,13 @@ int GammaIndexBinaryIVF::Search(const VectorQuery *query,
       int real_docid = raw_vec_binary_->vid_mgr_->VID2DocID(vector_id);
 
       if (docid2count.find(real_docid) == docid2count.end()) {
+      float score = 1.0 - result.dists[i * condition->topn + j] / float(raw_d *8);
+
+      if (((condition->min_dist >= 0 && score >= condition->min_dist) &&
+                  (condition->max_dist >= 0 && score <= condition->max_dist)) ||
+                  (condition->min_dist == -1 && condition->max_dist == -1)) {
         int real_pos = i * condition->topn + pos;
+        real_score[real_pos] = score;
         result.docids[real_pos] = real_docid;
         int ret = raw_vec_binary_->GetSource(
             vector_id, result.sources[real_pos], result.source_lens[real_pos]);
@@ -216,6 +223,7 @@ int GammaIndexBinaryIVF::Search(const VectorQuery *query,
 
         pos++;
         docid2count[real_docid] = 1;
+        }
       }
     }
 
@@ -226,8 +234,11 @@ int GammaIndexBinaryIVF::Search(const VectorQuery *query,
     for (; pos < condition->topn; pos++) {
       result.docids[i * condition->topn + pos] = -1;
       result.dists[i * condition->topn + pos] = -1;
+      real_score[i * condition->topn + pos] = -1;
     }
   }
+  delete result.dists;
+  result.dists = real_score;
 
   return 0;
 }
