@@ -285,13 +285,20 @@ int GammaHNSW::SearchFromCandidates(
     idx_t v1 = candidates.ids[i];
     float d = candidates.dis[i];
     FAISS_ASSERT(v1 >= 0);
+    visited_node.insert(v1);
+
+    if (bitmap::test(docids_bitmap, v1) ||
+         (range_query_result &&
+          not range_query_result->Has(v1))) {
+      continue;
+    }
+
     if (nres < k) {
       faiss::maxheap_push(++nres, D, I, d, v1);
     } else if (d < D[0]) {
       faiss::maxheap_pop(nres--, D, I);
       faiss::maxheap_push(++nres, D, I, d, v1);
     }
-    visited_node.insert(v1);
   }
 
   bool do_dis_check = check_relative_distance;
@@ -360,9 +367,11 @@ std::priority_queue<Node> GammaHNSW::SearchFromCandidateUnbounded(
   int ndis = 0;
   std::priority_queue<Node> top_candidates;
   std::priority_queue<Node, std::vector<Node>, std::greater<Node>> candidates;
-
-  top_candidates.push(node);
-  candidates.push(node);
+  if (bitmap::test(docids_bitmap, node.second) == false) {
+    if ((range_query_result == nullptr) ||
+        range_query_result->Has(node.second))
+    top_candidates.push(node);
+  } 
 
   std::set<int> visited_node;
 
@@ -373,7 +382,7 @@ std::priority_queue<Node> GammaHNSW::SearchFromCandidateUnbounded(
     storage_idx_t v0;
     std::tie(d0, v0) = candidates.top();
 
-    if (d0 > top_candidates.top().first) {
+    if (top_candidates.size() > 0 && d0 > top_candidates.top().first) {
       break;
     }
 
@@ -386,15 +395,16 @@ std::priority_queue<Node> GammaHNSW::SearchFromCandidateUnbounded(
       int v1 = neighbors[j];
 
       if (v1 < 0) break;
+      if (visited_node.count(v1)) {
+        continue;
+      }
+      visited_node.insert(v1);
+
       if (bitmap::test(docids_bitmap, v1) ||
           (range_query_result && 
             not range_query_result->Has(v1))) {
         continue;
       }
-      if (visited_node.count(v1)) {
-        continue;
-      }      
-      visited_node.insert(v1);
 
       float d1 = qdis(v1);
       ++ndis;
