@@ -9,6 +9,8 @@
 #define GAMMA_INDEX_H_
 
 #include <vector>
+#include <functional>
+
 #include "gamma_common_data.h"
 #include "raw_vector.h"
 
@@ -104,6 +106,53 @@ struct VectorResult {
     }
     if (ret == -1) start_idx = -1;
     return ret;
+  }
+
+  void sort_by_docid() {
+    std::function<int(long *, float *, char **, int *, int, int)> 
+      paritition = [&](long *docids, float *dists, char **sources, 
+        int *source_lens, int low, int high) {
+      long pivot = docids[low];
+      float dist = dists[low];
+      char *source = sources[low];
+      int source_len = source_lens[low];
+
+      while (low < high) {
+        while (low < high && docids[high] >= pivot) {
+          --high;
+        }
+        docids[low] = docids[high];
+        dists[low] = dists[high];
+        sources[low] = sources[high];
+        source_lens[low] = source_lens[high];
+        while (low < high && docids[low] <= pivot) {
+          ++low;
+        }
+        docids[high] = docids[low];
+        dists[high] = dists[low];
+        sources[high] = sources[low];
+        source_lens[high] = source_lens[low];
+      }
+      docids[low] = pivot;
+      dists[low] = dist;
+      sources[low] = source;
+      source_lens[low] = source_len;
+      return low;
+    };
+
+    std::function<void(long *, float *, char **, int *, int, int)> 
+        quick_sort_by_docid = [&](long *docids, float *dists, char **sources, int *source_lens, int low, int high) {
+      if (low < high) {
+        int pivot = paritition(docids, dists, sources, source_lens, low, high);
+        quick_sort_by_docid(docids, dists, sources, source_lens, low, pivot - 1);
+        quick_sort_by_docid(docids, dists, sources, source_lens, pivot + 1, high);
+      }
+    };
+
+    for (int i = 0; i < n; ++i) {
+      quick_sort_by_docid(docids + i * topn, dists + i * topn, 
+        sources + i * topn, source_lens + i * topn, 0, topn - 1);
+    }
   }
 
   int n;
