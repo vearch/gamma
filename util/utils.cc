@@ -97,6 +97,13 @@ int isFolderExist(const char *path) {
   return -1;
 }
 
+bool file_exist(const std::string &path) {
+  if (access(path.c_str(), F_OK) != 0) {
+    return false;  // not exist
+  }
+  return true;
+}
+
 int make_dir(const char *path) {
   if (!utils::isFolderExist(path)) {
     return mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
@@ -329,6 +336,13 @@ int JsonParser::GetString(const std::string &name, std::string &value) {
   return 0;
 }
 
+int JsonParser::GetBool(const std::string &name, bool &value) {
+  cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
+  if (jvalue == nullptr || !cJSON_IsBool(jvalue)) return -1;
+  value = jvalue->type == cJSON_True;
+  return 0;
+}
+
 bool JsonParser::Contains(const std::string &name) {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr) return false;
@@ -357,6 +371,22 @@ size_t FileIO::Write(void *data, size_t size, size_t m) {
 
 size_t FileIO::Read(void *data, size_t size, size_t m) {
   return fread(data, size, m, fp);
+}
+
+int64_t StringToInt64(const std::string &src) {
+  MD5_CTX ctx;
+
+  std::string md5_string;
+  unsigned char md[16] = {0};
+
+  MD5_Init(&ctx);
+  MD5_Update(&ctx, src.c_str(), src.size());
+  MD5_Final(md, &ctx);
+
+  int64_t a, b;
+  memcpy(&a, md, 8);
+  memcpy(&b, md + 8, 8);
+  return a ^ b;
 }
 
 }  // namespace utils

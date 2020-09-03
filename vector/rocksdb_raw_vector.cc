@@ -8,7 +8,10 @@
 #ifdef WITH_ROCKSDB
 
 #include "rocksdb_raw_vector.h"
+
 #include <stdio.h>
+
+#include "error_code.h"
 #include "log.h"
 #include "rocksdb/table.h"
 #include "utils.h"
@@ -18,27 +21,22 @@ using namespace rocksdb;
 
 namespace tig_gamma {
 
-template <typename DataType>
-RocksDBRawVector<DataType>::RocksDBRawVector(const std::string &name, int dimension,
-                                   int max_vector_size,
+RocksDBRawVector::RocksDBRawVector(VectorMetaInfo *meta_info,
                                    const std::string &root_path,
-                                   const StoreParams &store_params)
-    : RawVector<DataType>(name, dimension, max_vector_size, root_path) {
+                                   const StoreParams &store_params,
+                                   const char *docids_bitmap)
+    : RawVector(meta_info, root_path, docids_bitmap, store_params) {
   this->root_path_ = root_path;
   db_ = nullptr;
-  store_params_ = new StoreParams(store_params);
 }
 
-template <typename DataType>
-RocksDBRawVector<DataType>::~RocksDBRawVector() {
+RocksDBRawVector::~RocksDBRawVector() {
   if (db_) {
     delete db_;
   }
-  if (store_params_) delete store_params_;
 }
 
-template <typename DataType>
-int RocksDBRawVector<DataType>::InitStore() {
+int RocksDBRawVector::InitStore() {
   block_cache_size_ = store_params_->cache_size_;
 
   std::shared_ptr<Cache> cache = NewLRUCache(block_cache_size_);
@@ -52,7 +50,7 @@ int RocksDBRawVector<DataType>::InitStore() {
   // create the DB if it's not already present
   options.create_if_missing = true;
 
-  string db_path = this->root_path_ + "/" + this->vector_name_;
+  string db_path = this->root_path_ + "/" + meta_info_->Name();
   if (!utils::isFolderExist(db_path.c_str())) {
     mkdir(db_path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   }
@@ -61,18 +59,17 @@ int RocksDBRawVector<DataType>::InitStore() {
   Status s = DB::Open(options, db_path, &db_);
   if (!s.ok()) {
     LOG(ERROR) << "open rocks db error: " << s.ToString();
-    return -1;
+    return IO_ERR;
   }
-  LOG(INFO) << "rocks raw vector init success! name=" << this->vector_name_
+  LOG(INFO) << "rocks raw vector init success! name=" << meta_info_->Name()
             << ", block cache size=" << block_cache_size_ << "Bytes";
 
   return 0;
 }
 
-template <typename DataType>
-int RocksDBRawVector<DataType>::GetVector(long vid, const DataType *&vec,
+int RocksDBRawVector::GetVector(long vid, const uint8_t *&vec,
                                 bool &deletable) const {
-  if (vid >= this->ntotal_ || vid < 0) {
+  if ((size_t)vid >= meta_info_->Size() || vid < 0) {
     return 1;
   }
   string key, value;
@@ -80,73 +77,132 @@ int RocksDBRawVector<DataType>::GetVector(long vid, const DataType *&vec,
   Status s = db_->Get(ReadOptions(), Slice(key), &value);
   if (!s.ok()) {
     LOG(ERROR) << "rocksdb get error:" << s.ToString() << ", key=" << key;
-    return 2;
+    return IO_ERR;
   }
-  DataType *vector = new DataType[this->dimension_];
-  assert((size_t)this->vector_byte_size_ == value.size());
-  memcpy((void *)vector, value.data(), this->vector_byte_size_);
-  vec = vector;
+  uint8_t *v = nullptr;
+  if (Decompress(value, v)) {
+    return INTERNAL_ERR;
+  }
+  vec = v;
   deletable = true;
   return 0;
 }
 
-template <typename DataType>
-int RocksDBRawVector<DataType>::AddToStore(DataType *v, int len) {
-  return UpdateToStore(this->ntotal_, v, len);
+int RocksDBRawVector::Gets(const std::vector<int64_t> &vids,
+                           ScopeVectors &vecs) const {
+  std::vector<std::string> keys_data;
+  size_t k = vids.size();
+  keys_data.resize(k);
+  std::vector<Slice> keys;
+  keys.reserve(k);
+  std::vector<std::string> values;
+
+  size_t j = 0;
+  for (size_t i = 0; i < k; i++) {
+    if (vids[i] < 0) {
+      continue;
+    }
+    ToRowKey((int)vids[i], keys_data[i]);
+    keys.emplace_back(std::move(keys_data[i]));
+    ++j;
+    // LOG(INFO) << "i=" << i << "key=" << keys[i].ToString();
+  }
+  values.resize(j);
+  std::vector<Status> statuses = db_->MultiGet(ReadOptions(), keys, &values);
+  assert(statuses.size() == j);
+
+  j = 0;
+  for (size_t i = 0; i < k; ++i) {
+    if (vids[i] < 0) {
+      vecs.Add(nullptr, true);
+      continue;
+    }
+    if (!statuses[j].ok()) {
+      LOG(ERROR) << "rocksdb multiget error:" << statuses[j].ToString()
+                 << ", key=" << keys[j].ToString();
+      return 2;
+    }
+    uint8_t *vector = nullptr;
+    if (Decompress(values[j], vector)) {
+      return INTERNAL_ERR;
+    }
+    vecs.Add(vector, true);
+    ++j;
+  }
+  return 0;
 }
 
-template <typename DataType>
-size_t RocksDBRawVector<DataType>::GetStoreMemUsage() {
+int RocksDBRawVector::AddToStore(uint8_t *v, int len) {
+  return UpdateToStore(meta_info_->Size(), v, len);
+}
+
+size_t RocksDBRawVector::GetStoreMemUsage() {
   size_t cache_mem = table_options_.block_cache->GetUsage();
   std::string index_mem;
   db_->GetProperty("rocksdb.estimate-table-readers-mem", &index_mem);
   std::string memtable_mem;
   db_->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_mem);
   size_t pin_mem = table_options_.block_cache->GetPinnedUsage();
+#ifdef DEBUG
   LOG(INFO) << "rocksdb mem usage: block cache=" << cache_mem
             << ", index and filter=" << index_mem
             << ", memtable=" << memtable_mem
             << ", iterators pinned=" << pin_mem;
-  return 0;
+#endif
+  return cache_mem + pin_mem;
 }
 
-template <typename DataType>
-int RocksDBRawVector<DataType>::UpdateToStore(int vid, DataType *v, int len) {
-  if (v == nullptr || len != this->dimension_) return -1;
+int RocksDBRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
+  if (v == nullptr || len != meta_info_->Dimension() * meta_info_->DataSize())
+    return -1;
+
+  ScopeVector svec;
+  if (this->Compress(v, svec)) {
+    return INTERNAL_ERR;
+  }
+
   string key;
   ToRowKey(vid, key);
-  Status s =
-      db_->Put(WriteOptions(), Slice(key), Slice((char *)v, this->vector_byte_size_));
+  Status s = db_->Put(WriteOptions(), Slice(key),
+                      Slice((const char *)svec.Get(), this->vector_byte_size_));
   if (!s.ok()) {
     LOG(ERROR) << "rocksdb update error:" << s.ToString() << ", key=" << key;
-    return -2;
+    return IO_ERR;
   }
   return 0;
 }
 
-template <typename DataType>
-int RocksDBRawVector<DataType>::GetVectorHeader(int start, int end, ScopeVector<DataType> &vec) {
-  if (start < 0 || start >= this->ntotal_ || start >= end) {
-    return 1;
+int RocksDBRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
+                                      std::vector<int> &lens) {
+  if (start < 0 || (size_t)start + n > meta_info_->Size()) {
+    return PARAM_ERR;
   }
 
   rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
   string start_key, end_key;
   ToRowKey(start, start_key);
-  ToRowKey(end, end_key);
+  ToRowKey(start + n, end_key);
   it->Seek(Slice(start_key));
-  int num = end - start;
-  DataType *vectors = new DataType[(uint64_t)this->dimension_ * num];
-  for (int c = 0; c < num; c++, it->Next()) {
+  int dimension = meta_info_->Dimension();
+  uint8_t *vectors = new uint8_t[(uint64_t)dimension * n * data_size_];
+  uint8_t *dst = vectors;
+  for (int c = 0; c < n; c++, it->Next()) {
     if (!it->Valid()) {
-      LOG(ERROR) << "rocksdb iterator error, count=" << c;
+      LOG(ERROR) << "rocksdb iterator error, vid=" << start + c;
       delete it;
+      delete[] vectors;
+      return INTERNAL_ERR;
+    }
+
+    Slice value = it->value();
+    string vstr = value.ToString();
+    if (Decompress(vstr, dst)) {
+      LOG(ERROR) << "rocksdb get, decompress error, vid=" << start + c;
+      delete it;
+      delete[] vectors;
       return 2;
     }
-    Slice value = it->value();
-    assert(value.size_ == (size_t)this->vector_byte_size_);
-    memcpy((void *)(vectors + (uint64_t)c * this->dimension_), value.data_,
-           this->vector_byte_size_);
+
 #ifdef DEBUG
     string expect_key;
     ToRowKey(c + start, expect_key);
@@ -156,21 +212,39 @@ int RocksDBRawVector<DataType>::GetVectorHeader(int start, int end, ScopeVector<
                  << ", expect=" << expect_key;
     }
 #endif
+    dst += (size_t)dimension * data_size_;
   }
   delete it;
-  vec.Set(vectors);
+  vecs.Add(vectors);
+  lens.push_back(n);
   return 0;
 }
 
-template <typename DataType>
-void RocksDBRawVector<DataType>::ToRowKey(int vid, string &key) const {
+void RocksDBRawVector::ToRowKey(int vid, string &key) const {
   char data[11];
   snprintf(data, 11, "%010d", vid);
   key.assign(data, 10);
 }
 
-template class RocksDBRawVector<float>;
-template class RocksDBRawVector<uint8_t>;
+int RocksDBRawVector::Decompress(std::string &cmprs_data, uint8_t *&vec) const {
+#ifdef WITH_ZFP
+  if (store_params_->compress_) {
+    if (zfp_compressor_.Decompress((const uint8_t *)cmprs_data.c_str(), 1,
+                                   (float *&)vec)) {
+      return INTERNAL_ERR;
+    }
+  } else
+#endif
+  {
+    assert((size_t)vector_byte_size_ == cmprs_data.size());
+    if (vec == nullptr) {
+      vec = new uint8_t[vector_byte_size_];
+    }
+    memcpy(vec, cmprs_data.c_str(), vector_byte_size_);
+  }
+  return 0;
+}
+
 }  // namespace tig_gamma
 
 #endif  // WITH_ROCKSDB

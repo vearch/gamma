@@ -42,7 +42,7 @@ IF (RocksDB_FOUND)
   ENDIF (NOT RocksDB_FIND_QUIETLY)
 ELSE (RocksDB_FOUND)
   IF (RocksDB_FIND_REQUIRED)
-    MESSAGE(FATAL_ERROR "Could not find RocksDB, please install faiss or set $ROCKSDB_HOME")
+    MESSAGE(FATAL_ERROR "Could not find RocksDB, please install RocksDB or set $ROCKSDB_HOME")
   ENDIF (RocksDB_FIND_REQUIRED)
 ENDIF (RocksDB_FOUND)
 

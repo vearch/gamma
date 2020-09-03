@@ -13,8 +13,11 @@
 #include <limits>
 #include <string>
 #include <vector>
+
 #include "bitmap.h"
 #include "log.h"
+
+#define BM_OPERATE_TYPE long
 
 namespace tig_gamma {
 
@@ -26,6 +29,21 @@ class RangeQueryResult {
     Clear();
   }
 
+  RangeQueryResult(RangeQueryResult &&other) { *this = std::move(other); }
+
+  RangeQueryResult &operator=(RangeQueryResult &&other) {
+    min_ = other.min_;
+    max_ = other.max_;
+    min_aligned_ = other.min_aligned_;
+    max_aligned_ = other.max_aligned_;
+    next_ = other.next_;
+    n_doc_ = other.n_doc_;
+    bitmap_ = other.bitmap_;
+    other.bitmap_ = nullptr;
+    b_not_in_ = other.b_not_in_;
+    return *this;
+  }
+
   ~RangeQueryResult() {
     if (bitmap_ != nullptr) {
       free(bitmap_);
@@ -34,11 +52,19 @@ class RangeQueryResult {
   }
 
   bool Has(int doc) const {
-    if (doc < min_ || doc > max_) {
-      return false;
+    if (b_not_in_) {
+      if (doc < min_ || doc > max_) {
+        return true;
+      }
+      doc -= min_aligned_;
+      return !bitmap::test(bitmap_, doc);
+    } else {
+      if (doc < min_ || doc > max_) {
+        return false;
+      }
+      doc -= min_aligned_;
+      return bitmap::test(bitmap_, doc);
     }
-    doc -= min_aligned_;
-    return bitmap::test(bitmap_, doc);
   }
 
   /**
@@ -73,6 +99,7 @@ class RangeQueryResult {
       free(bitmap_);
       bitmap_ = nullptr;
     }
+    b_not_in_ = false;
   }
 
   void SetRange(int x, int y) {
@@ -109,6 +136,10 @@ class RangeQueryResult {
 
   void SetDocNum(int num) { n_doc_ = num; }
 
+  void SetNotIn(bool b_not_in) { b_not_in_ = b_not_in; }
+
+  bool NotIn() { return b_not_in_; }
+
   /**
    * @return sorted docIDs
    */
@@ -125,6 +156,7 @@ class RangeQueryResult {
   mutable int n_doc_;
 
   char *bitmap_;
+  bool b_not_in_;
 };
 
 // do intersection lazily
@@ -132,37 +164,39 @@ class MultiRangeQueryResults {
  public:
   MultiRangeQueryResults() { Clear(); }
 
-  ~MultiRangeQueryResults() {
-    delete all_results_;
-    all_results_ = nullptr;
-  }
+  ~MultiRangeQueryResults() { Clear(); }
 
   // Take full advantage of multi-core while recalling
   bool Has(int doc) const {
-    if (all_results_ == nullptr) {
+    if (all_results_.size() == 0) {
       return false;
     }
-    return all_results_->Has(doc);
+    bool ret = true;
+    for (auto &result : all_results_) {
+      ret = ret && result.Has(doc);
+      if (not ret) break;
+    }
+    return ret;
   }
 
   void Clear() {
     min_ = 0;
     max_ = std::numeric_limits<int>::max();
-    all_results_ = nullptr;
+    all_results_.clear();
   }
 
  public:
-  void Add(RangeQueryResult *r) {
-    all_results_ = r;
-
+  size_t Size() { return all_results_.size(); }
+  void Add(RangeQueryResult &&result) {
     // the maximum of the minimum(s)
-    if (r->Min() > min_) {
-      min_ = r->Min();
+    if (result.Min() > min_) {
+      min_ = result.Min();
     }
     // the minimum of the maximum(s)
-    if (r->Max() < max_) {
-      max_ = r->Max();
+    if (result.Max() < max_) {
+      max_ = result.Max();
     }
+    all_results_.emplace_back(std::move(result));
   }
 
   int Min() const { return min_; }
@@ -173,13 +207,13 @@ class MultiRangeQueryResults {
    */
   std::vector<int> ToDocs() const;
 
-  const RangeQueryResult *GetAllResult() const { return all_results_; }
+  const RangeQueryResult *GetAllResult() const { return &all_results_[0]; }
 
  private:
   int min_;
   int max_;
 
-  RangeQueryResult *all_results_;
+  std::vector<RangeQueryResult> all_results_;
 };
 
 }  // namespace tig_gamma

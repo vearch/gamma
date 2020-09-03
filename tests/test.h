@@ -14,139 +14,136 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
-#include "log.h"
 
+#include "api_data/gamma_config.h"
 #include "bitmap.h"
 #include "c_api/gamma_api.h"
+#include "log.h"
 #include "util/utils.h"
+#include "c_api/api_data/gamma_response.h"
 
 using std::string;
-using namespace std;
+
 namespace {
 
-string kIVFPQParam_str =
+string kIVFPQParam =
     "{\"nprobe\" : 10, \"metric_type\" : \"InnerProduct\", \"ncentroids\" : "
     "256,\"nsubvector\" : 64}";
-
-ByteArray *kIVFPQParam =
-    MakeByteArray(kIVFPQParam_str.c_str(), kIVFPQParam_str.length());
-
-ByteArray *GetIVFPQParam() {
-  return MakeByteArray(kIVFPQParam_str.c_str(), kIVFPQParam_str.length());
-}
 
 string kHNSWParam_str =
     "{\"nlinks\" : 32, \"metric_type\" : \"InnerProduct\", \"efSearch\" : "
     "64,\"efConstruction\" : 40}";
 
-ByteArray *kHNSWParam =
-    MakeByteArray(kHNSWParam_str.c_str(), kHNSWParam_str.length());
-
 string kFLATParam_str = "{\"metric_type\" : \"InnerProduct\"}";
-ByteArray *kFLATParam =
-    MakeByteArray(kFLATParam_str.c_str(), kFLATParam_str.length());
 
-inline ByteArray *StringToByteArray(const std::string &str) {
-  ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
-  ba->len = str.length();
-  ba->value = static_cast<char *>(malloc((str.length()) * sizeof(char)));
-  memcpy(ba->value, str.data(), str.length());
-  return ba;
-}
+struct Options {
+  Options() {
+    nprobe = 10;
+    doc_id = 0;
+    d = 512;
+    filter = false;
+    print_doc = true;
+    search_thread_num = 1;
+    max_doc_size = 10000 * 200;
+    add_doc_num = 10000 * 2;
+    search_num = 100;
+    indexing_size = 10000 * 1;
+    fields_vec = {"_id", "img", "field1", "field2", "field3"};
+    fields_type = {tig_gamma::DataType::STRING, tig_gamma::DataType::STRING,
+                   tig_gamma::DataType::STRING, tig_gamma::DataType::INT,
+                   tig_gamma::DataType::INT};
+    vector_name = "abc";
+    path = "files";
+    log_dir = "log";
+    model_id = "model";
+    retrieval_type = "IVFPQ";
+    store_type = "MemoryOnly";
+    // store_type = "RocksDB";
+    profiles.resize(max_doc_size * fields_vec.size());
+    engine = nullptr;
+  }
 
-inline ByteArray *FloatToByteArray(const float *feature, int dimension) {
-  ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
-  ba->len = dimension * sizeof(float);
-  ba->value = static_cast<char *>(malloc(ba->len));
-  memcpy((void *)ba->value, (void *)feature, ba->len);
-  return ba;
-}
+  int nprobe;
+  size_t doc_id;
+  size_t doc_id2;
+  size_t d;
+  size_t max_doc_size;
+  size_t add_doc_num;
+  size_t search_num;
+  int indexing_size;
+  bool filter;
+  bool print_doc;
+  int search_thread_num;
+  std::vector<string> fields_vec;
+  std::vector<tig_gamma::DataType> fields_type;
+  string path;
+  string log_dir;
+  string vector_name;
+  string model_id;
+  string retrieval_type;
+  string store_type;
 
-inline ByteArray *Uint8ToByteArray(const uint8_t *feature, int dimension) {
-  ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
-  ba->len = dimension * sizeof(uint8_t);
-  ba->value = static_cast<char *>(malloc(ba->len));
-  memcpy((void *)ba->value, (void *)feature, ba->len);
-  return ba;
-}
+  std::vector<string> profiles;
+  float *feature;
 
-string ByteArrayToString(const ByteArray *ba) {
-  assert(ba != nullptr);
-  if (ba->value == nullptr || ba->len <= 0) return string("");
-  return string(ba->value, ba->len);
-}
+  string profile_file;
+  string feature_file;
+  char *docids_bitmap_;
+  void *engine;
+};
 
-int ByteArrayToInt(const ByteArray *ba) {
-  assert(ba != nullptr);
-  int data = 0;
-  memcpy(&data, ba->value, ba->len);
-  return data;
-}
+void printDoc(struct tig_gamma::ResultItem &result_item, std::string &msg,
+              struct Options &opt) {
+  msg += string("score [") + std::to_string(result_item.score) + "], ";
+  for (size_t i = 0; i < result_item.names.size(); ++i) {
+    std::string &name = result_item.names[i];
+    tig_gamma::DataType data_type;
+    for (size_t j = 0; j < opt.fields_vec.size(); ++j) {
+      if (name == opt.vector_name) {
+        data_type = tig_gamma::DataType::VECTOR;
+        break;
+      }
+      if (name == opt.fields_vec[j]) {
+        data_type = opt.fields_type[j];
+        break;
+      }
+    }
 
-template <typename T>
-inline ByteArray *ToByteArray(const T v) {
-  ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
-  ba->value = static_cast<char *>(malloc(sizeof(T)));
-  ba->len = sizeof(T);
-  memcpy(ba->value, &v, ba->len);
-  return ba;
-}
-
-void printDoc(const Doc *doc, std::string &msg) {
-  for (int j = 0; j < doc->fields_num; ++j) {
-    struct Field *field_value = GetField(doc, j);
-    if (field_value->data_type == INT) {
-      msg += "field name [" +
-             string(field_value->name->value, field_value->name->len) +
-             "], value [" +
-             std::to_string(*((int *)field_value->value->value)) + "], type [" +
-             std::to_string(field_value->data_type) + "], ";
-    } else if (field_value->data_type == LONG) {
-      msg += "field name [" +
-             string(field_value->name->value, field_value->name->len) +
-             "], value [" +
-             std::to_string(*((long *)field_value->value->value)) +
-             "], type [" + std::to_string(field_value->data_type) + "], ";
-    } else if (field_value->data_type == FLOAT) {
-      msg += "field name [" +
-             string(field_value->name->value, field_value->name->len) +
-             "], value [" +
-             std::to_string(*((float *)field_value->value->value)) +
-             "], type [" + std::to_string(field_value->data_type) + "], ";
-    } else if (field_value->data_type == DOUBLE) {
-      msg += "field name [" +
-             string(field_value->name->value, field_value->name->len) +
-             "], value [" +
-             std::to_string(*((double *)field_value->value->value)) +
-             "], type [" + std::to_string(field_value->data_type) + "], ";
-    } else if (field_value->data_type == STRING) {
-      msg += "field name [" +
-             string(field_value->name->value, field_value->name->len) +
-             "], value [" +
-             string(field_value->value->value, field_value->value->len) +
-             "], type [" + std::to_string(field_value->data_type) + "], ";
-    } else if (field_value->data_type == VECTOR) {
-      string str_vec;
+    msg += "field name [" + name + "], type [" +
+           std::to_string(static_cast<int>(data_type)) + "], value [";
+    std::string &value = result_item.values[i];
+    if (data_type == tig_gamma::DataType::INT) {
+      msg += std::to_string(*((int *)value.data()));
+    } else if (data_type == tig_gamma::DataType::LONG) {
+      msg += std::to_string(*((long *)value.data()));
+    } else if (data_type == tig_gamma::DataType::FLOAT) {
+      msg += std::to_string(*((float *)value.data()));
+    } else if (data_type == tig_gamma::DataType::DOUBLE) {
+      msg += std::to_string(*((double *)value.data()));
+    } else if (data_type == tig_gamma::DataType::STRING) {
+      msg += value;
+    } else if (data_type == tig_gamma::DataType::VECTOR) {
+      std::string str_vec;
       int d = -1;
-      memcpy((void *)&d, field_value->value->value, sizeof(int));
+      memcpy((void *)&d, value.data(), sizeof(int));
 
       d /= sizeof(float);
       int cur = sizeof(int);
 
-      float *feature =
-          reinterpret_cast<float *>(field_value->value->value + cur);
+      const float *feature = reinterpret_cast<const float *>(value.data() + cur);
 
       cur += d * sizeof(float);
-      int len = field_value->value->len;
+      int len = value.length();
       char source[len - cur];
 
-      memcpy(source, field_value->value->value + cur, len - cur);
+      memcpy(source, value.data() + cur, len - cur);
 
       for (int i = 0; i < d; ++i) {
         str_vec += std::to_string(feature[i]) + ",";
@@ -154,12 +151,9 @@ void printDoc(const Doc *doc, std::string &msg) {
       str_vec.pop_back();
 
       std::string source_str = std::string(source, len - cur);
-      msg += "field name [" +
-             string(field_value->name->value, field_value->name->len) +
-             "], value [" + str_vec + "], type [" +
-             std::to_string(field_value->data_type) + "], source [" +
-             source_str + "]";
+      msg += str_vec + "], source [" + source_str + "]";
     }
+    msg += "], ";
   }
 }
 

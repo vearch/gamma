@@ -8,14 +8,17 @@
 #ifndef UTILS_H_
 #define UTILS_H_
 
+#include <openssl/md5.h>
+#include <string.h>
+
 #include <cassert>
 #include <functional>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+
 #include "cJSON.h"
-#include "gamma_api.h"
 
 #define CHECK_DELETE(ptr) \
   {                       \
@@ -51,6 +54,8 @@ double elapsed();
 double getmillisecs();
 
 int isFolderExist(const char *path);
+
+bool file_exist(const std::string &path);
 
 int make_dir(const char *path);
 
@@ -126,6 +131,7 @@ struct JsonParser {
   int GetInt(const std::string &name, int &value);
   int GetDouble(const std::string &name, double &value);
   int GetString(const std::string &name, std::string &value);
+  int GetBool(const std::string &name, bool &value);
   bool Contains(const std::string &name);
 };
 
@@ -150,8 +156,7 @@ void AsyncWait(int after, callable &&f, arguments &&... args) {
   std::thread([after, task]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(after));
     task();
-  })
-      .detach();
+  }).detach();
 }
 
 /** bare-bones unique_ptr
@@ -176,6 +181,8 @@ struct ScopeDeleter1 {
   void swap(ScopeDeleter1<T> &other) { std::swap(ptr, other.ptr); }
   ~ScopeDeleter1() { delete ptr; }
 };
+
+int64_t StringToInt64(const std::string &src);
 
 }  // namespace utils
 

@@ -11,7 +11,6 @@ find_package(FAISS REQUIRED)
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
-option(SMALL_DOC_NUM_OPTIMIZATION "SMALL_DOC_NUM_OPTIMIZATION" off)
 
 #ENV VARs
 set(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
@@ -20,20 +19,21 @@ set(CJSON ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson)
 set(EASYLOGGINGPP ${CMAKE_CURRENT_SOURCE_DIR}/third_party/easyloggingpp)
 set(HASHTABLE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libcuckoo)
 set(UTIL ${CMAKE_CURRENT_SOURCE_DIR}/util)
+set(COMMON ${CMAKE_CURRENT_SOURCE_DIR}/common)
 set(GAMMA_SEARCH ${CMAKE_CURRENT_SOURCE_DIR}/search)
 set(GAMMA_INDEX ${CMAKE_CURRENT_SOURCE_DIR}/index)
+set(GAMMA_INDEX_IMPL ${CMAKE_CURRENT_SOURCE_DIR}/index/impl)
 set(GAMMA_VECTOR ${CMAKE_CURRENT_SOURCE_DIR}/vector)
 set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
-set(GAMMA_PROFILE ${CMAKE_CURRENT_SOURCE_DIR}/profile)
+set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
 set(GAMMA_C_API ${CMAKE_CURRENT_SOURCE_DIR}/c_api)
-set(FLATBUFFERS flatbuffers-1.11.0)
 set(FLATBUFFERS_OUT ${CMAKE_CURRENT_SOURCE_DIR}/idl/fbs-gen)
 
 if(APPLE)
     set(CMAKE_C_COMPILER "/usr/local/opt/llvm/bin/clang")
     set(CMAKE_CXX_COMPILER "/usr/local/opt/llvm/bin/clang++")
-    include_directories("/usr/local/include" "/usr/local/opt/llvm/include")
-    link_directories("/usr/local/lib" "/usr/local/opt/llvm/lib")
+    include_directories("/usr/local/include" "/usr/local/opt/llvm/include" "/usr/local/Cellar/openssl@1.1/1.1.1d/include")
+    link_directories("/usr/local/lib" "/usr/local/opt/llvm/lib" "/usr/local/Cellar/openssl@1.1/1.1.1d/lib/")
 endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -std=c++11 -mavx2 -msse4 -mpopcnt -fopenmp -D_FILE_OFFSET_BITS=64 -D_LARGE_FILE -DOPEN_CORE -O0 -w -g3 -gdwarf-2")
@@ -47,6 +47,14 @@ else(DEFINED ENV{ROCKSDB_HOME})
     message(STATUS "RocksDB home isn't set, so store_type=RocksDB is not supported! ")
 endif(DEFINED ENV{ROCKSDB_HOME})
 
+IF (DEFINED ENV{ZFP_HOME})
+    MESSAGE(STATUS "ZFP home is set=$ENV{ZFP_HOME}")
+    ADD_DEFINITIONS(-DWITH_ZFP)
+    FIND_PACKAGE(ZFP REQUIRED)
+ELSE (DEFINED ENV{ZFP_HOME})
+    MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
+ENDIF (DEFINED ENV{ZFP_HOME})
+
 #INCLUDE DIR
 include_directories(
     ${THIRDPARTY}
@@ -55,21 +63,27 @@ include_directories(
     ${EASYLOGGINGPP}
     ${HASHTABLE}
     ${UTIL}
-    ${GAMMA_PROFILE}
+    ${COMMON}
+    ${GAMMA_TABLE}
     ${GAMMA_SEARCH}
     ${GAMMA_INDEX}
+    ${GAMMA_INDEX_IMPL}
     ${GAMMA_VECTOR}
     ${GAMMA_REALTIME}
     ${GAMMA_C_API}
     ${FAISS_INCLUDE_DIR}
     ${RocksDB_INCLUDE_DIR}
     ${FLATBUFFERS_OUT}/c
+    ${ZFP_INCLUDE_DIR}
 )
 
 #LINK LIBRARY
 set(LIBRARIES
     ${FAISS_LIB}
     ${RocksDB_LIB}
+    ${ZFP_LIB}
+    -lcrypto
+    -lzstd
 )
 
 #ADDITIONAL SOURCE DIR
@@ -78,12 +92,15 @@ aux_source_directory(${BTREE} DIR_SRCS)
 aux_source_directory(${CJSON} DIR_SRCS)
 aux_source_directory(${EASYLOGGINGPP} DIR_SRCS)
 aux_source_directory(${UTIL} DIR_SRCS)
+aux_source_directory(${COMMON} DIR_SRCS)
 aux_source_directory(${GAMMA_SEARCH} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX} DIR_SRCS)
+aux_source_directory(${GAMMA_INDEX_IMPL} DIR_SRCS)
 aux_source_directory(${GAMMA_VECTOR} DIR_SRCS)
 aux_source_directory(${GAMMA_REALTIME} DIR_SRCS)
-aux_source_directory(${GAMMA_PROFILE} DIR_SRCS)
+aux_source_directory(${GAMMA_TABLE} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API} DIR_SRCS)
+aux_source_directory(${GAMMA_C_API}/api_data DIR_SRCS)
 
 set(LIB_SRCS ${DIR_SRCS})
 
@@ -108,38 +125,21 @@ exec_program(
 
 add_definitions(-DGIT_SHA1="${VERSION_SHA1}")
 
-if(NOT EXISTS "${THIRDPARTY}/${FLATBUFFERS}")
-    execute_process(COMMAND wget https://github.com/google/flatbuffers/archive/v1.11.0.tar.gz WORKING_DIRECTORY ${THIRDPARTY})
-    execute_process(COMMAND tar xf v1.11.0.tar.gz WORKING_DIRECTORY ${THIRDPARTY})
-    execute_process(COMMAND cmake . WORKING_DIRECTORY ${THIRDPARTY}/${FLATBUFFERS})
-    execute_process(COMMAND make WORKING_DIRECTORY ${THIRDPARTY}/${FLATBUFFERS})
-    execute_process(COMMAND rm -rf v1.11.0.tar.gz WORKING_DIRECTORY ${THIRDPARTY})
-    execute_process(COMMAND rm -rf flatbuffers WORKING_DIRECTORY ${THIRDPARTY})
-    exec_program(
-        "cp"
-        ${THIRDPARTY}
-        ARGS "-r -p ${FLATBUFFERS}/include/flatbuffers .")
-    exec_program(
-        "sh"
-        ${CMAKE_CURRENT_SOURCE_DIR}/idl
-        ARGS "build.sh ${FLATBUFFERS} ${FLATBUFFERS_OUT}")
-endif()
+exec_program(
+    "sh"
+    ${CMAKE_CURRENT_SOURCE_DIR}/idl
+    ARGS "build.sh")
 
-if (PERFORMANCE_TESTING STREQUAL "ON")
+if(PERFORMANCE_TESTING STREQUAL "ON")
     message(STATUS "With preformance testing")
     add_definitions(-DPERFORMANCE_TESTING) 
 endif(PERFORMANCE_TESTING STREQUAL "ON")
-
-if (SMALL_DOC_NUM_OPTIMIZATION)
-    message(STATUS "with small doc num optimization")
-    add_definitions(-DSMALL_DOC_NUM_OPTIMIZATION)
-endif(SMALL_DOC_NUM_OPTIMIZATION)
 
 if(BUILD_WITH_GPU)
     message(STATUS "With GPU")
     add_definitions(-DBUILD_GPU) 
     
-    set(GAMMA_GPU ${CMAKE_CURRENT_SOURCE_DIR}/index/gpu)
+    set(GAMMA_GPU ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/gpu)
 
     aux_source_directory(${GAMMA_GPU} DIR_SRCS)
 
@@ -164,7 +164,7 @@ if(BUILD_WITH_GPU)
     ${FAISS_GPU_CUH}
     ${FAISS_GPU_CU}
     ${LIB_SRCS})
-else (BUILD_WITH_GPU)
+else(BUILD_WITH_GPU)
     add_library(gamma SHARED ${LIB_SRCS})
 endif(BUILD_WITH_GPU)
 

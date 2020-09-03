@@ -6,21 +6,23 @@
  */
 
 #include "vector_buffer_queue.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
 #include <cassert>
 #include <iostream>
 #include <stdexcept>
+
 #include "log.h"
 #include "thread_util.h"
 #include "utils.h"
 
-using namespace std;
+namespace tig_gamma {
 
-template <typename DataType>
-VectorBufferQueue<DataType>::VectorBufferQueue(int max_vector_size,
-                                               int dimension, int chunk_num) {
+VectorBufferQueue::VectorBufferQueue(int max_vector_size, int dimension,
+                                     int chunk_num, uint8_t data_size) {
   max_vector_size_ = max_vector_size;
   dimension_ = dimension;
   chunk_num_ = chunk_num;
@@ -28,10 +30,10 @@ VectorBufferQueue<DataType>::VectorBufferQueue(int max_vector_size,
   push_index_ = 0;
   total_mem_bytes_ = 0;
   stored_num_ = 0;
+  data_size_ = data_size;
 }
 
-template <typename DataType>
-VectorBufferQueue<DataType>::~VectorBufferQueue() {
+VectorBufferQueue::~VectorBufferQueue() {
   if (buffer_ != NULL) {
     free(buffer_);
     buffer_ = nullptr;
@@ -48,24 +50,22 @@ VectorBufferQueue<DataType>::~VectorBufferQueue() {
   }
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Init() {
-  if (dimension_ <= 0) {
-    return 1;
-  }
+int VectorBufferQueue::Init() {
   if (max_vector_size_ % chunk_num_ != 0) {
     LOG(ERROR) << "max_vector_size(" << max_vector_size_ << ") % chunk_num("
                << chunk_num_ << ") != 0";
     return 1;
   }
+
   chunk_size_ = max_vector_size_ / chunk_num_;
 
-  vector_byte_size_ = sizeof(DataType) * dimension_;
-  buffer_ = (DataType *)malloc((size_t)max_vector_size_ * vector_byte_size_);
+  vector_byte_size_ = data_size_ * dimension_;
+  buffer_ = (uint8_t *)malloc((size_t)max_vector_size_ * vector_byte_size_);
   if (buffer_ == NULL) {
-    cerr << "malloc buffer failed" << endl;
+    LOG(ERROR) << "malloc buffer failed";
     return 2;
   }
+
   total_mem_bytes_ += (long)max_vector_size_ * vector_byte_size_;
 
   shared_mutexes_ = new pthread_rwlock_t[chunk_num_];
@@ -76,6 +76,7 @@ int VectorBufferQueue<DataType>::Init() {
       return 2;
     }
   }
+
   LOG(INFO) << "vector buffer queue init success! buffer byte size="
             << (long)max_vector_size_ * vector_byte_size_
             << ", buffer vector size=" << max_vector_size_
@@ -84,9 +85,12 @@ int VectorBufferQueue<DataType>::Init() {
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Push(const DataType *v, int dim, int timeout) {
-  if (v == NULL || dim != dimension_) return 1;
+int VectorBufferQueue::Push(const uint8_t *v, int len, int timeout) {
+  if (v == NULL || len != vector_byte_size_) {
+    LOG(ERROR) << "value [" << v << "], len [" << len
+               << "], vector_byte_size_ [" << vector_byte_size_ << "]";
+    return 1;
+  }
 
   if (!WaitFor(timeout, 1, 1)) {
     return 3;  // timeout
@@ -94,16 +98,19 @@ int VectorBufferQueue<DataType>::Push(const DataType *v, int dim, int timeout) {
   int chunk_id = push_index_ / chunk_size_ % chunk_num_;
   WriteThreadLock write_lock(shared_mutexes_[chunk_id]);
 
-  memcpy((void *)(buffer_ + push_index_ % max_vector_size_ * dimension_),
+  memcpy((void *)(buffer_ + push_index_ % max_vector_size_ * vector_byte_size_),
          (void *)v, vector_byte_size_);
   push_index_++;
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Push(const DataType *v, int dim, int num,
-                                      int timeout) {
-  if (v == NULL || dim != dimension_ || num <= 0) return 1;
+int VectorBufferQueue::Push(const uint8_t *v, int len, int num, int timeout) {
+  if (v == NULL || len != vector_byte_size_ || num <= 0) {
+    LOG(ERROR) << "value [" << v << "], len [" << len
+               << "], vector_byte_size_ [" << vector_byte_size_ << "], num ["
+               << num << "]";
+    return 1;
+  }
 
   if (!WaitFor(timeout, 1, num)) {
     return 3;  // timeout
@@ -115,47 +122,52 @@ int VectorBufferQueue<DataType>::Push(const DataType *v, int dim, int num,
     int chunk_id = push_index_ / chunk_size_ % chunk_num_;
     WriteThreadLock *write_lock =
         new WriteThreadLock(shared_mutexes_[chunk_id]);
-    memcpy((void *)(buffer_ + push_index_ % max_vector_size_ * dimension_),
+    memcpy((void *)(buffer_ + push_index_ % max_vector_size_ * vector_byte_size_),
            (void *)v, (long)vector_byte_size_ * batch_size);
     push_index_ += batch_size;
     delete write_lock;
     num -= batch_size;
-    v += (long)dimension_ * batch_size;
+    v += (long)vector_byte_size_ * batch_size;
   } while (num > 0);
+
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Pop(DataType *v, int dim, int timeout) {
-  if (v == nullptr || dim != dimension_) return 1;
+int VectorBufferQueue::Pop(uint8_t *v, int len, int timeout) {
+  if (v == nullptr || len != vector_byte_size_) {
+    LOG(ERROR) << "value [" << v << "], len [" << len
+               << "], vector_byte_size_ [" << vector_byte_size_ << "]";
+    return 1;
+  }
 
   if (!WaitFor(timeout, 2, 1)) {
     return 3;  // timeout
   }
 
-  uint64_t offset = pop_index_ % max_vector_size_ * dimension_;
+  uint64_t offset = pop_index_ % max_vector_size_ * vector_byte_size_;
   memcpy((void *)v, (void *)(buffer_ + offset), vector_byte_size_);
   pop_index_++;
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Pop(DataType *v, int dim, int num,
-                                     int timeout) {
-  if (v == nullptr || dim != dimension_ || num <= 0 || num > max_vector_size_)
+int VectorBufferQueue::Pop(uint8_t *v, int len, int num, int timeout) {
+  if (v == nullptr || len != vector_byte_size_ || num <= 0 ||
+      num > max_vector_size_)
     return 1;
 
   if (!WaitFor(timeout, 2, num)) {
     return 3;  // timeout
   }
+
   int offset = pop_index_ % max_vector_size_;
   // the remain vectors in last chunk are less than num
   int batch_size =
       max_vector_size_ - offset > num ? num : max_vector_size_ - offset;
-  memcpy((void *)v, (void *)(buffer_ + (uint64_t)offset * dimension_),
+  memcpy((void *)v, (void *)(buffer_ + (uint64_t)offset * vector_byte_size_),
          (long)vector_byte_size_ * batch_size);
-  v += (long)batch_size * dimension_;
+  v += (long)batch_size * vector_byte_size_;
   batch_size = num - batch_size;
+
   // read from the first of buffer
   if (batch_size > 0) {
     memcpy((void *)v, (void *)buffer_, (long)vector_byte_size_ * batch_size);
@@ -164,9 +176,13 @@ int VectorBufferQueue<DataType>::Pop(DataType *v, int dim, int num,
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::GetVector(int id, DataType *v, int dim) {
-  if (v == nullptr || dim != dimension_) return 1;
+int VectorBufferQueue::GetVector(int id, uint8_t *v, int len) {
+  if (v == nullptr || len != vector_byte_size_) {
+    LOG(ERROR) << "value [" << v << "], len [" << len
+               << "], vector_byte_size_ [" << vector_byte_size_ << "]";
+    return 1;
+  }
+
   int id_in_queue = id;
   int chunk_id = id_in_queue / chunk_size_ % chunk_num_;
   ReadThreadLock read_lock(shared_mutexes_[chunk_id]);
@@ -175,42 +191,45 @@ int VectorBufferQueue<DataType>::GetVector(int id, DataType *v, int dim) {
       push_index_ - id_in_queue > (uint64_t)max_vector_size_) {
     return 4;
   }
-  long offset = (long)id_in_queue % max_vector_size_ * dimension_;
+
+  long offset = (long)id_in_queue % max_vector_size_ * vector_byte_size_;
   memcpy((void *)v, (void *)(buffer_ + offset), vector_byte_size_);
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::GetVectorHead(int id, DataType **vec_head,
-                                               int dim) {
-  if (vec_head == nullptr || dim != dimension_ || (uint64_t)id >= push_index_)
+int VectorBufferQueue::GetVectorHead(int id, uint8_t **vec_head, int len) {
+  if (vec_head == nullptr || len != vector_byte_size_ ||
+      (uint64_t)id >= push_index_) {
+    LOG(ERROR) << "vec_head [" << vec_head << "], len [" << len
+               << "], vector_byte_size_ [" << vector_byte_size_ << "], id ["
+               << id << "], push_index_ [" << push_index_ << "]";
     return 1;
-  *vec_head = buffer_ + (long)id % max_vector_size_ * dimension_;
+  }
+
+  *vec_head = buffer_ + (long)id % max_vector_size_ * vector_byte_size_;
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Update(int id, DataType *v, int dim) {
-  if (v == nullptr || dim != dimension_ || (uint64_t)id >= push_index_)
+int VectorBufferQueue::Update(int id, uint8_t *v, int len) {
+  if (v == nullptr || len != vector_byte_size_ || (uint64_t)id >= push_index_) {
+    LOG(ERROR) << "value [" << v << "], len [" << len
+               << "], vector_byte_size_ [" << vector_byte_size_ << "], id ["
+               << id << "], push_index_ [" << push_index_ << "]";
     return 1;
-  DataType *dst_vec = buffer_ + (long)id % max_vector_size_ * dimension_;
+  }
+  uint8_t *dst_vec = buffer_ + (long)id % max_vector_size_ * vector_byte_size_;
   memcpy((void *)dst_vec, (void *)v, vector_byte_size_);
   return 0;
 }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::GetPopSize() const {
-  return push_index_ - pop_index_;
-}
+int VectorBufferQueue::GetPopSize() const { return push_index_ - pop_index_; }
 
-template <typename DataType>
-int VectorBufferQueue<DataType>::Size() const {
+int VectorBufferQueue::Size() const {
   uint64_t idx = push_index_;
   return idx > (uint64_t)max_vector_size_ ? max_vector_size_ : idx;
 }
 
-template <typename DataType>
-bool VectorBufferQueue<DataType>::WaitFor(int timeout, int type, int num) {
+bool VectorBufferQueue::WaitFor(int timeout, int type, int num) {
   int cost = 0;
   while (timeout == -1 || cost < timeout) {
     bool status = false;
@@ -219,7 +238,7 @@ bool VectorBufferQueue<DataType>::WaitFor(int timeout, int type, int num) {
         status =
             max_vector_size_ - (push_index_ - pop_index_) >= (std::uint64_t)num;
         break;
-      case 2:  // if it can poll num vector
+      case 2:  // if it can pull num vector
         status = push_index_ - pop_index_ >= (std::uint64_t)num;
         break;
       default:
@@ -232,5 +251,4 @@ bool VectorBufferQueue<DataType>::WaitFor(int timeout, int type, int num) {
   return false;
 }
 
-template class VectorBufferQueue<float>;
-template class VectorBufferQueue<uint8_t>;
+}  // namespace tig_gamma

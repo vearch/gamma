@@ -1,0 +1,8 @@
+namespace gamma_api;
+
+table Config {
+  path:string;
+  log_dir:string;
+}
+
+root_type Config;
