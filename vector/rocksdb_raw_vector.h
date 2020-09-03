@@ -7,8 +7,7 @@
 
 #ifdef WITH_ROCKSDB
 
-#ifndef ROCKSDB_RAW_VECTOR_H_
-#define ROCKSDB_RAW_VECTOR_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -19,36 +18,35 @@
 
 namespace tig_gamma {
 
-template <typename DataType>
-class RocksDBRawVector : public RawVector<DataType> {
+class RocksDBRawVector : public RawVector {
  public:
-  RocksDBRawVector(const std::string &name, int dimension, int max_vector_size,
-                   const std::string &root_path,
-                   const StoreParams &store_params);
+  RocksDBRawVector(VectorMetaInfo *meta_info, const std::string &root_path,
+                   const StoreParams &store_params, const char *docids_bitmap);
   ~RocksDBRawVector();
   /* RawVector */
   int InitStore() override;
-  int AddToStore(DataType *v, int len) override;
-  int GetVectorHeader(int start, int end, ScopeVector<DataType> &vec) override;
-  int UpdateToStore(int vid, DataType *v, int len);
+  int AddToStore(uint8_t *v, int len) override;
+  int GetVectorHeader(int start, int n, ScopeVectors &vecs,
+                      std::vector<int> &lens) override;
+  int UpdateToStore(int vid, uint8_t *v, int len);
 
   size_t GetStoreMemUsage();
 
+  int Gets(const std::vector<int64_t> &vids, ScopeVectors &vecs) const override;
+
  protected:
-  int GetVector(long vid, const DataType *&vec, bool &deletable) const override;
+  int GetVector(long vid, const uint8_t *&vec, bool &deletable) const override;
 
  private:
   void ToRowKey(int vid, std::string &key) const;
+  int Decompress(std::string &cmprs_data, uint8_t *&vec) const;
 
  private:
   rocksdb::DB *db_;
   rocksdb::BlockBasedTableOptions table_options_;
   size_t block_cache_size_;
-  RawVectorIO<DataType> *raw_vector_io_;
-  StoreParams *store_params_;
+  RawVectorIO *raw_vector_io_;
 };
 }  // namespace tig_gamma
-
-#endif  // ROCKSDB_RAW_VECTOR_H_
 
 #endif  // WITH_ROCKSDB

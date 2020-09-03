@@ -28,36 +28,41 @@ struct RTInvertBucketData {
 
   bool Init(const size_t &buckets_num, const size_t &bucket_keys,
             const size_t &code_bytes_per_vec,
-            std::atomic<long> &total_mem_bytes, long max_vec_size);
+            std::atomic<long> &total_mem_bytes);
   ~RTInvertBucketData();
 
-  bool ExtendBucketMem(const size_t &bucket_no,
+  bool ExtendBucketMem(const size_t &bucket_no, const int &increment,
                        const size_t &code_bytes_per_vec,
                        std::atomic<long> &total_mem_bytes);
-
-  int GetCurDumpPos(const size_t &bucket_no, int max_vid, int &dump_start_pos,
-                    int &size);
 
   bool CompactBucket(const size_t &bucket_no, const size_t &code_bytes_per_vec);
 
   void Delete(int vid);
+  void ExtendIDs();
 
+ private:
+  inline void CompactOne(const size_t &bucket_no, long *&dst_idx,
+                         uint8_t *&dst_code, long *&src_idx, uint8_t *&src_code,
+                         int &pos, const size_t &code_bytes_per_vec);
+
+ public:
   long **idx_array_;
-  int *retrieve_idx_pos_;  // total nb of realtime added indexed vectors
+  size_t *retrieve_idx_pos_;  // total nb of realtime added indexed vectors
   int *cur_bucket_keys_;
   uint8_t **codes_array_;
-  int *dump_latest_pos_;
+  // int *dump_latest_pos_;
   VIDMgr *vid_mgr_;
   const char *docids_bitmap_;
   std::atomic<long> *vid_bucket_no_pos_;
   std::atomic<int> *deleted_nums_;
   long compacted_num_;
   size_t buckets_num_;
+  size_t nids_;
 };
 
 struct RealTimeMemData {
  public:
-  RealTimeMemData(size_t buckets_num, long max_vec_size, VIDMgr *vid_mgr,
+  RealTimeMemData(size_t buckets_num, VIDMgr *vid_mgr,
                   const char *docids_bitmap, size_t bucket_keys = 500,
                   size_t bucket_keys_limit = 1000000,
                   size_t code_bytes_per_vec = 512 * sizeof(float));
@@ -73,24 +78,15 @@ struct RealTimeMemData {
   void FreeOldData(long *idx, uint8_t *codes, RTInvertBucketData *invert,
                    long size);
   int ExtendBucketIfNeed(int bucket_no, size_t keys_size);
-  bool ExtendBucketMem(const size_t &bucket_no);
-  bool AdjustBucketMem(const size_t &bucket_no, int type);
+  bool ExtendBucketMem(const size_t &bucket_no, int increment);
+  bool AdjustBucketMem(const size_t &bucket_no, int type, int increment = 0);
   bool GetIvtList(const size_t &bucket_no, long *&ivt_list,
                   uint8_t *&ivt_codes_list);
 
   long GetTotalMemBytes() { return total_mem_bytes_; }
 
-  int RetrieveCodes(int *vids, size_t vid_size,
-                    std::vector<std::vector<const uint8_t *>> &bucket_codes,
-                    std::vector<std::vector<long>> &bucket_vids);
-
-  int RetrieveCodes(int **vids_list, size_t vids_list_size,
-                    std::vector<std::vector<const uint8_t *>> &bucket_codes,
-                    std::vector<std::vector<long>> &bucket_vids);
-
-  int Dump(const std::string &dir, const std::string &vec_name, int max_vid);
-  int Load(const std::vector<std::string> &index_dirs,
-           const std::string &vec_name);
+  // for unit test
+  void RetrieveCodes(int bucket_no, int pos, int n, uint8_t *codes, long *vids);
 
   void PrintBucketSize();
 
@@ -109,7 +105,6 @@ struct RealTimeMemData {
   size_t code_bytes_per_vec_;
   std::atomic<long> total_mem_bytes_;
 
-  long max_vec_size_;
   VIDMgr *vid_mgr_;
   const char *docids_bitmap_;
 };

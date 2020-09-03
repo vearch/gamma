@@ -35,12 +35,11 @@
 #include "threadskv10h.h"
 #endif
 
+#include "error_code.h"
 #include "utils.h"
 
 using std::string;
 using std::vector;
-
-#define BM_OPERATE_TYPE long
 
 namespace tig_gamma {
 
@@ -385,9 +384,9 @@ class FieldRangeIndex {
                   BTreeParameters &bt_param);
   ~FieldRangeIndex();
 
-  int Add(unsigned char *key, uint key_len, int value, ResourceQueue *res_q);
+  int Add(std::string &key, int value, ResourceQueue *res_q);
 
-  int Delete(unsigned char *key, uint key_len, int value, ResourceQueue *res_q);
+  int Delete(std::string &key, int value, ResourceQueue *res_q);
 
   int Search(const string &low, const string &high, RangeQueryResult *result);
 
@@ -524,13 +523,13 @@ static int ReverseEndian(const unsigned char *in, unsigned char *out,
   return 0;
 }
 
-int FieldRangeIndex::Add(unsigned char *key, uint key_len, int value,
-                         ResourceQueue *res_q) {
+int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
 #ifdef __APPLE__
   BtDb *bt = bt_open(main_mgr_);
 #else
   BtDb *bt = bt_open(cache_mgr_, main_mgr_);
 #endif
+  size_t key_len = key.size();
   unsigned char key2[key_len];
 
   std::function<void(unsigned char *, uint)> InsertToBt =
@@ -544,7 +543,7 @@ int FieldRangeIndex::Add(unsigned char *key, uint key_len, int value,
 #ifdef __APPLE__
           BTERR bterr = bt_insertkey(bt, key_to_add, key_len, 0,
                                      static_cast<void *>(&p_node),
-                                     sizeof(Node *), Unique);
+                                     sizeof(Node *), Update);
           if (bterr) {
             LOG(ERROR) << "Error " << bt->err;
           }
@@ -561,11 +560,11 @@ int FieldRangeIndex::Add(unsigned char *key, uint key_len, int value,
       };
 
   if (is_numeric_) {
-    ReverseEndian(key, key2, key_len);
+    ReverseEndian((const unsigned char *)key.c_str(), key2, key_len);
     InsertToBt(key2, key_len);
   } else {
     char key_s[key_len + 1];
-    memcpy(key_s, key, key_len);
+    memcpy(key_s, key.c_str(), key_len);
     key_s[key_len] = 0;
 
     char *p, *k;
@@ -581,13 +580,13 @@ int FieldRangeIndex::Add(unsigned char *key, uint key_len, int value,
   return 0;
 }
 
-int FieldRangeIndex::Delete(unsigned char *key, uint key_len, int value,
-                            ResourceQueue *res_q) {
+int FieldRangeIndex::Delete(std::string &key, int value, ResourceQueue *res_q) {
 #ifdef __APPLE__
   BtDb *bt = bt_open(main_mgr_);
 #else
   BtDb *bt = bt_open(cache_mgr_, main_mgr_);
 #endif
+  size_t key_len = key.size();
   unsigned char key2[key_len];
 
   std::function<void(unsigned char *, uint)> DeleteFromBt =
@@ -597,18 +596,18 @@ int FieldRangeIndex::Delete(unsigned char *key, uint key_len, int value,
                              sizeof(Node *));
 
         if (ret < 0) {
-          LOG(ERROR) << "Cannot find field [" << key << "]";
+          LOG(ERROR) << "Cannot find docid [" << value << "] in range index";
           return;
         }
         p_node->Delete(value, res_q);
       };
 
   if (is_numeric_) {
-    ReverseEndian(key, key2, key_len);
+    ReverseEndian((const unsigned char *)key.c_str(), key2, key_len);
     DeleteFromBt(key2, key_len);
   } else {
     char key_s[key_len + 1];
-    memcpy(key_s, key, key_len);
+    memcpy(key_s, key.c_str(), key_len);
     key_s[key_len] = 0;
 
     char *p, *k;
@@ -865,6 +864,10 @@ long FieldRangeIndex::ScanMemory(long &dense, long &sparse) {
   uint slot = bt_startkey(bt, nullptr, 0);
   while (slot) {
     BtVal *val = bt_val(bt, slot);
+    if (val->len == 0) {
+      slot = bt_nextkey(bt, slot);
+      continue;
+    }
     Node *p_node = nullptr;
     memcpy(&p_node, val->value, sizeof(Node *));
     p_node->MemorySize(dense, sparse);
@@ -900,10 +903,10 @@ long FieldRangeIndex::ScanMemory(long &dense, long &sparse) {
 }
 
 MultiFieldsRangeIndex::MultiFieldsRangeIndex(std::string &path,
-                                             Profile *profile)
+                                             table::Table *table)
     : path_(path) {
-  profile_ = profile;
-  fields_.resize(profile->FieldsNum());
+  table_ = table;
+  fields_.resize(table->FieldsNum());
   std::fill(fields_.begin(), fields_.end(), nullptr);
 
   b_recovery_running_ = true;
@@ -1029,10 +1032,9 @@ int MultiFieldsRangeIndex::AddDoc(int docid, int field) {
     return 0;
   }
 
-  unsigned char *key;
-  int key_len = 0;
-  profile_->GetFieldRawValue(docid, field, &key, key_len);
-  index->Add(key, key_len, docid, resource_recovery_q_);
+  std::string key;
+  table_->GetFieldRawValue(docid, field, key);
+  index->Add(key, docid, resource_recovery_q_);
 
   return 0;
 }
@@ -1043,10 +1045,9 @@ int MultiFieldsRangeIndex::DeleteDoc(int docid, int field) {
     return 0;
   }
 
-  unsigned char *key;
-  int key_len = 0;
-  profile_->GetFieldRawValue(docid, field, &key, key_len);
-  index->Delete(key, key_len, docid, resource_recovery_q_);
+  std::string key;
+  table_->GetFieldRawValue(docid, field, key);
+  index->Delete(key, docid, resource_recovery_q_);
 
   return 0;
 }
@@ -1058,11 +1059,14 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
   std::vector<FilterInfo> filters;
 
   for (const auto &filter : origin_filters) {
-    FieldRangeIndex *index = fields_[filter.field];
-    if (index == nullptr || filter.field < 0) {
-      return -1;
+    if (filter.field < 0) {
+      return PARAM_ERR;
     }
-    if (not index->IsNumeric() && (filter.is_union == 0)) {
+    FieldRangeIndex *index = fields_[filter.field];
+    if (index == nullptr) {
+      return PARAM_ERR;
+    }
+    if (not index->IsNumeric() && (filter.is_union == FilterOperator::And)) {
       // type is string and operator is "and", split this filter
       std::vector<string> items =
           utils::split(filter.lower_value, index->Delim());
@@ -1080,21 +1084,25 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
 
   if (1 == fsize) {
     auto &filter = filters[0];
-    RangeQueryResult *result = new RangeQueryResult;
+    RangeQueryResult result;
     FieldRangeIndex *index = fields_[filter.field];
 
-    int retval = index->Search(filter.lower_value, filter.upper_value, result);
+    int retval = index->Search(filter.lower_value, filter.upper_value, &result);
     if (retval > 0) {
-      out->Add(result);
+      if (filter.is_union == FilterOperator::Not) {
+        result.SetNotIn(true);
+      }
+      out->Add(std::move(result));
+    } else if (filter.is_union == FilterOperator::Not) {
+      retval = -1;
     }
     // result->Output();
     return retval;
   }
 
-  RangeQueryResult *results = new RangeQueryResult[fsize];
-  utils::ScopeDeleter<RangeQueryResult> del(results);
+  std::vector<RangeQueryResult> results;
+  results.reserve(fsize);
 
-  int valuable_result = -1;
   // record the shortest docid list
   int shortest_idx = -1, shortest = std::numeric_limits<int>::max();
 
@@ -1106,50 +1114,56 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
       continue;
     }
 
-    int retval = index->Search(filter.lower_value, filter.upper_value,
-                               &(results[valuable_result + 1]));
+    RangeQueryResult result;
+    int retval = index->Search(filter.lower_value, filter.upper_value, &result);
     if (retval < 0) {
       ;
     } else if (retval == 0) {
+      if (filter.is_union == FilterOperator::Not) {
+        continue;
+      }
       return 0;  // no intersection
     } else {
-      valuable_result += 1;
+      if (filter.is_union == FilterOperator::Not) {
+        result.SetNotIn(true);
+        out->Add(std::move(result));
+        continue;
+      }
+      results.emplace_back(std::move(result));
 
       if (shortest > retval) {
         shortest = retval;
-        shortest_idx = valuable_result;
+        shortest_idx = results.size() - 1;
       }
     }
   }
 
-  if (valuable_result < 0) {
+  if (results.size() == 0) {
+    if (out->Size() > 0) {
+      return 1;
+    }
     return -1;  // universal set
   }
 
-  RangeQueryResult *tmp = new RangeQueryResult;
-  int count = Intersect(results, valuable_result, shortest_idx, tmp);
+  RangeQueryResult tmp;
+  int count = Intersect(results, shortest_idx, &tmp);
   if (count > 0) {
-    out->Add(tmp);
-  } else {
-    delete tmp;
+    out->Add(std::move(tmp));
   }
 
   return count;
 }
 
-int MultiFieldsRangeIndex::Intersect(RangeQueryResult *results, int j,
+int MultiFieldsRangeIndex::Intersect(std::vector<RangeQueryResult> &results,
                                      int shortest_idx, RangeQueryResult *out) {
-  assert(results != nullptr && j >= 0);
-
-  // I want to build a smaller bitmap ...
-  int min_doc = results[0].MinAligned();
-  int max_doc = results[0].MaxAligned();
+  int min_doc = std::numeric_limits<int>::min();
+  int max_doc = std::numeric_limits<int>::max();
 
   int total = results[0].Size();
 
   // results[0].Output();
 
-  for (int i = 1; i <= j; i++) {
+  for (size_t i = 0; i < results.size(); i++) {
     RangeQueryResult &r = results[i];
 
     // the maximum of the minimum(s)
@@ -1186,8 +1200,8 @@ int MultiFieldsRangeIndex::Intersect(RangeQueryResult *results, int j,
     }
   }
 
-  for (int i = 0; i < j; ++i) {
-    if (i == shortest_idx) {
+  for (size_t i = 0; i < results.size(); ++i) {
+    if (i == (size_t)shortest_idx) {
       continue;
     }
     char *data = results[i].Ref();

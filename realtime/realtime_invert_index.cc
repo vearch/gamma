@@ -12,14 +12,13 @@
 namespace tig_gamma {
 namespace realtime {
 
-RTInvertIndex::RTInvertIndex(size_t nlist, size_t code_size, long max_vec_size,
+RTInvertIndex::RTInvertIndex(size_t nlist, size_t code_size,
                              VIDMgr *vid_mgr, const char *docids_bitmap,
                              size_t bucket_keys, size_t bucket_keys_limit)
     : nlist_(nlist),
       code_size_(code_size),
       bucket_keys_(bucket_keys),
       bucket_keys_limit_(bucket_keys_limit),
-      max_vec_size_(max_vec_size),
       vid_mgr_(vid_mgr),
       docids_bitmap_(docids_bitmap) {
   cur_ptr_ = nullptr;
@@ -35,7 +34,7 @@ RTInvertIndex::~RTInvertIndex() {
 bool RTInvertIndex::Init() {
   CHECK_DELETE(cur_ptr_);
   cur_ptr_ = new (std::nothrow)
-      RealTimeMemData(nlist_, max_vec_size_, vid_mgr_, docids_bitmap_,
+      RealTimeMemData(nlist_, vid_mgr_, docids_bitmap_,
                       bucket_keys_, bucket_keys_limit_, code_size_);
   if (nullptr == cur_ptr_) return false;
 
@@ -79,31 +78,6 @@ bool RTInvertIndex::GetIvtList(const size_t &bucket_no, long *&ivt_list,
                                size_t &ivt_size, uint8_t *&ivt_codes_list) {
   ivt_size = cur_ptr_->cur_invert_ptr_->retrieve_idx_pos_[bucket_no];
   return cur_ptr_->GetIvtList(bucket_no, ivt_list, ivt_codes_list);
-}
-
-int RTInvertIndex::RetrieveCodes(
-    int *vids, size_t vid_size,
-    std::vector<std::vector<const uint8_t *>> &bucket_codes,
-    std::vector<std::vector<long>> &bucket_vids) {
-  return cur_ptr_->RetrieveCodes(vids, vid_size, bucket_codes, bucket_vids);
-}
-
-int RTInvertIndex::RetrieveCodes(
-    int **vids_list, size_t vids_list_size,
-    std::vector<std::vector<const uint8_t *>> &bucket_codes,
-    std::vector<std::vector<long>> &bucket_vids) {
-  return cur_ptr_->RetrieveCodes(vids_list, vids_list_size, bucket_codes,
-                                 bucket_vids);
-}
-
-int RTInvertIndex::Dump(const std::string &dir, const std::string &vec_name,
-                        int max_vid) {
-  return cur_ptr_->Dump(dir, vec_name, max_vid);
-}
-
-int RTInvertIndex::Load(const std::vector<std::string> &index_dirs,
-                        const std::string &vec_name) {
-  return cur_ptr_->Load(index_dirs, vec_name);
 }
 
 void RTInvertIndex::PrintBucketSize() { cur_ptr_->PrintBucketSize(); }

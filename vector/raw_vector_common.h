@@ -1,58 +1,46 @@
-#ifndef RAW_VECTOR_COMMON_H_
-#define RAW_VECTOR_COMMON_H_
+/**
+ * Copyright 2019 The Gamma Authors.
+ *
+ * This source code is licensed under the Apache License, Version 2.0 license
+ * found in the LICENSE file in the root directory of this source tree.
+ */
+
+#pragma once
 
 #include <string.h>
+#include "error_code.h"
+#include "gamma_zfp.h"
+#include "log.h"
 #include "utils.h"
 
 const static int MAX_VECTOR_NUM_PER_DOC = 10;
 const static int MAX_CACHE_SIZE = 1024 * 1024;  // M bytes, it is equal to 1T
 
-template <typename DataType>
-struct ScopeVector {
-  const DataType *ptr_;
-  bool deletable_;
+class ScopeVector {
+ public:
+  explicit ScopeVector(uint8_t *ptr = nullptr) : ptr_(ptr) {}
 
-  explicit ScopeVector(const DataType *ptr = nullptr) : ptr_(ptr) {}
-  void Set(const DataType *ptr_in, bool deletable = true) {
-    ptr_ = ptr_in;
-    deletable_ = deletable;
-  }
-  const DataType *Get() { return ptr_; }
   ~ScopeVector() {
     if (deletable_ && ptr_) delete[] ptr_;
   }
+
+  const uint8_t *&Get() { return ptr_; }
+
+  void Set(const uint8_t *ptr_in, bool deletable = true) {
+    // ptr_ = const_cast<uint8_t *>(ptr_in);
+    ptr_ = ptr_in;
+    deletable_ = deletable;
+  }
+
+  bool &Deletable() { return deletable_; }
+
+ private:
+  const uint8_t *ptr_;
+  bool deletable_;
 };
 
-template <typename DataType>
-struct ScopeVectors {
-  const DataType **ptr_;
-  int size_;
-  bool *deletable_;
-
-  explicit ScopeVectors(int size) : size_(size) {
-    ptr_ = new const DataType *[size_];
-    deletable_ = new bool[size_];
-  }
-  void Set(int idx, const DataType *ptr_in, bool deletable = true) {
-    ptr_[idx] = ptr_in;
-    deletable_[idx] = deletable;
-  }
-  const DataType **Get() { return ptr_; }
-  const DataType *Get(int idx) { return ptr_[idx]; }
-  ~ScopeVectors() {
-    for (int i = 0; i < size_; i++) {
-      if (deletable_[i] && ptr_[i]) delete[] ptr_[i];
-    }
-    delete[] deletable_;
-    delete[] ptr_;
-  }
-};
-
-struct VIDMgr {
-  std::vector<int> vid2docid_;    // vector id to doc id
-  std::vector<int *> docid2vid_;  // doc id to vector id list
-  bool multi_vids_;
-
+class VIDMgr {
+ public:
   VIDMgr(bool multi_vids) : multi_vids_(multi_vids) {}
 
   ~VIDMgr() {
@@ -83,55 +71,137 @@ struct VIDMgr {
       if (docid2vid_[docid] == nullptr) {
         docid2vid_[docid] =
             utils::NewArray<int>(MAX_VECTOR_NUM_PER_DOC + 1, "init_vid_list");
-        // total_mem_bytes += (MAX_VECTOR_NUM_PER_DOC + 1) * sizeof(int);
         docid2vid_[docid][0] = 1;
         docid2vid_[docid][1] = vid;
       } else {
         int *vid_list = docid2vid_[docid];
-        if (vid_list[0] + 1 > MAX_VECTOR_NUM_PER_DOC) {
+        if (vid_list[0] >= MAX_VECTOR_NUM_PER_DOC) {
           return -1;
         }
         vid_list[vid_list[0]] = vid;
-        vid_list[0]++;
+        ++vid_list[0];
       }
     }
     return 0;
   }
 
-  inline int VID2DocID(int vid) {
-    if (!multi_vids_) return vid;
+  int VID2DocID(int vid) {
+    if (!multi_vids_) {
+      return vid;
+    }
     return vid2docid_[vid];
   }
 
-  inline void DocID2VID(int docid, std::vector<int> &vids) {
+  void DocID2VID(int docid, std::vector<int64_t> &vids) {
     if (!multi_vids_) {
       vids.resize(1);
       vids[0] = docid;
       return;
     }
     int *vid_list = docid2vid_[docid];
-    vids.resize(vid_list[0]);
-    memcpy((void *)vids.data(), (void *)(vid_list + 1), vid_list[0] * sizeof(int));
-    return;
+    int n_vids = vid_list[0];
+    vids.resize(n_vids);
+    for (size_t i = 0; i < n_vids * sizeof(int); ++i) {
+      vids[i] = *(vid_list + 1);
+    }
+    // memcpy((void *)vids.data(), (void *)(vid_list + 1), n_vids *
+    // sizeof(int));
   }
 
-  inline int GetFirstVID(int docid) {
+  int GetFirstVID(int docid) {
     if (!multi_vids_) {
       return docid;
     }
     int *vid_list = docid2vid_[docid];
-    if (vid_list[0] <= 0) return -1;
+    int n_vids = vid_list[0];
+    if (n_vids <= 0) {
+      return -1;
+    }
     return vid_list[1];
   }
 
-  inline int GetLastVID(int docid) {
+  int GetLastVID(int docid) {
     if (!multi_vids_) {
       return docid;
     }
     int *vid_list = docid2vid_[docid];
-    if (vid_list[0] <= 0) return -1;
-    return vid_list[vid_list[0]];
+    int n_vids = vid_list[0];
+    if (n_vids <= 0) {
+      return -1;
+    }
+    return vid_list[n_vids];
   }
+
+  bool MultiVids() { return multi_vids_; }
+
+  std::vector<int> &Vid2Docid() { return vid2docid_; }
+
+  std::vector<int *> &Docid2Vid() { return docid2vid_; }
+
+ private:
+  std::vector<int> vid2docid_;    // vector id to doc id
+  std::vector<int *> docid2vid_;  // doc id to vector id list
+  bool multi_vids_;
 };
 
-#endif  // RAW_VECTOR_COMMON_H_
+namespace tig_gamma {
+
+#ifdef WITH_ZFP
+struct ZFPCompressor {
+  GammaZFP *zfp_;
+  int dimension_;
+
+  ZFPCompressor() : zfp_(nullptr), dimension_(0) {}
+
+  ~ZFPCompressor() {
+    if (zfp_) {
+      delete zfp_;
+      zfp_ = nullptr;
+    }
+  }
+
+  int Init(int dimension) {
+    dimension_ = dimension;
+    zfp_ = new GammaZFP(this->dimension_, 16);
+    return 0;
+  }
+
+  int Compress(float *v, uint8_t *&cmprs_v) {
+    if (cmprs_v == nullptr) {
+      cmprs_v = new uint8_t[zfp_->zfpsize];
+    }
+    size_t ret = zfp_->Compress(v, (char *&)cmprs_v);
+    if (ret != zfp_->zfpsize) {
+      LOG(ERROR) << "compress error, ret=" << ret
+                 << ", zfpsize=" << zfp_->zfpsize;
+      delete[] cmprs_v;
+      return INTERNAL_ERR;
+    }
+    return 0;
+  }
+
+  int Decompress(const uint8_t *cmprs_v, int n, float *&v) const {
+    if (v == nullptr) {
+      v = new float[n * this->dimension_];
+    }
+    size_t ret = 0;
+    if (n > 1) {
+      ret = zfp_->DecompressBatch((char *)cmprs_v, v, n);
+    } else {
+      ret = zfp_->Decompress((char *)cmprs_v, v);
+    }
+    if (ret != zfp_->zfpsize * n) {
+      LOG(ERROR) << "batch decompress error, ret=" << ret << ", n=" << n
+                 << ", zfpsize=" << zfp_->zfpsize;
+      delete[] v;
+      return INTERNAL_ERR;
+    }
+    return 0;
+  }
+
+  int ZfpSize() { return zfp_->zfpsize; }
+};
+
+#endif  // WITH_ZFP
+
+}  // namespace tig_gamma

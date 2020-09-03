@@ -24,7 +24,7 @@ namespace realtime {
 struct RTInvertIndex {
  public:
   // bucket_keys should not be larger than bucket_keys_limit
-  RTInvertIndex(size_t nlist, size_t code_size, long max_vec_size,
+  RTInvertIndex(size_t nlist, size_t code_size,
                 VIDMgr *vid_mgr, const char *docids_bitmap,
                 size_t bucket_keys = 10000, size_t bucket_keys_limit = 1000000);
 
@@ -47,29 +47,14 @@ struct RTInvertIndex {
     return cur_ptr_ ? cur_ptr_->GetTotalMemBytes() : 0;
   }
 
-  int RetrieveCodes(int *vids, size_t vid_size,
-                    std::vector<std::vector<const uint8_t *>> &bucket_codes,
-                    std::vector<std::vector<long>> &bucket_vids);
-
-  int RetrieveCodes(int **vids_list, size_t vids_list_size,
-                    std::vector<std::vector<const uint8_t *>> &bucket_codes,
-                    std::vector<std::vector<long>> &bucket_vids);
-
-  int Dump(const std::string &file_path, const std::string &vec_name,
-           int max_vid);
-  int Load(const std::vector<std::string> &index_dirs,
-           const std::string &vec_name);
-
   void PrintBucketSize();
   int CompactIfNeed();
   int Delete(int *vids, int n);
 
- private:
   size_t nlist_;
   size_t code_size_;
   size_t bucket_keys_;
   size_t bucket_keys_limit_;
-  long max_vec_size_;
   VIDMgr *vid_mgr_;
   const char *docids_bitmap_;
 

@@ -11,18 +11,20 @@
 #include <map>
 #include <string>
 #include <vector>
+
 #include "concurrentqueue/blockingconcurrentqueue.h"
-#include "gamma_api.h"
-#include "profile.h"
 #include "range_query_result.h"
+#include "table.h"
 
 namespace tig_gamma {
+
+enum class FilterOperator : uint8_t { And = 0, Or, Not };
 
 typedef struct {
   int field;
   std::string lower_value;
   std::string upper_value;
-  int is_union;
+  FilterOperator is_union;
 } FilterInfo;
 
 class ResourceToRecovery {
@@ -65,7 +67,7 @@ typedef moodycamel::BlockingConcurrentQueue<FieldOperate *> FieldOperateQueue;
 class FieldRangeIndex;
 class MultiFieldsRangeIndex {
  public:
-  MultiFieldsRangeIndex(std::string &path, Profile *profile);
+  MultiFieldsRangeIndex(std::string &path, table::Table *table);
   ~MultiFieldsRangeIndex();
 
   int Add(int docid, int field);
@@ -81,7 +83,7 @@ class MultiFieldsRangeIndex {
   long MemorySize(long &dense, long &sparse);
 
  private:
-  int Intersect(RangeQueryResult *results, int j, int k,
+  int Intersect(std::vector<RangeQueryResult> &results, int shortest_idx,
                 RangeQueryResult *out);
   void ResourceRecoveryWorker();
   void FieldOperateWorker();
@@ -90,7 +92,7 @@ class MultiFieldsRangeIndex {
 
   int DeleteDoc(int docid, int field);
   std::vector<FieldRangeIndex *> fields_;
-  Profile *profile_;
+  Table *table_;
   std::string path_;
   bool b_running_;
   bool b_recovery_running_;

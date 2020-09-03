@@ -5,37 +5,39 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef VECTOR_FILE_MAPPER_H_
-#define VECTOR_FILE_MAPPER_H_
-#include <string>
+#pragma once
+
 #include <sys/mman.h>
+
+#include <string>
 
 namespace tig_gamma {
 
-template <typename DataType>
 class VectorFileMapper {
  public:
-  VectorFileMapper(std::string file_path, int offset, int max_vector_size,
-                   int dimension);
+  VectorFileMapper(std::string &file_path, int max_vector_size, int dimension,
+                   uint8_t data_size);
+
   ~VectorFileMapper();
+
   int Init();
-  const DataType *GetVector(int id);
-  const DataType *GetVectors();
-  int GetMappedNum() const {
-    return mapped_num_;
-  };
+
+  const uint8_t *GetVector(int id);
+
+  const uint8_t *GetVectors();
+
+  int GetMappedNum() const { return mapped_num_; };
 
  private:
   void *buf_;
-  DataType *vectors_;
+  uint8_t *vectors_;
   std::string file_path_;
   int offset_;
-  int max_vector_size_;
   int dimension_;
   size_t mapped_byte_size_;
   int mapped_num_;
+
+  uint8_t data_size_;
 };
 
 }  // namespace tig_gamma
-
-#endif

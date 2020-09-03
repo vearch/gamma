@@ -5,12 +5,19 @@ This folder include gamma-engine C-style API.
 * example
 
 ``` test_code
-#include "c_api.h"
+#include "c_api/gamma_api.h"
 
 int main(int argc, char **argv) {
-  ByteArray *path = MakeByteArray("path", 4);
-  Config *config = MakeConfig(StringToByteArray(path), 1000);
-  void *engine = Init(config);
+  tig_gamma::Config config;
+  config.SetPath("path");
+  config.SetLogDir("log);
+
+  char *config_str = nullptr;
+  int len = 0;
+  config.Serialize(&config_str, &len);
+  void *engine = Init(config_str, len);
+  free(config_str);
+  config_str = nullptr;
   Close(engine);
   return 0;
 }

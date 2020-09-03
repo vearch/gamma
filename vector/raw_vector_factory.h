@@ -5,9 +5,9 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef RAW_VECTOR_FACTORY_H_
-#define RAW_VECTOR_FACTORY_H_
+#pragma once
 
+#include "memory_raw_vector.h"
 #include "mmap_raw_vector.h"
 #include "raw_vector.h"
 
@@ -15,66 +15,46 @@
 #include "rocksdb_raw_vector.h"
 #endif  // WITH_ROCKSDB
 
-#include "gamma_common_data.h"
 #include <string>
+#include "gamma_common_data.h"
+
+#include "gamma_common_data.h"
 
 namespace tig_gamma {
-
 class RawVectorFactory {
  public:
-  static RawVector<float> *Create(VectorStorageType type,
-                                  const std::string &name, int dimension,
-                                  int max_doc_size,
-                                  const std::string &root_path,
-                                  const std::string &store_param) {
+  static RawVector *Create(VectorMetaInfo *meta_info, VectorStorageType type,
+                           const std::string &root_path,
+                           const std::string &store_param,
+                           const char *docids_bitmap) {
     StoreParams store_params;
-    if (store_param != "" && store_params.Parse(store_param.c_str()))
+    // TODO remove store_param != ""
+    if (store_param != "" && store_params.Parse(store_param.c_str())) {
       return nullptr;
-    if (store_params.cache_size_ == -1)
-      store_params.cache_size_ = (long)max_doc_size * dimension * sizeof(float);
-    LOG(INFO) << "store parameters=" << store_params.ToString();
-    switch (type) {
-      case Mmap:
-        return (RawVector<float> *)new MmapRawVector<float>(
-            name, dimension, max_doc_size, root_path, store_params);
-#ifdef WITH_ROCKSDB
-      case RocksDB:
-        return (RawVector<float> *)new RocksDBRawVector<float>(
-            name, dimension, max_doc_size, root_path, store_params);
-#endif  // WITH_ROCKSDB
-      default:
-        LOG(ERROR) << "invalid raw feature type:" << type;
-        return nullptr;
     }
-  }
 
-  static RawVector<uint8_t> *CreateBinary(VectorStorageType type,
-                                          const std::string &name,
-                                          int dimension, int max_doc_size,
-                                          const std::string &root_path,
-                                          const std::string &store_param) {
-    StoreParams store_params;
-    if (store_param != "" && store_params.Parse(store_param.c_str()))
-      return nullptr;
-    if (store_params.cache_size_ == -1)
-      store_params.cache_size_ =
-          (long)max_doc_size * dimension * sizeof(uint8_t);
-    LOG(INFO) << "store parameters=" << store_params.ToString();
+    LOG(INFO) << "Store parameters [" << store_params.ToString() << "]";
     switch (type) {
-      case Mmap:
-        return (RawVector<uint8_t> *)new MmapRawVector<uint8_t>(
-            name, dimension, max_doc_size, root_path, store_params);
+      case VectorStorageType::MemoryOnly:
+        return (RawVector *)new MemoryRawVector(meta_info, root_path,
+                                                store_params, docids_bitmap);
+      case VectorStorageType::Mmap:
+        if (store_params.compress_) {
+          LOG(ERROR) << "mmap unsupport compress";
+          return nullptr;
+        }
+        return (RawVector *)new MmapRawVector(meta_info, root_path,
+                                              store_params, docids_bitmap);
 #ifdef WITH_ROCKSDB
-      case RocksDB:
-        return (RawVector<uint8_t> *)new RocksDBRawVector<uint8_t>(
-            name, dimension, max_doc_size, root_path, store_params);
+      case VectorStorageType::RocksDB:
+        return (RawVector *)new RocksDBRawVector(meta_info, root_path,
+                                                 store_params, docids_bitmap);
 #endif  // WITH_ROCKSDB
       default:
-        LOG(ERROR) << "invalid raw feature type:" << type;
+        LOG(ERROR) << "invalid raw feature type:" << static_cast<int>(type);
         return nullptr;
     }
   }
 };
-}  // namespace tig_gamma
 
-#endif  // RAW_VECTOR_FACTORY_H_
+}  // namespace tig_gamma

@@ -16,7 +16,6 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "gamma_api.h"
 #include "log.h"
 #include "utils.h"
 
@@ -46,6 +45,16 @@ inline ByteArray *FloatToByteArray(const float *feature, int dimension) {
   memcpy((void *)ba->value, (void *)feature, ba->len);
   return ba;
 }
+
+template <typename T>
+inline ByteArray *ToByteArray(const T &d) {
+  ByteArray *ba = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
+  ba->len = sizeof(T);
+  ba->value = static_cast<char *>(malloc(ba->len));
+  memcpy(ba->value, &d, ba->len);
+  return ba;
+}
+
 }  // namespace
 
 namespace test {
@@ -89,8 +98,8 @@ struct GammaPerfConf {
     max_doc_size = 10000 * 200;
     nadd = 10000 * 10;
     nsearch = 10000 * 1;
-    fields_vec = {"key", "_id", "field1", "field2", "field3"};
-    fields_type = {LONG, STRING, STRING, INT, INT};
+    fields_vec = {"_id", "field1", "field2"};
+    fields_type = {LONG, STRING, STRING};
     root_path = "files";
     vector_name = "abc";
     model_id = "model";
@@ -366,7 +375,7 @@ class GammaPerfTest {
 
       Request *request =
           MakeRequest(10, vector_querys, 1, nullptr, 0, nullptr, 0, nullptr, 0,
-                      1, 0, nullptr, conf->has_rank, 0, FALSE, FALSE);
+                      1, 0, nullptr, conf->has_rank, 0, TRUE, FALSE);
 
       double start = utils::getmillisecs();
       Response *response = Search(t->engine_, request);
@@ -402,16 +411,24 @@ class GammaPerfTest {
     VectorInfo *vector_info =
         MakeVectorInfo(StringToByteArray(conf_->vector_name), FLOAT, TRUE,
                        conf_->dimension, StringToByteArray(conf_->model_id),
-                       StringToByteArray(conf_->retrieval_type),
                        StringToByteArray(conf_->store_type),
                        StringToByteArray(conf_->store_param), FALSE);
     SetVectorInfo(vectors_info, 0, vector_info);
 
-    string param;
-    ByteArray *retrieve_param = MakeByteArray(param.c_str(), param.size());
-    
-    Table *table = MakeTable(table_name, field_infos, conf_->fields_vec.size(),
-                             vectors_info, 1, retrieve_param);
+    std::vector<char> buff;
+    buff.resize(256);
+    int len = snprintf(buff.data(), 256,
+                       "{\"nprobe\" : %d, \"metric_type\" : \"InnerProduct\", "
+                       "\"ncentroids\" : "
+                       "%d,\"nsubvector\" : %d}",
+                       conf_->nprobe, conf_->ncentroids, conf_->nsubvector);
+    string param(buff.data(), len);
+    LOG(INFO) << "retrieve param=" << param;
+    ByteArray *retrieve_param = StringToByteArray(param);
+
+    Table *table = MakeTable(
+        table_name, field_infos, conf_->fields_vec.size(), vectors_info, 1,
+        StringToByteArray(conf_->retrieval_type), retrieve_param, 0);
     enum ResponseCode ret = ::CreateTable(engine_, table);
     DestroyTable(table);
     return ret;
@@ -424,54 +441,56 @@ class GammaPerfTest {
 
     FILE *fet_fp = fopen(conf_->add_feature_file.c_str(), "rb");
     assert(fet_fp != nullptr);
-
     float *vector = new float[conf_->dimension * sizeof(float)];
+
+    long docid = 0;
     for (int i = 0; i < conf_->nadd; ++i) {
       Field **fields = MakeFields(conf_->fields_vec.size() + 1);
 
       std::getline(fin, str);
       if (str == "") break;
       std::vector<std::string> profile = utils::split(str, "\t");
+      string url = profile[1];
 
       fread((void *)vector, sizeof(long), conf_->dimension, fet_fp);
 
-      string url;
-      for (size_t j = 0; j < conf_->fields_vec.size(); ++j) {
+      ByteArray *name = StringToByteArray(conf_->fields_vec[0]);
+      ByteArray *value = ToByteArray(docid);
+      Field *field = MakeField(name, value, nullptr, LONG);
+      SetField(fields, 0, field);
+
+      for (size_t j = 1; j < conf_->fields_vec.size(); ++j) {
         enum DataType data_type = conf_->fields_type[j];
         ByteArray *name = StringToByteArray(conf_->fields_vec[j]);
         ByteArray *value;
 
         string &data = profile[j];
         if (conf_->fields_type[j] == INT) {
-          value = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
-          value->value = static_cast<char *>(malloc(sizeof(int)));
-          value->len = sizeof(int);
           int v = atoi(data.c_str());
-          memcpy(value->value, &v, value->len);
+          value = ToByteArray(v);
         } else if (conf_->fields_type[j] == LONG) {
-          value = static_cast<ByteArray *>(malloc(sizeof(ByteArray)));
-          value->value = static_cast<char *>(malloc(sizeof(long)));
-          value->len = sizeof(long);
           long v = atol(data.c_str());
-          memcpy(value->value, &v, value->len);
+          value = ToByteArray(v);
+        } else if (conf_->fields_type[j] == STRING) {
+          value = StringToByteArray(data);
         } else {
-          value = StringToByteArray(data + "\001all");
-          url = data;
+          throw runtime_error("unsupport data type");
         }
-        ByteArray *source = StringToByteArray(url);
-        Field *field = MakeField(name, value, source, data_type);
+        // ByteArray *source = nullptr;  // StringToByteArray(url);
+        Field *field = MakeField(name, value, nullptr, data_type);
         SetField(fields, j, field);
       }
 
-      ByteArray *value = FloatToByteArray(vector, conf_->dimension);
-      ByteArray *name = StringToByteArray(conf_->vector_name);
-      ByteArray *source = StringToByteArray(url);
-      Field *field = MakeField(name, value, source, VECTOR);
+      name = StringToByteArray(conf_->vector_name);
+      value = FloatToByteArray(vector, conf_->dimension);
+      ByteArray *source = nullptr;
+      field = MakeField(name, value, source, VECTOR);
       SetField(fields, conf_->fields_vec.size(), field);
 
       Doc *doc = MakeDoc(fields, conf_->fields_vec.size() + 1);
       AddOrUpdateDoc(engine_, doc);
       DestroyDoc(doc);
+      ++docid;
     }
     delete[] vector;
     fclose(fet_fp);

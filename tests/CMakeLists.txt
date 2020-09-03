@@ -35,10 +35,12 @@ foreach(source ${srcs})
     install(TARGETS ${name} DESTINATION test)
 endforeach(source)
 
-SET(tests_src
-    ${CMAKE_CURRENT_SOURCE_DIR}/test_realtime_mem_data.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/test_raw_vector.cc)
-ADD_EXECUTABLE(all_unit_tests ${tests_src})
-TARGET_LINK_LIBRARIES(all_unit_tests gamma gtest_main gtest)
-INSTALL(TARGETS all_unit_tests DESTINATION test)
+# SET(tests_src
+#     ${CMAKE_CURRENT_SOURCE_DIR}/test_realtime_mem_data.cc
+#     ${CMAKE_CURRENT_SOURCE_DIR}/test_raw_vector.cc)
+
+# ADD_EXECUTABLE(all_unit_tests ${tests_src})
+
+# TARGET_LINK_LIBRARIES(all_unit_tests gamma gtest_main gtest)
+# INSTALL(TARGETS all_unit_tests DESTINATION test)
 
