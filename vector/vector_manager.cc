@@ -396,9 +396,6 @@ int VectorManager::Search(GammaQuery &query, GammaResult *results) {
         all_vector_results[i].sort_by_docid();
       }
     }
-    if (query.condition->sort_by_docid) {
-      all_vector_results[i].sort_by_docid();
-    }
 #ifdef PERFORMANCE_TESTING
     std::string msg;
     msg += "search " + std::to_string(i);
