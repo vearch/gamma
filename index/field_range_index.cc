@@ -983,7 +983,7 @@ void MultiFieldsRangeIndex::FieldOperateWorker() {
     if (op == FieldOperate::ADD) {
       AddDoc(doc_id, field_id);
     } else {
-      DeleteDoc(doc_id, field_id);
+      DeleteDoc(doc_id, field_id, field_op->value);
     }
 
     delete field_op;
@@ -1015,6 +1015,7 @@ int MultiFieldsRangeIndex::Delete(int docid, int field) {
     return 0;
   }
   FieldOperate *field_op = new FieldOperate(FieldOperate::DELETE, docid, field);
+  table_->GetFieldRawValue(docid, field, field_op->value);
 
   bool ret = field_operate_q_->enqueue(field_op);
 
@@ -1039,14 +1040,12 @@ int MultiFieldsRangeIndex::AddDoc(int docid, int field) {
   return 0;
 }
 
-int MultiFieldsRangeIndex::DeleteDoc(int docid, int field) {
+int MultiFieldsRangeIndex::DeleteDoc(int docid, int field, std::string &key) {
   FieldRangeIndex *index = fields_[field];
   if (index == nullptr) {
     return 0;
   }
 
-  std::string key;
-  table_->GetFieldRawValue(docid, field, key);
   index->Delete(key, docid, resource_recovery_q_);
 
   return 0;

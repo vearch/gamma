@@ -59,6 +59,7 @@ class FieldOperate {
   operate_type type;
   int doc_id;
   int field_id;
+  std::string value;
 };
 
 typedef moodycamel::BlockingConcurrentQueue<ResourceToRecovery *> ResourceQueue;
@@ -90,7 +91,7 @@ class MultiFieldsRangeIndex {
 
   int AddDoc(int docid, int field);
 
-  int DeleteDoc(int docid, int field);
+  int DeleteDoc(int docid, int field, std::string &key);
   std::vector<FieldRangeIndex *> fields_;
   Table *table_;
   std::string path_;

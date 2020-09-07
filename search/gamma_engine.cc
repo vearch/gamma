@@ -962,6 +962,13 @@ int GammaEngine::Load() {
     return ret;
   }
 
+  int field_num = table_->FieldsNum();
+  for (int i = 0; i < max_docid_; ++i) {
+    for (int j = 0; j < field_num; ++j) {
+      field_range_index_->Add(i, j);
+    }
+  }
+
   string last_dir = "";
   if (folders_tm.size() > 0) {
     last_dir = folders_tm[folders_tm.size() - 1].second;
