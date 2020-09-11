@@ -5,19 +5,14 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#include "memory_raw_vector.h"
-
 #include <unistd.h>
 
+#include "memory_raw_vector.h"
 #include "error_code.h"
 
 using std::string;
 using namespace rocksdb;
 
-#include "error_code.h"
-
-using std::string;
-using namespace rocksdb;
 namespace tig_gamma {
 
 MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
