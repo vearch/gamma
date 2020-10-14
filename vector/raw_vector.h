@@ -227,7 +227,7 @@ struct StoreParams {
 
   StoreParams() {
     cache_size_ = 1024 * 1024 * 1024;  // 1G
-    segment_size_ = 1000000;           // 1M
+    segment_size_ = 500000;
     compress_ = false;
   }
 

@@ -1,6 +1,8 @@
+#ifdef WITH_ROCKSDB
+
 #include "rocksdb_wrapper.h"
-#include "log.h"
 #include "error_code.h"
+#include "log.h"
 
 using std::string;
 using namespace rocksdb;
@@ -54,3 +56,5 @@ void RocksDBWrapper::ToRowKey(int key, string &key_str) {
 }
 
 }  // namespace tig_gamma
+
+#endif  // WITH_ROCKSDB
