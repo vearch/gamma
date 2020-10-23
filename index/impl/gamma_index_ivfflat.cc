@@ -89,7 +89,10 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   }
   LOG(INFO) << params.ToString();
 
-  RawVector *raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+  RawVector *raw_vec = nullptr;
+#ifdef WITH_ROCKSDB
+  raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+#endif
   if (raw_vec == nullptr) {
     LOG(ERROR) << "IVFFlat needs store type=RocksDB";
     return PARAM_ERR;
