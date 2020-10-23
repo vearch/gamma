@@ -5,18 +5,19 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
+#include "memory_raw_vector.h"
+
 #include <unistd.h>
 
-#include "memory_raw_vector.h"
 #include "error_code.h"
 
 using std::string;
-
-#ifdef WITH_ROCKSDB
 using namespace rocksdb;
-#endif
 
+#include "error_code.h"
 
+using std::string;
+using namespace rocksdb;
 namespace tig_gamma {
 
 MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
@@ -26,7 +27,7 @@ MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
     : RawVector(meta_info, root_path, docids_bitmap, store_params) {
   segments_ = nullptr;
   nsegments_ = 0;
-  segment_size_ = store_params.segment_size_;
+  segment_size_ = store_params.segment_size;
   vector_byte_size_ = data_size_ * meta_info->Dimension();
   current_segment_ = nullptr;
   curr_idx_in_seg_ = 0;
@@ -40,14 +41,12 @@ MemoryRawVector::~MemoryRawVector() {
 }
 
 int MemoryRawVector::InitStore() {
-  const std::string &name = meta_info_->Name();
-  string db_path = this->root_path_ + "/" + name;
-#ifdef WITH_ROCKSDB
-  if (rdb_.Open(db_path)) {
-    LOG(ERROR) << "open rocks db error, path=" << db_path;
-    return IO_ERR;
-  }
-#endif
+  // const std::string &name = meta_info_->Name();
+  // string db_path = this->root_path_ + "/" + name;
+  // if (rdb_.Open(db_path)) {
+  //   LOG(ERROR) << "open rocks db error, path=" << db_path;
+  //   return IO_ERR;
+  // }
   segments_ = new uint8_t *[kMaxSegments];
   std::fill_n(segments_, kMaxSegments, nullptr);
   if (ExtendSegments()) return -2;
@@ -62,10 +61,8 @@ int MemoryRawVector::AddToStore(uint8_t *v, int len) {
   }
 
   AddToMem((uint8_t *)svec.Get(), vector_byte_size_);
-#ifdef WITH_ROCKSDB
   int total = meta_info_->Size();
-  rdb_.Put(total, (const char *)svec.Get(), vector_byte_size_);
-#endif
+  // rdb_.Put(total, (const char *)v, vector_byte_size_);
   return SUCC;
 }
 
@@ -131,9 +128,7 @@ int MemoryRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
   memcpy((void *)(segments_[vid / segment_size_] +
                   (size_t)vid % segment_size_ * vector_byte_size_),
          (void *)svec.Get(), vector_byte_size_);
-#ifdef WITH_ROCKSDB
-  rdb_.Put(vid, (const char *)svec.Get(), vector_byte_size_);
-#endif
+  // rdb_.Put(vid, (const char *)svec.Get(), vector_byte_size_);
   return SUCC;
 }
 
@@ -149,27 +144,29 @@ int MemoryRawVector::GetVector(long vid, const uint8_t *&vec,
   return SUCC;
 }
 
-int MemoryRawVector::LoadVectors(int vec_num) {
-#ifdef WITH_ROCKSDB
-  rocksdb::Iterator *it = rdb_.db_->NewIterator(rocksdb::ReadOptions());
-  utils::ScopeDeleter1<rocksdb::Iterator> del1(it);
-  string start_key;
-  rdb_.ToRowKey(0, start_key);
-  it->Seek(Slice(start_key));
-  for (int c = 0; c < vec_num; c++, it->Next()) {
-    if (!it->Valid()) {
-      LOG(ERROR) << "load vectors error, expected num=" << vec_num
-                 << ", current=" << c;
-      return INTERNAL_ERR;
-    }
-    Slice value = it->value();
-    AddToMem((uint8_t *)value.data_, vector_byte_size_);
-  }
-#else
-  LOG(ERROR) << "rocksdb is need for loading vectors";
-#endif
-
-  return SUCC;
+uint8_t *MemoryRawVector::GetFromMem(long vid) const {
+  uint8_t *cmprs_v = segments_[vid / segment_size_] +
+                     (size_t)vid % segment_size_ * vector_byte_size_;
+  return cmprs_v;
 }
+
+// int MemoryRawVector::LoadVectors(int vec_num) {
+// rocksdb::Iterator *it = rdb_.db_->NewIterator(rocksdb::ReadOptions());
+// utils::ScopeDeleter1<rocksdb::Iterator> del1(it);
+// string start_key;
+// rdb_.ToRowKey(0, start_key);
+// it->Seek(Slice(start_key));
+// for (int c = 0; c < vec_num; c++, it->Next()) {
+//   if (!it->Valid()) {
+//     LOG(ERROR) << "load vectors error, expected num=" << vec_num
+//                << ", current=" << c;
+//     return INTERNAL_ERR;
+//   }
+//   Slice value = it->value();
+//   AddToMem((uint8_t *)value.data_, vector_byte_size_);
+// }
+
+// return SUCC;
+//}
 
 }  // namespace tig_gamma

@@ -90,6 +90,12 @@ class IVFFlatRetrievalParameters : public RetrievalParameters {
     distance_compute_type_ = type;
   }
 
+  IVFFlatRetrievalParameters(enum DistanceComputeType type) {
+    parallel_on_queries_ = true;
+    nprobe_ = 80;
+    distance_compute_type_ = type;
+  }
+
   virtual ~IVFFlatRetrievalParameters() {}
 
   int Nprobe() { return nprobe_; }

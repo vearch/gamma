@@ -10,10 +10,10 @@
 #include "field_range_index.h"
 #include "log.h"
 #include "online_logger.h"
+#include "raw_vector.h"
+#include "retrieval_model.h"
 #include "table.h"
 #include "utils.h"
-#include "retrieval_model.h"
-#include "raw_vector.h"
 
 namespace tig_gamma {
 
@@ -101,13 +101,12 @@ class GammaSearchCondition : public RetrievalContext {
     brute_force_search = false;
     l2_sqrt = false;
     has_rank = 1;
-    min_score = -1;
-    max_score = -1;
+    min_score = std::numeric_limits<float>::max();
+    max_score = std::numeric_limits<float>::min();
 
 #ifdef BUILD_GPU
     table = nullptr;
 #endif  // BUILD_GPU
-
   }
 
   GammaSearchCondition(GammaSearchCondition *condition) {
@@ -125,16 +124,14 @@ class GammaSearchCondition : public RetrievalContext {
     term_filters = condition->term_filters;
     table = condition->table;
 #endif  // BUILD_GPU
-
   }
 
   ~GammaSearchCondition() {
     range_query_result = nullptr;  // should not delete
 
 #ifdef BUILD_GPU
-    table = nullptr;        // should not delete
-#endif                        // BUILD_GPU
-
+    table = nullptr;  // should not delete
+#endif                // BUILD_GPU
   }
 
   MultiRangeQueryResults *range_query_result;
@@ -158,29 +155,27 @@ class GammaSearchCondition : public RetrievalContext {
   float max_score;
 
   bool IsSimilarScoreValid(float score) const override {
-    if (min_score == -1 && max_score == -1) return true;
     return (score <= max_score) && (score >= min_score);
   };
 
   bool IsValid(int id) const override {
     int docid = raw_vec->VidMgr()->VID2DocID(id);
-    if ((range_query_result != nullptr && 
-         not range_query_result->Has(docid)) ||
-         bitmap::test(docids_bitmap, docid) == true) {
+    if ((range_query_result != nullptr && not range_query_result->Has(docid)) ||
+        bitmap::test(docids_bitmap, docid) == true) {
       return false;
     }
     return true;
   };
 
-  void Init(float min_score, float max_score,
-            const char *docids_bitmap, RawVector *raw_vec) {
+  void Init(float min_score, float max_score, const char *docids_bitmap,
+            RawVector *raw_vec) {
     this->min_score = min_score;
     this->max_score = max_score;
     this->docids_bitmap = docids_bitmap;
     this->raw_vec = raw_vec;
   }
 
-  const char* Bitmap() { return docids_bitmap; }
+  const char *Bitmap() { return docids_bitmap; }
   int VID2DocID(int vid) { return raw_vec->VidMgr()->VID2DocID(vid); }
   MultiRangeQueryResults *RangeQueryResult() { return range_query_result; }
 
@@ -201,7 +196,6 @@ struct VectorQuery {
 struct GammaQuery {
   GammaQuery() {
     condition = nullptr;
-    logger = nullptr;
   }
 
   ~GammaQuery() {
@@ -213,7 +207,6 @@ struct GammaQuery {
 
   std::vector<struct VectorQuery> vec_query;
   GammaSearchCondition *condition;
-  utils::OnlineLogger *logger;
 };
 
 struct VectorResult {
@@ -387,5 +380,6 @@ struct GammaResult {
 
   VectorDoc **docs;
 };
+
 
 }  // namespace tig_gamma

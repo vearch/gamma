@@ -14,11 +14,12 @@ import (
 
 type EngineStatus struct {
 	IndexStatus   int32
-	TableMem    int64
+	TableMem      int64
 	VectorMem     int64
 	FieldRangeMem int64
 	BitmapMem     int64
 	DocNum        int32
+	MaxDocID      int32
 
 	engineStatus *gamma_api.EngineStatus
 }
@@ -33,6 +34,7 @@ func (status *EngineStatus) Serialize(buffer *[]byte) int {
 	gamma_api.EngineStatusAddFieldRangeMem(builder, status.FieldRangeMem)
 	gamma_api.EngineStatusAddBitmapMem(builder, status.BitmapMem)
 	gamma_api.EngineStatusAddDocNum(builder, status.DocNum)
+	gamma_api.EngineStatusAddMaxDocid(builder, status.MaxDocID)
 	builder.Finish(builder.EndObject())
 	bufferLen := len(builder.FinishedBytes())
 	*buffer = make([]byte, bufferLen)
@@ -48,4 +50,5 @@ func (status *EngineStatus) DeSerialize(buffer []byte) {
 	status.FieldRangeMem = status.engineStatus.FieldRangeMem()
 	status.BitmapMem = status.engineStatus.BitmapMem()
 	status.DocNum = status.engineStatus.DocNum()
+	status.MaxDocID = status.engineStatus.MaxDocid()
 }

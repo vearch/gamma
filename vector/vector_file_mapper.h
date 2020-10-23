@@ -15,29 +15,35 @@ namespace tig_gamma {
 
 class VectorFileMapper {
  public:
-  VectorFileMapper(std::string &file_path, int max_vector_size, int dimension,
-                   uint8_t data_size);
+  VectorFileMapper(const std::string &file_path, int max_vec_size,
+                   int vec_byte_size);
 
   ~VectorFileMapper();
 
   int Init();
 
+  int Add(uint8_t *vec, int len);
+
   const uint8_t *GetVector(int id);
 
   const uint8_t *GetVectors();
 
-  int GetMappedNum() const { return mapped_num_; };
+  bool IsFull() { return curr_idx_ == max_vec_size_; }
+
+  int Sync();
+
+  void SetCurrIdx(int curr_idx) { curr_idx_ = curr_idx; }
+
+  int Update(int vid, uint8_t *vec, int len);
 
  private:
-  void *buf_;
   uint8_t *vectors_;
   std::string file_path_;
-  int offset_;
-  int dimension_;
   size_t mapped_byte_size_;
-  int mapped_num_;
 
-  uint8_t data_size_;
+  int max_vec_size_;
+  int vec_byte_size_;
+  int curr_idx_;
 };
 
 }  // namespace tig_gamma

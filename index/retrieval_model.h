@@ -100,12 +100,13 @@ class RetrievalContext {
 class VectorMetaInfo {
  public:
   VectorMetaInfo(const std::string &name, int dimension,
-                 const VectorValueType &type)
+                 const VectorValueType &type, int version = 0)
       : name_(name),
         dimension_(dimension),
         data_type_(type),
         size_(0),
-        mem_bytes_(0) {
+        mem_bytes_(0),
+        version_(version) {
     if (data_type_ == VectorValueType::FLOAT) {
       data_size_ = sizeof(float);
     } else if (data_type_ == VectorValueType::BINARY) {
@@ -129,12 +130,19 @@ class VectorMetaInfo {
 
   int DataSize() { return data_size_; }
 
+  std::string AbsoluteName() {
+    char v[4];
+    snprintf(v, sizeof(v), "%03d", version_);
+    return name_ + "." + v;
+  }
+
   std::string name_;           // vector name
   int dimension_;              // vector dimension
   VectorValueType data_type_;  // vector data type
   size_t size_;                // vector number
   long mem_bytes_;             // memory usage
   int data_size_;              // each vector element size(byte)
+  int version_;
 };
 
 /** Scoped raw vectors (for automatic deallocation)
@@ -200,7 +208,9 @@ class VectorReader {
 // RetrievalModel is a virtual base class, each model should implement it
 class RetrievalModel {
  public:
-  RetrievalModel() {}
+  RetrievalModel() {
+    vector_ = nullptr;
+  }
 
   virtual ~RetrievalModel() {}
 

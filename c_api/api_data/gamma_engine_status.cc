@@ -15,7 +15,8 @@ int EngineStatus::Serialize(char **out, int *out_len) {
   flatbuffers::FlatBufferBuilder builder;
   auto table = gamma_api::CreateEngineStatus(
       builder, index_status_, table_mem_bytes_, index_mem_bytes_,
-      vector_mem_bytes_, field_range_mem_bytes_, bitmap_mem_bytes_, doc_num_);
+      vector_mem_bytes_, field_range_mem_bytes_, bitmap_mem_bytes_, doc_num_,
+      max_docid_);
   builder.Finish(table);
   *out_len = builder.GetSize();
   *out = (char *)malloc(*out_len * sizeof(char));
@@ -35,6 +36,7 @@ void EngineStatus::Deserialize(const char *data, int len) {
   bitmap_mem_bytes_ = engine_status_->bitmap_mem();
 
   doc_num_ = engine_status_->doc_num();
+  max_docid_ = engine_status_->max_docid();
 }
 
 int EngineStatus::IndexStatus() { return index_status_; }
@@ -49,7 +51,9 @@ void EngineStatus::SetTableMem(long table_mem) { table_mem_bytes_ = table_mem; }
 
 long EngineStatus::IndexMem() { return index_mem_bytes_; }
 
-void EngineStatus::SetIndexMem(long index_mem_bytes) { index_mem_bytes_ = index_mem_bytes; }
+void EngineStatus::SetIndexMem(long index_mem_bytes) {
+  index_mem_bytes_ = index_mem_bytes;
+}
 
 long EngineStatus::VectorMem() { return vector_mem_bytes_; }
 
@@ -72,4 +76,9 @@ void EngineStatus::SetBitmapMem(long bitmap_mem_bytes) {
 int EngineStatus::DocNum() { return doc_num_; }
 
 void EngineStatus::SetDocNum(int doc_num) { doc_num_ = doc_num; }
+
+int EngineStatus::MaxDocID() { return max_docid_; }
+
+void EngineStatus::SetMaxDocID(int docid) { max_docid_ = docid; }
+
 }  // namespace tig_gamma

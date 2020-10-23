@@ -31,7 +31,8 @@ VectorManager::VectorManager(const VectorStorageType &store_type,
 
 VectorManager::~VectorManager() { Close(); }
 
-int VectorManager::CreateVectorTable(TableInfo &table) {
+int VectorManager::CreateVectorTable(TableInfo &table,
+                                     utils::JsonParser *meta_jp) {
   if (table_created_) return -1;
 
   std::map<std::string, int> vec_dups;
@@ -46,6 +47,13 @@ int VectorManager::CreateVectorTable(TableInfo &table) {
     } else {
       ++vec_dups[name];
     }
+  }
+
+  utils::JsonParser vectors_jp;
+  utils::JsonParser indexes_jp;
+  if (meta_jp) {
+    meta_jp->GetObject("vectors", vectors_jp);
+    meta_jp->GetObject("retrieval_model_indexes", indexes_jp);
   }
 
   for (size_t i = 0; i < vectors_infos.size(); i++) {
@@ -91,8 +99,23 @@ int VectorManager::CreateVectorTable(TableInfo &table) {
     VectorMetaInfo *meta_info =
         new VectorMetaInfo(vec_name, dimension, value_type);
 
+    StoreParams store_params(meta_info->AbsoluteName());
+    if (store_param != "" && store_params.Parse(store_param.c_str())) {
+      return PARAM_ERR;
+    }
+    LOG(INFO) << "store params=" << store_params.ToJsonStr();
+    if (vectors_jp.Contains(meta_info->AbsoluteName())) {
+      utils::JsonParser vec_jp;
+      vectors_jp.GetObject(meta_info->AbsoluteName(), vec_jp);
+      StoreParams disk_store_params(meta_info->AbsoluteName());
+      disk_store_params.Parse(vec_jp);
+      store_params.MergeRight(disk_store_params);
+      LOG(INFO) << "after merge, store parameters [" << store_params.ToJsonStr()
+                << "]";
+    }
+
     RawVector *vec = RawVectorFactory::Create(
-        meta_info, store_type, vec_root_path, store_param, docids_bitmap_);
+        meta_info, store_type, vec_root_path, store_params, docids_bitmap_);
     if (vec == nullptr) {
       LOG(ERROR) << "create raw vector error";
       return -1;
@@ -107,7 +130,6 @@ int VectorManager::CreateVectorTable(TableInfo &table) {
       return -1;
     }
 
-    StartFlushingIfNeed(vec);
     raw_vectors_[vec_name] = vec;
 
     if (vector_info.is_index == false) {
@@ -125,6 +147,7 @@ int VectorManager::CreateVectorTable(TableInfo &table) {
       return -1;
     }
     retrieval_model->vector_ = vec;
+
     if (retrieval_model->Init(retrieval_param) != 0) {
       LOG(ERROR) << "gamma index init " << vec_name << " error!";
       delete vec;
@@ -164,7 +187,13 @@ int VectorManager::Update(int docid, std::vector<Field> &fields) {
       return -1;
     }
 
-    return raw_vector->Update(docid, fields[i]);
+    int ret = raw_vector->Update(docid, fields[i]);
+    if (ret) return ret;
+    int vid = docid;  // TODO docid to vid
+    if (raw_vector->GetIO()) {
+      ret = raw_vector->GetIO()->Update(vid);
+      if (ret) return ret;
+    }
   }
 
   return 0;
@@ -601,12 +630,16 @@ int VectorManager::Dump(const string &path, int dump_docid, int max_docid) {
   for (const auto &iter : raw_vectors_) {
     const string &vec_name = iter.first;
     RawVector *raw_vector = dynamic_cast<RawVector *>(iter.second);
-    int ret = raw_vector->Dump(path, dump_docid, max_docid);
-    if (ret != 0) {
-      LOG(ERROR) << "vector " << vec_name << " dump failed!";
-      return -1;
+    if (raw_vector->GetIO()) {
+      int start = raw_vector->VidMgr()->GetFirstVID(dump_docid);
+      int end = raw_vector->VidMgr()->GetLastVID(max_docid);
+      int ret = raw_vector->GetIO()->Dump(start, end + 1);
+      if (ret != 0) {
+        LOG(ERROR) << "vector " << vec_name << " dump failed!";
+        return -1;
+      }
+      LOG(INFO) << "vector " << vec_name << " dump success!";
     }
-    LOG(INFO) << "vector " << vec_name << " dump success!";
   }
 
   return 0;
@@ -615,11 +648,15 @@ int VectorManager::Dump(const string &path, int dump_docid, int max_docid) {
 int VectorManager::Load(const std::vector<std::string> &index_dirs,
                         int doc_num) {
   for (const auto &iter : raw_vectors_) {
-    if (0 != iter.second->Load(index_dirs, doc_num)) {
-      LOG(ERROR) << "vector [" << iter.first << "] load failed!";
-      return -1;
+    if (iter.second->GetIO()) {
+      // TODO: doc num to vector num
+      int vec_num = doc_num;
+      if (0 != iter.second->GetIO()->Load(vec_num)) {
+        LOG(ERROR) << "vector [" << iter.first << "] load failed!";
+        return -1;
+      }
+      LOG(INFO) << "vector [" << iter.first << "] load success!";
     }
-    LOG(INFO) << "vector [" << iter.first << "] load success!";
   }
 
   if (index_dirs.size() > 0) {
@@ -647,7 +684,10 @@ RetrievalModel *VectorManager::GetVectorIndex(std::string &name) const {
 void VectorManager::Close() {
   for (const auto &iter : raw_vectors_) {
     if (iter.second != nullptr) {
-      StopFlushingIfNeed(iter.second);
+      RawVectorIO *rio = iter.second->GetIO();
+      if (rio) {
+        delete rio;
+      }
       delete iter.second;
     }
   }

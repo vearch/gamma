@@ -15,6 +15,7 @@
 
 const static int MAX_VECTOR_NUM_PER_DOC = 10;
 const static int MAX_CACHE_SIZE = 1024 * 1024;  // M bytes, it is equal to 1T
+const static int kMaxSegments = 10000;
 
 class ScopeVector {
  public:
@@ -34,7 +35,7 @@ class ScopeVector {
 
   bool &Deletable() { return deletable_; }
 
- private:
+ public:
   const uint8_t *ptr_;
   bool deletable_;
 };
@@ -160,9 +161,15 @@ struct ZFPCompressor {
     }
   }
 
-  int Init(int dimension) {
+  int Init(int dimension, utils::JsonParser &cmprs_jp) {
     dimension_ = dimension;
+    double rate = 16;
+    if (cmprs_jp.GetDouble("rate", rate)) {
+      LOG(ERROR) << "rate is not set!";
+      return PARAM_ERR;
+    }
     zfp_ = new GammaZFP(this->dimension_, 16);
+    LOG(INFO) << "zfp compress rate=" << rate << ", zfpsize=" << zfp_->zfpsize;
     return 0;
   }
 

@@ -1,5 +1,3 @@
-#ifdef WITH_ROCKSDB
-
 #include "rocksdb_wrapper.h"
 #include "error_code.h"
 #include "log.h"
@@ -41,12 +39,20 @@ int RocksDBWrapper::Open(string db_path, size_t block_cache_size) {
 int RocksDBWrapper::Put(int key, const char *v, size_t len) {
   string key_str;
   ToRowKey(key, key_str);
-  Status s = db_->Put(WriteOptions(), Slice(key_str), Slice(v, len));
+  return Put(key_str, v, len);
+}
+
+int RocksDBWrapper::Put(const string &key, const char *v, size_t len) {
+  Status s = db_->Put(WriteOptions(), Slice(key), Slice(v, len));
   if (!s.ok()) {
-    LOG(ERROR) << "rocksdb update error:" << s.ToString() << ", key=" << key;
+    LOG(ERROR) << "rocksdb put error:" << s.ToString() << ", key=" << key;
     return IO_ERR;
   }
   return 0;
+}
+
+int RocksDBWrapper::Put(const string &key, const string &value) {
+  return Put(key, value.c_str(), value.size());
 }
 
 void RocksDBWrapper::ToRowKey(int key, string &key_str) {
@@ -56,5 +62,3 @@ void RocksDBWrapper::ToRowKey(int key, string &key_str) {
 }
 
 }  // namespace tig_gamma
-
-#endif  // WITH_ROCKSDB

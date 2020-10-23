@@ -37,7 +37,7 @@ RocksDBRawVector::~RocksDBRawVector() {
 }
 
 int RocksDBRawVector::InitStore() {
-  block_cache_size_ = store_params_->cache_size_;
+  block_cache_size_ = (size_t)store_params_.cache_size * 1024 * 1024;
 
   std::shared_ptr<Cache> cache = NewLRUCache(block_cache_size_);
   // BlockBasedTableOptions table_options_;
@@ -228,7 +228,7 @@ void RocksDBRawVector::ToRowKey(int vid, string &key) const {
 
 int RocksDBRawVector::Decompress(std::string &cmprs_data, uint8_t *&vec) const {
 #ifdef WITH_ZFP
-  if (store_params_->compress_) {
+  if (!store_params_.compress.IsEmpty()) {
     if (zfp_compressor_.Decompress((const uint8_t *)cmprs_data.c_str(), 1,
                                    (float *&)vec)) {
       return INTERNAL_ERR;

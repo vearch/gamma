@@ -25,7 +25,37 @@ using idx_t = faiss::Index::idx_t;
 
 namespace tig_gamma {
 
-REGISTER_MODEL(FLAT, GammaFLATIndex)
+REGISTER_MODEL(FLAT, GammaFLATIndex);
+
+struct FLATModelParams {
+  DistanceComputeType metric_type;
+
+  FLATModelParams() {
+    metric_type = DistanceComputeType::INNER_PRODUCT;
+  }
+
+  int Parse(const char *str) {
+    utils::JsonParser jp;
+    if (jp.Parse(str)) {
+      LOG(ERROR) << "parse FLAT retrieval parameters error: " << str;
+      return -1;
+    }
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = DistanceComputeType::L2;
+      else
+        this->metric_type = DistanceComputeType::INNER_PRODUCT;
+    }
+    return 0;
+  }
+};
 
 GammaFLATIndex::GammaFLATIndex() {}
 
@@ -37,12 +67,17 @@ int GammaFLATIndex::Init(const std::string &model_parameters) {
     LOG(ERROR) << "FLAT can only work in memory only mode";
     return -1;
   }
+  FLATModelParams flat_param;
+  if (model_parameters != "" && flat_param.Parse(model_parameters.c_str())) {    
+    return -1;
+  }    
+  metric_type_ = flat_param.metric_type;
   return 0;
 }
 
 RetrievalParameters *GammaFLATIndex::Parse(const std::string &parameters) {
   if (parameters == "") {
-    return new FlatRetrievalParameters(false, DistanceComputeType::L2);
+    return new FlatRetrievalParameters(metric_type_);
   }
 
   utils::JsonParser jp;
@@ -52,7 +87,7 @@ RetrievalParameters *GammaFLATIndex::Parse(const std::string &parameters) {
   }
 
   std::string metric_type;
-  DistanceComputeType type = DistanceComputeType::L2;
+  DistanceComputeType type = metric_type_;
   if (!jp.GetString("metric_type", metric_type)) {
     if (strcasecmp("L2", metric_type.c_str()) &&
         strcasecmp("InnerProduct", metric_type.c_str())) {
@@ -65,8 +100,6 @@ RetrievalParameters *GammaFLATIndex::Parse(const std::string &parameters) {
     } else {
       type = DistanceComputeType::INNER_PRODUCT;
     }
-  } else {
-    LOG(ERROR) << "cannot get metric type, so use default value";
   }
 
   int parallel_on_queries = 1;

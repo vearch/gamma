@@ -51,11 +51,29 @@ struct IVFPQModelParams {
   int ncentroids;     // coarse cluster center number
   int nsubvector;     // number of sub cluster center
   int nbits_per_idx;  // bit number of sub cluster center
+  DistanceComputeType metric_type;
+  bool has_hnsw;
+  int nlinks;          // link number for hnsw graph
+  int efConstruction;  // construction parameter for building hnsw graph
+  int efSearch;        // search parameter for search in hnsw graph
+  bool has_opq;
+  int opq_nsubvector;  // number of sub cluster center of opq
+  int bucket_init_size; // original size of RTInvertIndex bucket
+  int bucket_max_size; // max size of RTInvertIndex bucket
 
   IVFPQModelParams() {
     ncentroids = 2048;
     nsubvector = 64;
     nbits_per_idx = 8;
+    metric_type = DistanceComputeType::INNER_PRODUCT;
+    has_hnsw = false;
+    nlinks = 32;
+    efConstruction = 200;
+    efSearch = 64;
+    has_opq = false;
+    opq_nsubvector = 64;
+    bucket_init_size = 1000;
+    bucket_max_size = 1280000;
   }
 
   int Parse(const char *str) {
@@ -99,6 +117,87 @@ struct IVFPQModelParams {
       }
       if (nbits_per_idx > 0) this->nbits_per_idx = nbits_per_idx;
     }
+
+    int bucket_init_size;
+    int bucket_max_size;
+
+    // -1 as default
+    if (!jp.GetInt("bucket_init_size", bucket_init_size)) {
+      if (bucket_init_size < -1) {
+        LOG(ERROR) << "invalid bucket_init_size =" << bucket_init_size;
+        return -1;
+      }
+      if (bucket_init_size > 0) this->bucket_init_size = bucket_init_size;
+    }
+
+    if (!jp.GetInt("bucket_max_size", bucket_max_size)) {
+      if (bucket_max_size < -1) {
+        LOG(ERROR) << "invalid bucket_max_size =" << bucket_max_size;
+        return -1;
+      }
+      if (bucket_max_size > 0) this->bucket_max_size = bucket_max_size;
+    }
+
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = DistanceComputeType::L2;
+      else
+        this->metric_type = DistanceComputeType::INNER_PRODUCT;
+    }
+
+    utils::JsonParser jp_hnsw;
+    if (!jp.GetObject("hnsw", jp_hnsw)) {
+      has_hnsw = true;
+      int nlinks;
+      int efConstruction;
+      int efSearch;
+      // -1 as default
+      if (!jp_hnsw.GetInt("nlinks", nlinks)) {
+        if (nlinks < -1) {
+          LOG(ERROR) << "invalid nlinks = " << nlinks;
+          return -1;
+        }
+        if(nlinks > 0) this->nlinks = nlinks;
+      }
+
+      if (!jp_hnsw.GetInt("efConstruction", efConstruction)) {
+        if (efConstruction < -1) {
+          LOG(ERROR) << "invalid efConstruction = " << efConstruction;
+          return -1;
+        }
+        if(efConstruction > 0) this->efConstruction = efConstruction;
+      }
+
+      if (!jp_hnsw.GetInt("efSearch", efSearch)) {
+        if (efSearch < -1) {
+          LOG(ERROR) << "invalid efSearch = " << efSearch;
+          return -1;
+        }
+        if(efSearch > 0) this->efSearch = efSearch;
+      }
+    }
+
+    utils::JsonParser jp_opq;
+    if (!jp.GetObject("opq", jp_opq)) {
+      has_opq = true;
+      int opq_nsubvector;
+      // -1 as default
+      if (!jp_opq.GetInt("nsubvector", opq_nsubvector)) {
+        if (nsubvector < -1) {
+          LOG(ERROR) << "invalid opq_nsubvector = " << opq_nsubvector;
+          return -1;
+        }
+        if (opq_nsubvector > 0) this->opq_nsubvector = opq_nsubvector;
+      } 
+    }
+
     if (!Validate()) return -1;
     return 0;
   }
@@ -109,6 +208,7 @@ struct IVFPQModelParams {
       LOG(ERROR) << "only support 8 now, nbits_per_idx=" << nbits_per_idx;
       return false;
     }
+
     return true;
   }
 
@@ -116,9 +216,24 @@ struct IVFPQModelParams {
     std::stringstream ss;
     ss << "ncentroids =" << ncentroids << ", ";
     ss << "nsubvector =" << nsubvector << ", ";
-    ss << "nbits_per_idx =" << nbits_per_idx;
+    ss << "nbits_per_idx =" << nbits_per_idx << ", ";
+    ss << "metric_type =" << (int)metric_type << ", ";
+    ss << "bucket_init_size =" << bucket_init_size << ", ";
+    ss << "bucket_max_size =" << bucket_max_size;
+
+    if (has_hnsw) {
+      ss << ", hnsw: nlinks=" << nlinks << ", ";
+      ss << "efConstrction=" << efConstruction << ", ";
+      ss << "efSearch=" << efSearch;
+    }
+    if (has_opq) {
+      ss << ", opq: nsubvector=" << opq_nsubvector;
+    }
+
     return ss.str();
   }
+
+  int ToJson(utils::JsonParser &jp) { return 0; }
 };
 
 REGISTER_MODEL(IVFPQ, GammaIVFPQIndex)
@@ -129,7 +244,7 @@ GammaIVFPQIndex::GammaIVFPQIndex() : indexed_vec_count_(0) {
   compacted_num_ = 0;
   updated_num_ = 0;
   is_trained = false;
-
+  opq_ = nullptr;
 #ifdef PERFORMANCE_TESTING
   search_count_ = 0;
   add_count_ = 0;
@@ -149,6 +264,12 @@ GammaIVFPQIndex::~GammaIVFPQIndex() {
     delete quantizer;  // it will not be delete in parent class
     quantizer = nullptr;
   }
+  if (opq_) {
+    delete opq_;
+    opq_ = nullptr;
+  }
+
+  CHECK_DELETE(model_param_);
 }
 
 faiss::InvertedListScanner *GammaIVFPQIndex::get_InvertedListScanner(
@@ -190,7 +311,8 @@ GammaInvertedListScanner *GammaIVFPQIndex::GetGammaInvertedListScanner(
 }
 
 int GammaIVFPQIndex::Init(const std::string &model_parameters) {
-  IVFPQModelParams ivfpq_param;
+  model_param_ = new IVFPQModelParams();
+  IVFPQModelParams &ivfpq_param = *model_param_;
   if (model_parameters != "" && ivfpq_param.Parse(model_parameters.c_str())) {
     return -1;
   }
@@ -208,8 +330,27 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters) {
   RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
 
   nlist = ivfpq_param.ncentroids;
+  if (ivfpq_param.has_hnsw == false) {
+    quantizer = new faiss::IndexFlatL2(d);
+    quantizer_type_ = 0;
+  } else {
+    faiss::IndexHNSWFlat *hnsw_flat = new faiss::IndexHNSWFlat(d, ivfpq_param.nlinks);
+    hnsw_flat->hnsw.efSearch = ivfpq_param.efSearch;
+    hnsw_flat->hnsw.efConstruction = ivfpq_param.efConstruction;
+    hnsw_flat->hnsw.search_bounded_queue = false;
+    quantizer = hnsw_flat;
+    quantizer_type_ = 1;
+  }
 
-  quantizer = new faiss::IndexFlatL2(d);
+  if (ivfpq_param.has_opq) {
+    if (d % ivfpq_param.opq_nsubvector != 0) {
+      LOG(ERROR) << d << " % " << ivfpq_param.opq_nsubvector 
+                 << " != 0, opq nsubvector should be divisible by dimension.";
+      return -2; 
+    }
+    opq_ = new faiss::OPQMatrix(d, ivfpq_param.opq_nsubvector, d);
+  }
+
   pq.d = d;
   pq.M = ivfpq_param.nsubvector;
   pq.nbits = ivfpq_param.nbits_per_idx;
@@ -230,9 +371,11 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters) {
   do_polysemous_training = false;
   polysemous_ht = 0;
 
+  // if nlist is very large, 
+  // the size of RTInvertIndex bucket should be smaller
   rt_invert_index_ptr_ = new realtime::RTInvertIndex(
-      this->nlist, this->code_size, raw_vec->VidMgr(), raw_vec->Bitmap(), 10000,
-      12800000);
+    this->nlist, this->code_size, raw_vec->VidMgr(), raw_vec->Bitmap(), 
+    ivfpq_param.bucket_init_size, ivfpq_param.bucket_max_size);
 
   if (this->invlists) {
     delete this->invlists;
@@ -246,14 +389,21 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters) {
         new realtime::RTInvertedLists(rt_invert_index_ptr_, nlist, code_size);
   }
 
+  metric_type_ = ivfpq_param.metric_type;
+  if (metric_type_ == DistanceComputeType::INNER_PRODUCT) {
+    metric_type = faiss::METRIC_INNER_PRODUCT;
+  } else {
+    metric_type = faiss::METRIC_L2;
+  }
+
   // default value, nprobe will be passed at search time
-  this->nprobe = 20;
+  this->nprobe = 80;
   return 0;
 }
 
 RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
   if (parameters == "") {
-    return new IVFPQRetrievalParameters();
+    return new IVFPQRetrievalParameters(metric_type_);
   }
 
   utils::JsonParser jp;
@@ -276,6 +426,8 @@ RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
       retrieval_params->SetDistanceComputeType(
           DistanceComputeType::INNER_PRODUCT);
     }
+  } else {
+    retrieval_params->SetDistanceComputeType(metric_type_);
   }
 
   int recall_num;
@@ -298,6 +450,8 @@ RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
   if (!jp.GetInt("parallel_on_queries", parallel_on_queries)) {
     if (parallel_on_queries != 0) {
       retrieval_params->SetParallelOnQueries(true);
+    } else {
+      retrieval_params->SetParallelOnQueries(false);
     }
   }
 
@@ -315,13 +469,25 @@ int GammaIVFPQIndex::Indexing() {
     return 0;
   }
   RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
-  int vectors_count = raw_vec->MetaInfo()->Size();
-  if (vectors_count < 8192) {
-    LOG(ERROR) << "vector total count [" << vectors_count
-               << "] less then 8192, failed!";
-    return -1;
+  size_t vectors_count = raw_vec->MetaInfo()->Size();
+  size_t num;
+  if (quantizer_type_ == 0) {
+    if (vectors_count < 8192) {
+        LOG(ERROR) << "vector total count [" << vectors_count
+                   << "] less then 8192, failed!";
+      return -1;
+    }
+    num = vectors_count > 100000 ? 100000 : vectors_count;
+  } else {
+    // for this case, can use more data for training
+    if (vectors_count < nlist) {
+      LOG(ERROR) << "vector total count [" << vectors_count
+               << "] less then " << nlist << ", failed!";
+      return -2;
+    }
+    num = vectors_count > nlist * 256 ? nlist * 256 : vectors_count;
   }
-  size_t num = vectors_count > 100000 ? 100000 : vectors_count;
+
   ScopeVectors headers;
   std::vector<int> lens;
   raw_vec->GetVectorHeader(0, num, headers, lens);
@@ -354,8 +520,18 @@ int GammaIVFPQIndex::Indexing() {
   } else {
     train_vec = (const float *)train_raw_vec;
   }
+  
+  const float *xt = nullptr;
+  utils::ScopeDeleter1<float> del_xt;
+  if (opq_ != nullptr) {
+    opq_->train(num, train_vec);
+    xt = opq_->apply(num, train_vec);
+    del_xt.set(xt == train_vec ? nullptr : xt);
+  } else {
+    xt = train_vec;
+  }
 
-  train(num, train_vec);
+  train(num, xt);
 
   if (d_ > raw_d) {
     delete train_vec;
@@ -399,20 +575,27 @@ int GammaIVFPQIndex::Update(const std::vector<int64_t> &ids,
     } else {
       vec = add_vec;
     }
-
+    const float *applied_vec = nullptr;
+    utils::ScopeDeleter1<float> del_applied;
+    if (opq_ != nullptr) {
+      applied_vec = opq_->apply(1, vec);
+      del_applied.set(applied_vec == vec ? nullptr : applied_vec);
+    } else {
+      applied_vec = vec;
+    }
     idx_t idx = -1;
-    quantizer->assign(1, vec, &idx);
+    quantizer->assign(1, applied_vec, &idx);
 
     std::vector<uint8_t> xcodes;
     xcodes.resize(code_size);
     const float *to_encode = nullptr;
-    utils::ScopeDeleter<float> del_to_encode;
+    utils::ScopeDeleter1<float> del_to_encode;
 
     if (by_residual) {
-      to_encode = compute_residuals(quantizer, 1, vec, &idx);
+      to_encode = compute_residuals(quantizer, 1, applied_vec, &idx);
       del_to_encode.set(to_encode);
     } else {
-      to_encode = vec;
+      to_encode = applied_vec;
     }
     pq.compute_codes(to_encode, xcodes.data(), 1);
     rt_invert_index_ptr_->Update(idx, ids[i], xcodes);
@@ -447,8 +630,18 @@ bool GammaIVFPQIndex::Add(int n, const uint8_t *vec) {
   } else {
     add_vec_head = add_vec;
   }
+
+  const float *applied_vec = nullptr;
+  utils::ScopeDeleter1<float> del_applied;
+  if (opq_ != nullptr) {
+    applied_vec = opq_->apply(n, add_vec_head);
+    del_applied.set(applied_vec == add_vec_head ? nullptr : applied_vec);
+  } else {
+    applied_vec = add_vec_head;
+  }
+
   idx_t *idx0 = new idx_t[n];
-  quantizer->assign(n, add_vec_head, idx0);
+  quantizer->assign(n, applied_vec, idx0);
   idx = idx0;
   del_idx.set(idx);
 
@@ -457,12 +650,12 @@ bool GammaIVFPQIndex::Add(int n, const uint8_t *vec) {
 
   const float *to_encode = nullptr;
   utils::ScopeDeleter<float> del_to_encode;
-
+  
   if (by_residual) {
-    to_encode = compute_residuals(quantizer, n, add_vec_head, idx);
+    to_encode = compute_residuals(quantizer, n, applied_vec, idx);
     del_to_encode.set(to_encode);
   } else {
-    to_encode = add_vec;
+    to_encode = applied_vec;
   }
   pq.compute_codes(to_encode, xcodes, n);
 
@@ -523,7 +716,7 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
     // reset retrieval_params
     delete retrieval_context->RetrievalParams();
     retrieval_context->retrieval_params_ = new FlatRetrievalParameters(
-        true, retrieval_params->GetDistanceComputeType());
+        retrieval_params->ParallelOnQueries(), retrieval_params->GetDistanceComputeType());
     int ret =
         GammaFLATIndex::Search(retrieval_context, n, x, k, distances, labels);
     return ret;
@@ -540,20 +733,33 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
   }
 
   const float *xq = reinterpret_cast<const float *>(x);
+  const float *applied_xq = nullptr;
+  utils::ScopeDeleter1<float> del_applied;
+  if (opq_ == nullptr) {
+    applied_xq = xq;
+  } else {
+    applied_xq = opq_->apply(n, xq);
+    del_applied.set(applied_xq == xq ? nullptr : applied_xq);
+  }
 
   std::unique_ptr<idx_t[]> idx(new idx_t[n * nprobe]);
   std::unique_ptr<float[]> coarse_dis(new float[n * nprobe]);
 
-  quantizer->search(n, xq, nprobe, coarse_dis.get(), idx.get());
-
+  if (retrieval_params->IvfFlat() == true) {
+    quantizer->search(n, xq, nprobe, coarse_dis.get(), idx.get());
+  } else {
+    quantizer->search(n, applied_xq, nprobe, coarse_dis.get(), idx.get());
+  }
   this->invlists->prefetch_lists(idx.get(), n * nprobe);
 
-  if (retrieval_params->IvfFlat() == true)
+  if (retrieval_params->IvfFlat() == true) {
+    // just use xq
     search_ivf_flat(retrieval_context, n, xq, k, idx.get(), coarse_dis.get(),
                     distances, labels, nprobe, false);
-  else
-    search_preassigned(retrieval_context, n, xq, k, idx.get(), coarse_dis.get(),
+  } else {
+    search_preassigned(retrieval_context, n, xq, applied_xq, k, idx.get(), coarse_dis.get(),
                        distances, labels, nprobe, false);
+  }
   return 0;
 }
 
@@ -820,11 +1026,11 @@ void GammaIVFPQIndex::search_ivf_flat(
 }
 
 void GammaIVFPQIndex::search_preassigned(
-    RetrievalContext *retrieval_context, int n, const float *x, int k,
+    RetrievalContext *retrieval_context, int n, const float *x, const float *applied_x, int k,
     const idx_t *keys, const float *coarse_dis, float *distances, idx_t *labels,
     int nprobe, bool store_pairs, const faiss::IVFSearchParameters *params) {
   int raw_d = vector_->MetaInfo()->Dimension();
-
+  // for opq, rerank need raw vector
   float *vec_q = nullptr;
   utils::ScopeDeleter1<float> del_vec_q;
   if (d > raw_d) {
@@ -836,6 +1042,19 @@ void GammaIVFPQIndex::search_preassigned(
     del_vec_q.set(vec_q);
   } else {
     vec_q = const_cast<float *>(x);
+  }
+  
+  float *vec_applied_q = nullptr;
+  utils::ScopeDeleter1<float> del_applied_q;
+  if (d > raw_d) {
+    float *applied_vec = new float[n * d];
+
+    ConvertVectorDim(n, raw_d, d, applied_x, applied_vec);
+
+    vec_applied_q = applied_vec;
+    del_applied_q.set(vec_applied_q);
+  } else {
+    vec_applied_q = const_cast<float *>(applied_x);
   }
 
   GammaSearchCondition *context =
@@ -868,11 +1087,7 @@ void GammaIVFPQIndex::search_preassigned(
   using HeapForL2 = faiss::CMax<float, idx_t>;
 
   int recall_num = retrieval_params->RecallNum();
-  if (recall_num == -1) {
-    recall_num = k;
-  } else if (recall_num < k) {
-    LOG(WARNING) << "recall_num = " << recall_num
-                 << " should't less than topK = " << k;
+  if (recall_num < k) {
     recall_num = k;
   }
 
@@ -901,7 +1116,7 @@ void GammaIVFPQIndex::search_preassigned(
 #pragma omp for
       for (int i = 0; i < n; i++) {
         // loop over queries
-        const float *xi = vec_q + i * d;
+        const float *xi = vec_applied_q + i * d;
         scanner->set_query(xi);
         float *simi = distances + i * k;
         idx_t *idxi = labels + i * k;
@@ -925,7 +1140,7 @@ void GammaIVFPQIndex::search_preassigned(
         }
 
         ndis += nscan;
-        compute_dis(k, xi, simi, idxi, recall_simi, recall_idxi, recall_num,
+        compute_dis(k, vec_q + i * d, simi, idxi, recall_simi, recall_idxi, recall_num,
                     context->has_rank, metric_type, vector_, retrieval_context);
       }       // parallel for
     } else {  // parallelize over inverted lists
@@ -933,7 +1148,7 @@ void GammaIVFPQIndex::search_preassigned(
       std::vector<float> local_dis(recall_num);
 
       for (int i = 0; i < n; i++) {
-        const float *xi = vec_q + i * d;
+        const float *xi = vec_applied_q + i * d;
         scanner->set_query(xi);
 
         init_result(metric_type, recall_num, local_dis.data(),
@@ -982,7 +1197,7 @@ void GammaIVFPQIndex::search_preassigned(
 #ifdef PERFORMANCE_TESTING
           retrieval_context->GetPerfTool().Perf("coarse");
 #endif
-          compute_dis(k, xi, simi, idxi, recall_simi, recall_idxi, recall_num,
+          compute_dis(k, vec_q + i * d, simi, idxi, recall_simi, recall_idxi, recall_num,
                       context->has_rank, metric_type, vector_,
                       retrieval_context);
 
@@ -1044,7 +1259,7 @@ void GammaIVFPQIndex::copy_subset_to(faiss::IndexIVF &other, int subset_type,
   // FAISS_ASSERT(accu_n == indexed_vec_count_);
 }
 
-string IVFPQToString(const faiss::IndexIVFPQ *ivpq) {
+string IVFPQToString(const faiss::IndexIVFPQ *ivpq, const faiss::VectorTransform *vt) {
   std::stringstream ss;
   ss << "d=" << ivpq->d << ", ntotal=" << ivpq->ntotal
      << ", is_trained=" << ivpq->is_trained
@@ -1052,6 +1267,18 @@ string IVFPQToString(const faiss::IndexIVFPQ *ivpq) {
      << ", nprobe=" << ivpq->nprobe << ", by_residual=" << ivpq->by_residual
      << ", code_size=" << ivpq->code_size << ", pq: d=" << ivpq->pq.d
      << ", M=" << ivpq->pq.M << ", nbits=" << ivpq->pq.nbits;
+
+  faiss::IndexHNSWFlat *hnsw_flat = dynamic_cast<faiss::IndexHNSWFlat *>(ivpq->quantizer);
+  if (hnsw_flat) {
+    ss << ", hnsw: efSearch=" << hnsw_flat->hnsw.efSearch
+       << ", efConstruction=" << hnsw_flat->hnsw.efConstruction
+       << ", search_bounded_queue=" << hnsw_flat->hnsw.search_bounded_queue;
+  }
+
+  const faiss::OPQMatrix *opq = dynamic_cast<const faiss::OPQMatrix *>(vt);
+  if (opq) {
+    ss << ", opq: d_in=" << opq->d_in << ", d_out=" << opq->d_out << ", M=" << opq->M;
+  }
   return ss.str();
 }
 
@@ -1060,8 +1287,8 @@ int GammaIVFPQIndex::Dump(const std::string &dir) {
     LOG(INFO) << "gamma index is not trained, skip dumping";
     return 0;
   }
-  std::string &index_name = vector_->MetaInfo()->Name();
-  string index_dir = dir + "/index." + index_name;
+  std::string index_name = vector_->MetaInfo()->AbsoluteName();
+  string index_dir = dir + "/" + index_name;
   if (utils::make_dir(index_dir.c_str())) {
     LOG(ERROR) << "mkdir error, index dir=" << index_dir;
     return IO_ERR;
@@ -1078,6 +1305,9 @@ int GammaIVFPQIndex::Dump(const std::string &dir) {
   WRITE1(ivpq->code_size);
   tig_gamma::write_product_quantizer(&ivpq->pq, f);
 
+  if (opq_ != nullptr)
+    write_opq(opq_, f);
+
   int indexed_count = indexed_vec_count_;
   if (WriteInvertedLists(f, rt_invert_index_ptr_)) {
     LOG(ERROR) << "write invert list error, index name=" << index_name;
@@ -1085,13 +1315,13 @@ int GammaIVFPQIndex::Dump(const std::string &dir) {
   }
   WRITE1(indexed_count);
 
-  LOG(INFO) << "dump:" << IVFPQToString(ivpq) << ", indexed count=" << indexed_count;
+  LOG(INFO) << "dump:" << IVFPQToString(ivpq, opq_) << ", indexed count=" << indexed_count;
   return 0;
 }
 
 int GammaIVFPQIndex::Load(const std::string &index_dir) {
-  std::string &index_name = vector_->MetaInfo()->Name();
-  string index_file = index_dir + "/index." + index_name + "/ivfpq.index";
+  std::string index_name = vector_->MetaInfo()->AbsoluteName();
+  string index_file = index_dir + "/" + index_name + "/ivfpq.index";
   if (!utils::file_exist(index_file)) {
     LOG(INFO) << index_file << " isn't existed, skip loading";
     return 0;  // it should train again after load
@@ -1107,25 +1337,42 @@ int GammaIVFPQIndex::Load(const std::string &index_dir) {
   READ1(ivpq->by_residual);
   READ1(ivpq->code_size);
   tig_gamma::read_product_quantizer(&ivpq->pq, f);
-  if (ReadInvertedLists(f, rt_invert_index_ptr_)) {
+
+  faiss::IndexHNSWFlat *hnsw_flat = dynamic_cast<faiss::IndexHNSWFlat *>(ivpq->quantizer);
+  if(hnsw_flat) {
+    hnsw_flat->hnsw.search_bounded_queue = false;
+    quantizer_type_ = 1;
+  }
+  if(opq_) {
+    read_opq(opq_, f);
+  }
+
+  int ret = ReadInvertedLists(f, rt_invert_index_ptr_);
+  if (ret == FORMAT_ERR) {
+    indexed_vec_count_ = 0;
+    LOG(INFO) << "unsupported inverted list format, it need rebuilding!";
+  } else if (ret == 0) {
+    READ1(indexed_vec_count_);
+    if (indexed_vec_count_ < 0 ||
+        indexed_vec_count_ > vector_->MetaInfo()->size_) {
+      LOG(ERROR) << "invalid indexed count=" << indexed_vec_count_;
+      return INTERNAL_ERR;
+    }
+    // precomputed table not stored. It is cheaper to recompute it
+    ivpq->use_precomputed_table = 0;
+    if (ivpq->by_residual) ivpq->precompute_table();
+    LOG(INFO) << "load: " << IVFPQToString(ivpq, opq_)
+              << ", indexed vector count=" << indexed_vec_count_;
+  } else {
     LOG(ERROR) << "read invert list error, index name=" << index_name;
     return INTERNAL_ERR;
   }
-  READ1(indexed_vec_count_);
-  if (indexed_vec_count_ < 0 ||
-      indexed_vec_count_ > vector_->MetaInfo()->size_) {
-    LOG(ERROR) << "invalid indexed count=" << indexed_vec_count_;
-    return INTERNAL_ERR;
+  if (ivpq->metric_type == faiss::METRIC_INNER_PRODUCT) {
+    metric_type_ = DistanceComputeType::INNER_PRODUCT;
+  } else {
+    metric_type_ = DistanceComputeType::L2;
   }
-
   assert(this->is_trained);
-
-  // precomputed table not stored. It is cheaper to recompute it
-  ivpq->use_precomputed_table = 0;
-  if (ivpq->by_residual) ivpq->precompute_table();
-  LOG(INFO) << "load: " << IVFPQToString(ivpq)
-            << ", indexed vector count=" << indexed_vec_count_;
-
   RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
   raw_vec->SetIndexedVectorNum(indexed_vec_count_);
   return indexed_vec_count_;

@@ -93,7 +93,7 @@ class MultiFieldsRangeIndex {
 
   int DeleteDoc(int docid, int field, std::string &key);
   std::vector<FieldRangeIndex *> fields_;
-  Table *table_;
+  table::Table *table_;
   std::string path_;
   bool b_running_;
   bool b_recovery_running_;

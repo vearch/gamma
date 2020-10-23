@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <mutex>
 
 #include "bitmap.h"
 #include "faiss/IndexHNSW.h"
@@ -35,6 +36,7 @@
 #include "retrieval_model.h"
 #include "log.h"
 #include "raw_vector.h"
+#include "gamma_index_io.h"
 
 namespace tig_gamma {
 
@@ -47,6 +49,11 @@ class HnswRetrievalParameters : public RetrievalParameters {
   HnswRetrievalParameters(int efSearch,
                           enum DistanceComputeType type) {
     efSearch_ = efSearch;
+    distance_compute_type_ = type;
+  }
+
+  HnswRetrievalParameters(enum DistanceComputeType type) {
+    efSearch_ = 64;
     distance_compute_type_ = type;
   }
 
@@ -100,11 +107,12 @@ struct GammaHNSWIndex : public GammaFLATIndex, faiss::IndexHNSW {
   // each node have a lock for multi-thread add
   std::vector<omp_lock_t> locks_;
 
-  // for search, every raw vector should be accessed
-  const float *raw_vec_head_;
-
   // for add and search
   pthread_rwlock_t mutex_;
+  
+  // for dump
+  std::mutex dump_mutex_;
+  bool has_update_;
 
 #ifdef PERFORMANCE_TESTING
   int add_count_ = 0;

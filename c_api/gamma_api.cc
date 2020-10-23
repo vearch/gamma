@@ -14,6 +14,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "api_data/gamma_batch_result.h"
 #include "api_data/gamma_config.h"
 #include "api_data/gamma_doc.h"
 #include "api_data/gamma_engine_status.h"
@@ -100,12 +101,45 @@ int CreateTable(void *engine, const char *table_str, int len) {
 
 int AddOrUpdateDoc(void *engine, const char *doc_str, int len) {
   tig_gamma::Doc doc;
+  doc.SetEngine(static_cast<tig_gamma::GammaEngine *>(engine));
   doc.Deserialize(doc_str, len);
   return static_cast<tig_gamma::GammaEngine *>(engine)->AddOrUpdate(doc);
 }
 
+int AddOrUpdateDocsNum(void *engine, int i) {
+  return static_cast<tig_gamma::GammaEngine *>(engine)->SetBatchDocsNum(i);
+}
+
+int PrepareDocs(void *engine, char *doc_str, int id) {
+  return static_cast<tig_gamma::GammaEngine *>(engine)->BatchDocsPrepare(
+      doc_str, id);
+}
+
+int AddOrUpdateDocsFinish(void *engine, int len, char **result_str,
+                          int *result_len) {
+  char **docs_str =
+      static_cast<tig_gamma::GammaEngine *>(engine)->BatchDocsStr();
+  AddOrUpdateDocs(engine, docs_str, len, result_str, result_len);
+  return 0;
+}
+
+int AddOrUpdateDocs(void *engine, char **doc_str, int len, char **result_str,
+                    int *result_len) {
+  tig_gamma::Docs docs;
+  docs.SetEngine(static_cast<tig_gamma::GammaEngine *>(engine));
+  docs.Deserialize(doc_str, len);
+
+  tig_gamma::BatchResult result(docs.GetDocs().size());
+  int ret = static_cast<tig_gamma::GammaEngine *>(engine)->AddOrUpdateDocs(
+      docs, result);
+  result.Serialize(result_str, result_len);
+
+  return ret;
+}
+
 int UpdateDoc(void *engine, const char *doc_str, int len) {
   tig_gamma::Doc doc;
+  doc.SetEngine(static_cast<tig_gamma::GammaEngine *>(engine));
   doc.Deserialize(doc_str, len);
   return static_cast<tig_gamma::GammaEngine *>(engine)->Update(&doc);
 }
@@ -135,6 +169,13 @@ int GetDocByID(void *engine, const char *docid, int docid_len, char **doc_str,
   tig_gamma::Doc doc;
   std::string id = std::string(docid, docid_len);
   int ret = static_cast<tig_gamma::GammaEngine *>(engine)->GetDoc(id, doc);
+  doc.Serialize(doc_str, len);
+  return ret;
+}
+
+int GetDocByDocID(void *engine, int docid, char **doc_str, int *len) {
+  tig_gamma::Doc doc;
+  int ret = static_cast<tig_gamma::GammaEngine *>(engine)->GetDoc(docid, doc);
   doc.Serialize(doc_str, len);
   return ret;
 }

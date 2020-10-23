@@ -7,6 +7,7 @@
 
 #pragma once
 
+namespace tig_gamma {
 namespace table {
 
 #ifndef IN
@@ -20,11 +21,16 @@ namespace table {
 #define TABLE_MAIN "table.main"
 #define TABLE_EXT "table.ext"
 
-const static int DOCNUM_PER_SEGMENT = 1 << 10;  // 1024
+const static int DOCNUM_PER_SEGMENT = 1 << 20;  // 1048576
 const static int MAX_SEGMENT_NUM = 102400;      // max segment num
 
+#ifdef TABLE_STR_INT64
+typedef uint64_t str_offset_t;
+typedef uint16_t str_len_t;
+#else
 typedef uint32_t str_offset_t;
 typedef uint8_t str_len_t;
+#endif
 
 class DecompressStr {
  public:
@@ -54,3 +60,4 @@ class DecompressStr {
 };
 
 }  // namespace table
+}

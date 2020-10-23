@@ -8,7 +8,7 @@ THIRD_PARTY=$BASE_PATH/../third_party
 if [ ! -d "$THIRD_PARTY/flatbuffers-1.11.0" ]
 then
   cd $THIRD_PARTY
-  wget https://github.com/google/flatbuffers/archive/v1.11.0.tar.gz --no-check-certificate
+  wget https://github.com/google/flatbuffers/archive/v1.11.0.tar.gz
   tar xf v1.11.0.tar.gz
   rm -rf v1.11.0.tar.gz
   cd flatbuffers-1.11.0

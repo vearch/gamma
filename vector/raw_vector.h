@@ -10,11 +10,11 @@
 
 #include <sstream>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "api_data/gamma_doc.h"
 #include "concurrentqueue/concurrentqueue.h"
+#include "io_common.h"
 #include "log.h"
 #include "raw_vector_common.h"
 #include "retrieval_model.h"
@@ -27,10 +27,54 @@ struct StoreParams;
 
 static const int kInitSize = 1000 * 1000;
 
+class RawVectorIO;
+struct StoreParams : DumpConfig {
+  std::string store_type;
+  long cache_size;  // bytes
+  int segment_size;
+  utils::JsonParser compress;
+
+  StoreParams(std::string name_ = "") : DumpConfig(name_) {
+    cache_size = 1024;  // 1024M
+    segment_size = 500000;
+  }
+
+  StoreParams(const StoreParams &other) {
+    name = other.name;
+    store_type = other.store_type;
+    cache_size = other.cache_size;
+    segment_size = other.segment_size;
+    compress = other.compress;
+  }
+
+  int Parse(const char *str);
+  int Parse(utils::JsonParser &jp);
+  int MergeRight(StoreParams &other);
+
+  std::string ToJsonStr() {
+    std::stringstream ss;
+    ss << "{";
+    ss << "\"store_type\":" << store_type << ",";
+    ss << "\"cache_size\":" << cache_size << ",";
+    ss << "\"segment_size\":" << segment_size << ",";
+    ss << "\"compress\":" << compress.ToStr();
+    ss << "}";
+    return ss.str();
+  }
+
+  int ToJson(utils::JsonParser &jp) {
+    jp.PutString("store_type", store_type);
+    jp.PutDouble("cache_size", cache_size);
+    jp.PutInt("segment_size", segment_size);
+    jp.PutObject("compress", compress);
+    return 0;
+  }
+};
+
 class RawVector : public VectorReader {
  public:
-  RawVector(VectorMetaInfo *meta_info, const std::string &root_path, 
-	    const char *docids_bitmap, const StoreParams &store_params);
+  RawVector(VectorMetaInfo *meta_info, const std::string &root_path,
+            const char *docids_bitmap, const StoreParams &store_params);
 
   virtual ~RawVector();
 
@@ -57,14 +101,14 @@ class RawVector : public VectorReader {
    * @param path  the disk directory path
    * @return 0 if successed
    */
-  int Dump(const std::string &path, int dump_docid, int max_docid);
+  // int Dump(const std::string &path, int dump_docid, int max_docid);
 
   /** load vectors and sources from disk file
    *
    * @param path  the disk directory path
    * @return 0 if successed
    */
-  int Load(const std::vector<std::string> &path, int doc_num);
+  // int Load(const std::vector<std::string> &path, int doc_num);
 
   /** get vector by id
    *
@@ -112,11 +156,11 @@ class RawVector : public VectorReader {
 
   int GetVectorNum() const { return meta_info_->Size(); };
 
-	int IndexedVectorNum() const { return indexed_vector_num_; };
+  int IndexedVectorNum() const { return indexed_vector_num_; };
 
-	void SetIndexedVectorNum(int indexed_vector_num) { 
-		indexed_vector_num_ = indexed_vector_num; 
-	};
+  void SetIndexedVectorNum(int indexed_vector_num) {
+    indexed_vector_num_ = indexed_vector_num;
+  };
 
   /** add vector to the specific implementation of RawVector(memory or disk)
    *it is called by next common function Add()
@@ -125,8 +169,16 @@ class RawVector : public VectorReader {
 
   virtual int UpdateToStore(int vid, uint8_t *v, int len) = 0;
 
+  RawVectorIO *GetIO() { return vio_; }
+
+  void SetIO(RawVectorIO *vio) { vio_ = vio; }
+
   VIDMgr *VidMgr() const { return vid_mgr_; }
   const char *Bitmap() { return docids_bitmap_; }
+  int VectorByteSize() { return vector_byte_size_; }
+  std::string RootPath() { return root_path_; }
+  DumpConfig *GetDumpConfig();
+
   moodycamel::ConcurrentQueue<int> *UpdatedVids() { return updated_vids_; }
   moodycamel::ConcurrentQueue<int> *updated_vids_;
 
@@ -139,9 +191,9 @@ class RawVector : public VectorReader {
   virtual int GetVector(long vid, const uint8_t *&vec,
                         bool &deletable) const = 0;
 
-  virtual int DumpVectors(int dump_vid, int n) { return 0; }
+  // virtual int DumpVectors(int dump_vid, int n) { return 0; }
 
-  virtual int LoadVectors(int vec_num) { return 0; }
+  // virtual int LoadVectors(int vec_num) { return 0; }
 
   virtual int InitStore() = 0;
 
@@ -149,7 +201,6 @@ class RawVector : public VectorReader {
   int Decompress(uint8_t *cmpr_v, int n, uint8_t *&vec, bool &deletable) const;
 
  protected:
-  friend RawVectorIO;
   std::string root_path_;
   int vector_byte_size_;
   int data_size_;
@@ -159,104 +210,37 @@ class RawVector : public VectorReader {
   std::vector<long> source_mem_pos_;  // position of each source
   bool has_source_;
   std::string desc_;  // description of this raw vector
-
-  StoreParams *store_params_;
+  int indexed_vector_num_;
+  StoreParams store_params_;
 #ifdef WITH_ZFP
   ZFPCompressor zfp_compressor_;
 #endif
-	int indexed_vector_num_;
   const char *docids_bitmap_;
   VIDMgr *vid_mgr_;
+  RawVectorIO *vio_;
 };
 
-class RawVectorIO {
- public:
-  RawVectorIO(RawVector *raw_vector);
+/* class RawVectorIO { */
+/*  public: */
+/*   RawVectorIO(RawVector *raw_vector); */
 
-  ~RawVectorIO();
+/*   ~RawVectorIO(); */
 
-  int Init();
+/*   int Init(); */
 
-  int Dump(int start, int n);
+/*   int Dump(int start, int n); */
+/*   int Load(int doc_num); */
 
-  int Load(int doc_num);
+/*  private: */
+/*   RawVector *raw_vector_; */
+/*   int docid_fd_; */
+/*   int src_fd_; */
+/*   int src_pos_fd_; */
+/* }; */
 
- private:
-  RawVector *raw_vector_;
-  int docid_fd_;
-  int src_fd_;
-  int src_pos_fd_;
-};
+/* void StartFlushingIfNeed(RawVector *vec); */
 
-class AsyncFlusher {
- public:
-  AsyncFlusher(std::string name);
-
-  ~AsyncFlusher();
-
-  void Start();
-
-  void Stop();
-
-  void Until(int nexpect) const;
-
- protected:
-  static void Handler(AsyncFlusher *flusher);
-
-  int Flush();
-
-  virtual int FlushOnce() = 0;
-
- protected:
-  std::string name_;
-  std::thread *runner_;
-  bool stopped_;
-  long nflushed_;
-  long last_nflushed_;
-  int interval_;
-};
-
-void StartFlushingIfNeed(RawVector *vec);
-
-void StopFlushingIfNeed(RawVector *vec);
-
-struct StoreParams {
-  long cache_size_;  // bytes
-  int segment_size_;
-  bool compress_;
-
-  StoreParams() {
-    cache_size_ = 1024 * 1024 * 1024;  // 1G
-    segment_size_ = 500000;
-    compress_ = false;
-  }
-
-  StoreParams(const StoreParams &other) {
-    this->cache_size_ = other.cache_size_;
-    this->segment_size_ = other.segment_size_;
-    this->compress_ = other.compress_;
-  }
-
-  int Parse(const char *str);
-
-  std::string ToString() {
-    std::stringstream ss;
-    ss << "{cache size=" << cache_size_ << ", segment size=" << segment_size_
-       << ", compress=" << compress_ << "}";
-    return ss.str();
-  }
-
-  std::string ToJson() {
-    std::stringstream ss;
-    ss << "{";
-    ss << "\"cache_size\":" << cache_size_ << ",";
-    ss << "\"segment_size\":" << segment_size_ << ",";
-    std::string cmps = compress_ ? "true" : "false";
-    ss << "\"compress\":" << cmps;
-    ss << "}";
-    return ss.str();
-  }
-};
+/* void StopFlushingIfNeed(RawVector *vec); */
 
 }  // namespace tig_gamma
 #endif /* RAW_VECTOR_H_ */

@@ -12,13 +12,15 @@
 
 namespace tig_gamma {
 
-class TableIO {
+class TableSchemaIO {
  public:
-  TableIO(std::string &file_path);
+  TableSchemaIO(std::string &file_path);
 
-  ~TableIO();
+  ~TableSchemaIO();
 
   int Write(TableInfo &table);
+
+  void WriteIndexingSize(TableInfo &table);
 
   void WriteFieldInfos(TableInfo &table);
 
@@ -29,6 +31,8 @@ class TableIO {
   void WriteRetrievalParam(TableInfo &table);
 
   int Read(std::string &name, TableInfo &table);
+
+  void ReadIndexingSize(TableInfo &table);
 
   void ReadFieldInfos(TableInfo &table);
 

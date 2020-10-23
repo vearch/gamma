@@ -11,7 +11,9 @@
 #include <condition_variable>
 #include <string>
 
+#include "api_data/gamma_batch_result.h"
 #include "api_data/gamma_doc.h"
+#include "api_data/gamma_docs.h"
 #include "api_data/gamma_engine_status.h"
 #include "api_data/gamma_request.h"
 #include "api_data/gamma_response.h"
@@ -19,6 +21,8 @@
 #include "field_range_index.h"
 #include "table.h"
 #include "vector_manager.h"
+#include "async_flush.h"
+#include "table_io.h"
 
 namespace tig_gamma {
 
@@ -36,8 +40,9 @@ class GammaEngine {
 
   int CreateTable(TableInfo &table);
 
-  int Add(Doc *doc);
   int AddOrUpdate(Doc &doc);
+
+  int AddOrUpdateDocs(Docs &docs, BatchResult &result);
 
   int Update(Doc *doc);
   int Update(int doc_id, std::vector<struct Field> &fields_table,
@@ -59,6 +64,8 @@ class GammaEngine {
 
   int GetDoc(std::string &key, Doc &doc);
 
+  int GetDoc(int docid, Doc &doc);
+
   /**
    * blocking to build index
    * @return 0 if exited
@@ -74,6 +81,27 @@ class GammaEngine {
 
   int GetDocsNum();
 
+  table::Table *GetTable() { return table_; }
+
+  VectorManager *GetVectorManager() { return vec_manager_; }
+
+  int SetBatchDocsNum(int i) {
+    batch_docs_.resize(i);
+    return 0;
+  }
+
+  int BatchDocsPrepare(char *doc_str, int idx) {
+    if (idx >= batch_docs_.size()) {
+      LOG(ERROR) << "idx [" << idx << "] > batch_docs size ["
+                 << batch_docs_.size() << "]";
+      return -1;
+    }
+    batch_docs_[idx] = doc_str;
+    return 0;
+  }
+
+  char **BatchDocsStr() { return batch_docs_.data(); }
+
  private:
   GammaEngine(const std::string &index_root_path);
   int CreateTableFromLocal(std::string &table_name);
@@ -86,7 +114,7 @@ class GammaEngine {
   MultiFieldsRangeIndex *field_range_index_;
 
   char *docids_bitmap_;
-  Table *table_;
+  table::Table *table_;
   VectorManager *vec_manager_;
 
   int AddNumIndexFields();
@@ -113,8 +141,7 @@ class GammaEngine {
 
   int MultiRangeQuery(Request &request, GammaSearchCondition *condition,
                       Response &response_results,
-                      MultiRangeQueryResults *range_query_result,
-                      utils::OnlineLogger &logger);
+                      MultiRangeQueryResults *range_query_result);
 
   enum IndexStatus index_status_;
 
@@ -129,9 +156,14 @@ class GammaEngine {
 
   bool b_loading_;
 
+  std::vector<char *> batch_docs_;
+
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;
 #endif
+
+  TableIO *table_io_;
+  AsyncFlushExecutor *af_exector_;
 };
 
 // specialization for string

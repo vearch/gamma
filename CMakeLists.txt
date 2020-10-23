@@ -11,6 +11,7 @@ find_package(FAISS REQUIRED)
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
+option(TABLE_STR_INT64 "table string int64 address" off)
 
 #ENV VARs
 set(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
@@ -27,6 +28,7 @@ set(GAMMA_VECTOR ${CMAKE_CURRENT_SOURCE_DIR}/vector)
 set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
 set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
 set(GAMMA_C_API ${CMAKE_CURRENT_SOURCE_DIR}/c_api)
+set(GAMMA_IO ${CMAKE_CURRENT_SOURCE_DIR}/io)
 set(FLATBUFFERS_OUT ${CMAKE_CURRENT_SOURCE_DIR}/idl/fbs-gen)
 
 if(APPLE)
@@ -55,6 +57,11 @@ ELSE (DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
 ENDIF (DEFINED ENV{ZFP_HOME})
 
+if(TABLE_STR_INT64)
+    MESSAGE(STATUS "TABLE_STR_INT64 is on")
+    ADD_DEFINITIONS(-DTABLE_STR_INT64)
+endif(TABLE_STR_INT64)
+
 #INCLUDE DIR
 include_directories(
     ${THIRDPARTY}
@@ -71,6 +78,7 @@ include_directories(
     ${GAMMA_VECTOR}
     ${GAMMA_REALTIME}
     ${GAMMA_C_API}
+    ${GAMMA_IO}
     ${FAISS_INCLUDE_DIR}
     ${RocksDB_INCLUDE_DIR}
     ${FLATBUFFERS_OUT}/c
@@ -101,6 +109,7 @@ aux_source_directory(${GAMMA_REALTIME} DIR_SRCS)
 aux_source_directory(${GAMMA_TABLE} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API}/api_data DIR_SRCS)
+aux_source_directory(${GAMMA_IO} DIR_SRCS)
 
 set(LIB_SRCS ${DIR_SRCS})
 

@@ -26,6 +26,8 @@
 
 #include "faiss/IndexIVF.h"
 #include "faiss/IndexIVFPQ.h"
+#include "faiss/VectorTransform.h"
+#include "faiss/IndexHNSW.h"
 #include "faiss/InvertedLists.h"
 #include "faiss/impl/FaissAssert.h"
 #include "faiss/impl/io.h"
@@ -595,18 +597,25 @@ class IVFPQRetrievalParameters : public RetrievalParameters {
  public:
   IVFPQRetrievalParameters() : RetrievalParameters() {
     parallel_on_queries_ = true;
-    recall_num_ = -1;
+    recall_num_ = 100;
     nprobe_ = 80;
     ivf_flat_ = false;
   }
 
   IVFPQRetrievalParameters(bool parallel_on_queries, int recall_num, int nprobe,
-                           enum DistanceComputeType type, bool ivf_flat)
-      : RetrievalParameters() {
+                           enum DistanceComputeType type, bool ivf_flat) {
     parallel_on_queries_ = parallel_on_queries;
     recall_num_ = recall_num;
     nprobe_ = nprobe;
     ivf_flat_ = ivf_flat;
+    distance_compute_type_ = type;
+  }
+
+  IVFPQRetrievalParameters(enum DistanceComputeType type) {
+    parallel_on_queries_ = true;
+    recall_num_ = 100;
+    nprobe_ = 80;
+    ivf_flat_ = false;
     distance_compute_type_ = type;
   }
 
@@ -670,7 +679,7 @@ struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
              int k, float *distances, idx_t *labels);
 
   void search_preassigned(RetrievalContext *retrieval_context, int n,
-                          const float *x, int k, const idx_t *keys,
+                          const float *x, const float *applied_x, int k, const idx_t *keys,
                           const float *coarse_dis, float *distances,
                           idx_t *labels, int nprobe, bool store_pairs,
                           const faiss::IVFSearchParameters *params = nullptr);
@@ -704,10 +713,16 @@ struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
   uint64_t compacted_num_;
   uint64_t updated_num_;
   int d_;
+  DistanceComputeType metric_type_;
+
+  faiss::VectorTransform *opq_;
+  // 0 is FlatL2, 1 is HNSWFlat
+  int quantizer_type_;
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_count_;
   int add_count_;
 #endif
+  IVFPQModelParams *model_param_;
 };
 
 template <faiss::MetricType METRIC_TYPE, class C, int precompute_mode>

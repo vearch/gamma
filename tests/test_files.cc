@@ -14,6 +14,7 @@
 #include <functional>
 #include <future>
 
+#include "c_api/api_data/gamma_docs.h"
 #include "c_api/api_data/gamma_engine_status.h"
 #include "c_api/api_data/gamma_request.h"
 #include "c_api/api_data/gamma_response.h"
@@ -34,6 +35,7 @@ namespace test {
 static struct Options opt;
 
 int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
+  double cost = 0;
   for (int i = 0; i < doc_num; ++i) {
     tig_gamma::Doc doc;
 
@@ -82,13 +84,96 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
     char *doc_str = nullptr;
     int doc_len = 0;
     doc.Serialize(&doc_str, &doc_len);
+    double start = utils::getmillisecs();
     AddOrUpdateDoc(engine, doc_str, doc_len);
+    double end = utils::getmillisecs();
+    cost += end - start;
     free(doc_str);
     ++opt.doc_id;
     if (interval > 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(interval));
     }
   }
+  LOG(INFO) << "AddDocToEngine cost [" << cost << "] ms";
+  return 0;
+}
+
+int BatchAddDocToEngine(void *engine, int doc_num, int interval = 0) {
+  int batch_num = 10000;
+  double cost = 0;
+
+  for (int i = 0; i < doc_num; i += batch_num) {
+    tig_gamma::Docs docs;
+    docs.Reserve(batch_num);
+    for (int k = 0; k < batch_num; ++k) {
+      tig_gamma::Doc doc;
+
+      string url;
+      for (size_t j = 0; j < opt.fields_vec.size(); ++j) {
+        tig_gamma::Field field;
+        field.name = opt.fields_vec[j];
+        field.datatype = opt.fields_type[j];
+        int len = 0;
+
+        string &data =
+            opt.profiles[(uint64_t)opt.doc_id * opt.fields_vec.size() + j];
+        if (opt.fields_type[j] == tig_gamma::DataType::INT) {
+          len = sizeof(int);
+          int v = atoi(data.c_str());
+          field.value = std::string((char *)(&v), len);
+        } else if (opt.fields_type[j] == tig_gamma::DataType::LONG) {
+          len = sizeof(long);
+          long v = atol(data.c_str());
+          field.value = std::string((char *)(&v), len);
+        } else {
+          // field.value = data + "\001all";
+          field.value = data;
+          url = data;
+        }
+
+        field.source = url;
+
+        doc.AddField(std::move(field));
+      }
+
+      tig_gamma::Field field;
+      field.name = opt.vector_name;
+      field.datatype = tig_gamma::DataType::VECTOR;
+      field.source = url;
+      int len = opt.d * sizeof(float);
+      if (opt.retrieval_type == "BINARYIVF") {
+        len = opt.d * sizeof(char) / 8;
+      }
+
+      field.value = std::string(
+          (char *)(opt.feature + (uint64_t)opt.doc_id * opt.d), len);
+
+      doc.AddField(std::move(field));
+      docs.AddDoc(std::move(doc));
+      ++opt.doc_id;
+    }
+    char **doc_str = nullptr;
+    int doc_len = 0;
+
+    docs.Serialize(&doc_str, &doc_len);
+    double start = utils::getmillisecs();
+    char *result_str = nullptr;
+    int result_len = 0;
+    int ret = AddOrUpdateDocs(engine, doc_str, doc_len, &result_str, &result_len);
+    tig_gamma::BatchResult result;
+    result.Deserialize(result_str, 0);
+    free(result_str);
+    double end = utils::getmillisecs();
+    cost += end - start;
+    for (int i = 0; i < doc_len; ++i) {
+      free(doc_str[i]);
+    }
+    free(doc_str);
+    if (interval > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+    }
+  }
+  LOG(INFO) << "BatchAddDocToEngine cost [" << cost << "] ms";
   return 0;
 }
 
@@ -453,7 +538,12 @@ int Add() {
   }
   fin.close();
 
-  int ret = AddDocToEngine(opt.engine, opt.add_doc_num);
+  int ret = 0;
+  if (opt.add_type == 0) {
+    ret = AddDocToEngine(opt.engine, opt.add_doc_num);
+  } else {
+    ret = BatchAddDocToEngine(opt.engine, opt.add_doc_num);
+  }
   return ret;
 }
 
@@ -478,7 +568,7 @@ int BuildEngineIndex() {
   GetDocByID(opt.engine, docid.c_str(), docid.size(), &doc_str, &doc_str_len);
   tig_gamma::Doc doc;
   doc.Deserialize(doc_str, doc_str_len);
-  LOG(INFO) << "Doc fields [" << doc.Fields().size() << "]";
+  LOG(INFO) << "Doc fields [" << doc.TableFields().size() << "]";
   free(doc_str);
   DeleteDoc(opt.engine, docid.c_str(), docid.size());
   GetDocByID(opt.engine, docid.c_str(), docid.size(), &doc_str, &doc_str_len);
@@ -539,7 +629,6 @@ int DumpEngine() {
 
   Close(opt.engine);
   opt.engine = nullptr;
-  delete opt.docids_bitmap_;
   return ret;
 }
 
@@ -594,12 +683,14 @@ int main(int argc, char **argv) {
   std::cout << test::opt.profile_file.c_str() << " "
             << test::opt.feature_file.c_str() << std::endl;
   test::InitEngine();
+  // test::LoadEngine();
+  // test::opt.doc_id = 20000;
   test::Create();
   test::Add();
   test::BuildEngineIndex();
   // test::Add();
   test::Search();
-  // test::DumpEngine();
+  test::DumpEngine();
   // test::LoadEngine();
   // test::BuildEngineIndex();
   // test::Search();

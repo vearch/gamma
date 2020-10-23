@@ -18,6 +18,8 @@
 
 namespace tig_gamma {
 
+class RocksDBRawVectorIO;
+
 class RocksDBRawVector : public RawVector {
  public:
   RocksDBRawVector(VectorMetaInfo *meta_info, const std::string &root_path,
@@ -42,6 +44,8 @@ class RocksDBRawVector : public RawVector {
   int Decompress(std::string &cmprs_data, uint8_t *&vec) const;
 
  private:
+  friend class RocksDBRawVectorIO;
+
   rocksdb::DB *db_;
   rocksdb::BlockBasedTableOptions table_options_;
   size_t block_cache_size_;

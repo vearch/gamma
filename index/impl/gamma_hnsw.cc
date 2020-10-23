@@ -302,22 +302,19 @@ int GammaHNSW::SearchFromCandidates(DistanceComputer& qdis, int k, idx_t* I,
       }
       visited_node.insert(v1);
 
-      if (!retrieval_context->IsValid(v1)) {
-        continue;
-      }
-      
       ndis++;
       float d = qdis(v1);
-      if (!retrieval_context->IsSimilarScoreValid(abs(d))) {
-        continue;
+
+      if (retrieval_context->IsValid(v1) && 
+        retrieval_context->IsSimilarScoreValid(abs(d))) {
+        if (nres < k) {
+          faiss::maxheap_push(++nres, D, I, d, v1);
+        } else if (d < D[0]) {
+          faiss::maxheap_pop(nres--, D, I);
+          faiss::maxheap_push(++nres, D, I, d, v1);
+        }
       }
 
-      if (nres < k) {
-        faiss::maxheap_push(++nres, D, I, d, v1);
-      } else if (d < D[0]) {
-        faiss::maxheap_pop(nres--, D, I);
-        faiss::maxheap_push(++nres, D, I, d, v1);
-      }
       candidates.push(v1, d);
     }
 
@@ -373,20 +370,16 @@ std::priority_queue<Node> GammaHNSW::SearchFromCandidateUnbounded(
       }
       visited_node.insert(v1);
 
-      if (!retrieval_context->IsValid(v1)) {
-        continue;
-      }
-
       float d1 = qdis(v1);
-      if (!retrieval_context->IsSimilarScoreValid(abs(d1))) {
-        continue;
-      }
       ++ndis;
 
       if (top_candidates.top().first > d1 || top_candidates.size() < ef) {
         candidates.emplace(d1, v1);
-        top_candidates.emplace(d1, v1);
-
+        
+        if (retrieval_context->IsValid(v1) && 
+          retrieval_context->IsSimilarScoreValid(abs(d1))) {
+          top_candidates.emplace(d1, v1);
+        }
         if (top_candidates.size() > ef) {
           top_candidates.pop();
         }

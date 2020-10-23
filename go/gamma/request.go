@@ -17,7 +17,7 @@ type DistanceMetricType uint8
 type TermFilter struct {
 	Field   string
 	Value   []byte
-	IsUnion bool
+	IsUnion int32
 }
 
 type RangeFilter struct {

@@ -25,7 +25,7 @@ class VectorManager {
                 const std::string &root_path);
   ~VectorManager();
 
-  int CreateVectorTable(TableInfo &table);
+  int CreateVectorTable(TableInfo &table, utils::JsonParser *jp);
 
   int AddToStore(int docid, std::vector<struct Field> &fields);
 
@@ -55,7 +55,16 @@ class VectorManager {
     }
   }
 
+  std::map<std::string, RetrievalModel *> &VectorIndexes() {
+    return vector_indexes_;
+  }
+
   int Delete(int docid);
+
+  std::map<std::string, RawVector *> RawVectors() { return raw_vectors_; }
+  std::map<std::string, RetrievalModel *> RetrievalModels() {
+    return vector_indexes_;
+  }
 
  private:
   void Close();  // release all resource

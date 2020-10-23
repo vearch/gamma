@@ -6,6 +6,7 @@
  */
 
 #include "utils.h"
+#include "log.h"
 
 #include <dirent.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 
 namespace utils {
 
@@ -303,11 +305,18 @@ MEM_PACK *get_memoccupy() {
   return p;
 }
 
-JsonParser::JsonParser() { content_ = nullptr; }
+JsonParser::JsonParser() { content_ = cJSON_CreateObject(); }
 
-JsonParser::~JsonParser() { cJSON_Delete(content_); }
+JsonParser::~JsonParser() {
+  if (content_) {
+    cJSON_Delete(content_);
+  }
+}
 
 int JsonParser::Parse(const char *str) {
+  if (content_) {
+    cJSON_Delete(content_);
+  }
   content_ = cJSON_Parse(str);
   if (content_ == nullptr) {
     return -1;
@@ -315,38 +324,139 @@ int JsonParser::Parse(const char *str) {
   return 0;
 }
 
-int JsonParser::GetInt(const std::string &name, int &value) {
+int JsonParser::GetInt(const std::string &name, int &value) const {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr || !cJSON_IsNumber(jvalue)) return -1;
   value = jvalue->valueint;
   return 0;
 }
 
-int JsonParser::GetDouble(const std::string &name, double &value) {
+int JsonParser::GetDouble(const std::string &name, double &value) const {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr || !cJSON_IsNumber(jvalue)) return -1;
   value = jvalue->valuedouble;
   return 0;
 }
 
-int JsonParser::GetString(const std::string &name, std::string &value) {
+int JsonParser::GetString(const std::string &name, std::string &value) const {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr || !cJSON_IsString(jvalue)) return -1;
   value.assign(jvalue->valuestring);
   return 0;
 }
 
-int JsonParser::GetBool(const std::string &name, bool &value) {
+int JsonParser::GetBool(const std::string &name, bool &value) const {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr || !cJSON_IsBool(jvalue)) return -1;
   value = jvalue->type == cJSON_True;
   return 0;
 }
 
-bool JsonParser::Contains(const std::string &name) {
+int JsonParser::GetObject(const std::string &name, JsonParser &value) const {
+  cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
+  if (jvalue == nullptr || !cJSON_IsObject(jvalue)) return -1;
+  cJSON *dup = cJSON_Duplicate(jvalue, cJSON_True);
+  if (dup == NULL) return -1;
+  value.Reset(dup);
+  return 0;
+}
+
+bool JsonParser::Contains(const std::string &name) const {
   cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
   if (jvalue == nullptr) return false;
   return true;
+}
+
+int JsonParser::PutString(const std::string &name, const std::string &value) {
+  if (!cJSON_AddStringToObject(content_, name.c_str(), value.c_str())) {
+    return -1;
+  }
+  return 0;
+}
+
+int JsonParser::PutDouble(const std::string &name, double value) {
+  if (!cJSON_AddNumberToObject(content_, name.c_str(), value)) {
+    return -1;
+  }
+  return 0;
+}
+
+int JsonParser::PutInt(const std::string &name, int value) {
+  return PutDouble(name, static_cast<double>(value));
+}
+
+int JsonParser::PutObject(const std::string &name, JsonParser &&jp) {
+  int ret = PutObject(name, jp.content_);
+  if (ret) return ret;
+  jp.content_ = nullptr;
+  return 0;
+}
+
+int JsonParser::PutObject(const std::string &name, JsonParser &jp) {
+  cJSON *dup = cJSON_Duplicate(jp.content_, cJSON_True);
+  if (dup == NULL) return -1;
+  return PutObject(name, dup);
+}
+
+int JsonParser::PutObject(const std::string &name, cJSON *item) {
+  cJSON *jvalue = cJSON_GetObjectItemCaseSensitive(content_, name.c_str());
+  if (jvalue == nullptr) {
+    cJSON_AddItemToObject(content_, name.c_str(), item);
+    return 0;
+  }
+  if (cJSON_ReplaceItemViaPointer(content_, jvalue, item) == cJSON_False) {
+    return -1;
+  }
+  return 0;
+}
+
+void JsonParser::Reset(cJSON *content) {
+  if (content_) {
+    cJSON_Delete(content_);
+  }
+  content_ = content;
+}
+
+void CJsonMergeRight(cJSON *left, cJSON *right) {
+  cJSON *r_item = NULL;
+  cJSON_ArrayForEach(r_item, right) {
+    if (r_item->type == cJSON_Array || r_item->type == cJSON_Object) {
+      cJSON *l_item = cJSON_GetObjectItemCaseSensitive(left, r_item->string);
+      if (l_item) {
+        CJsonMergeRight(l_item, r_item);
+      } else {
+        cJSON_AddItemToObject(left, r_item->string, r_item);
+      }
+    } else {
+      cJSON_ReplaceItemInObject(left, r_item->string, r_item);
+    }
+  }
+}
+
+void JsonParser::MergeRight(JsonParser &other) {
+  CJsonMergeRight(content_, other.content_);
+}
+
+std::string JsonParser::ToStr(bool format) const {
+  std::string ret;
+  char *str = nullptr;
+  if (format) {
+    str = cJSON_Print(content_);
+  } else {
+    str = cJSON_PrintUnformatted(content_);
+  }
+  if (str) {
+    ret = str;
+    free(str);
+  }
+  return ret;
+}
+
+JsonParser &JsonParser::operator=(const JsonParser &other) {
+  cJSON *dup = cJSON_Duplicate(other.content_, cJSON_True);
+  if (dup == NULL) throw std::runtime_error("cjson duplicate error");
+  content_ = dup;
+  return *this;
 }
 
 FileIO::FileIO(std::string &file_path) : path(file_path), fp(nullptr) {}
@@ -365,7 +475,7 @@ int FileIO::Open(const char *mode) {
   return 0;
 }
 
-size_t FileIO::Write(void *data, size_t size, size_t m) {
+size_t FileIO::Write(const void *data, size_t size, size_t m) {
   return fwrite(data, size, m, fp);
 }
 

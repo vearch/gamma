@@ -25,17 +25,23 @@ class GPUItem;
 class GPURetrievalParameters : public RetrievalParameters {
  public:
   GPURetrievalParameters() : RetrievalParameters() {
-    recall_num_ = -1;
-    nprobe_ = 20;
+    recall_num_ = 100;
+    nprobe_ = 80;
   }
 
   GPURetrievalParameters(size_t recall_num, size_t nprobe,
-                         DistanceComputeType type)
-      : RetrievalParameters() {
+                         DistanceComputeType type) {
     recall_num_ = recall_num;
     nprobe_ = nprobe;
     distance_compute_type_ = type;
   }
+
+  GPURetrievalParameters(DistanceComputeType type) {
+    recall_num_ = 100;
+    nprobe_ = 80;
+    distance_compute_type_ = type;
+  }
+
   ~GPURetrievalParameters() {}
 
   int RecallNum() { return recall_num_; }
@@ -107,6 +113,7 @@ class GammaIVFPQGPUIndex : public RetrievalModel {
 
   bool use_standard_resource_;
   int d_;
+  DistanceComputeType metric_type_;
   std::mutex cpu_mutex_;
   std::mutex indexing_mutex_;
 #ifdef PERFORMANCE_TESTING

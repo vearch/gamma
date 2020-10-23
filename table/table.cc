@@ -19,20 +19,21 @@
 using std::move;
 using std::string;
 using std::vector;
-#ifdef WITH_ROCKSDB
-using namespace rocksdb;
-#endif
 
+namespace tig_gamma {
 namespace table {
 
-const static string kTableDumpedNum = "table_dumped_num";
+const static string kTableDumpedNum = "profile_dumped_num";
 
-Table::Table(const string &root_path) {
+Table::Table(const string &root_path, bool b_compress) {
   item_length_ = 0;
   field_num_ = 0;
+  string_field_num_ = 0;
   key_idx_ = -1;
-  db_path_ = root_path + "/table";
+  root_path_ = root_path + "/table";
   seg_num_ = 0;
+  b_compress_ = b_compress;
+  compressed_num_ = 0;
 
   // TODO : there is a failure.
   // if (!item_to_docid_.reserve(max_doc_size)) {
@@ -42,17 +43,12 @@ Table::Table(const string &root_path) {
   // }
 
   table_created_ = false;
+  last_docid_ = 0;
+  table_params_ = nullptr;
   LOG(INFO) << "Table created success!";
 }
 
 Table::~Table() {
-#ifdef WITH_ROCKSDB
-  if (db_) {
-    delete db_;
-    db_ = nullptr;
-  }
-#endif
-
 #ifdef USE_BTREE
   if (cache_mgr_) {
     bt_mgrclose(cache_mgr_);
@@ -67,66 +63,21 @@ Table::~Table() {
   for (int i = 0; i < seg_num_; ++i) {
     delete main_file_[i];
   }
+  CHECK_DELETE(table_params_);
   LOG(INFO) << "Table deleted.";
 }
 
-int Table::Load(const std::vector<string> &folders, int &doc_num) {
+int Table::Load(int &doc_num) {
+  std::string file_name =
+      root_path_ + "/" + std::to_string(seg_num_) + ".profile";
   doc_num = 0;
-#ifdef WITH_ROCKSDB
-  string value;
-  rocksdb::Status s = db_->Get(rocksdb::ReadOptions(), kTableDumpedNum, &value);
-  if (!s.ok()) {
-    LOG(INFO) << "the key=" << kTableDumpedNum << " isn't in db, skip loading";
-    doc_num = 0;
-    return 0;
+  while (utils::file_exist(file_name)) {
+    main_file_[seg_num_] = new TableData(item_length_);
+    main_file_[seg_num_]->Load(seg_num_, root_path_);
+    doc_num += main_file_[seg_num_]->Size();
+    ++seg_num_;
+    file_name = root_path_ + "/" + std::to_string(seg_num_) + ".profile";
   }
-  doc_num = std::stoi(value, 0, 10);
-  if (doc_num < 0) {
-    LOG(ERROR) << "invalid doc num of db, value=" << value;
-    return -1;
-  }
-  LOG(INFO) << "begin to load table, doc num=" << doc_num;
-  rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
-  string start_key;
-  ToRowKey(0, start_key);
-  it->Seek(Slice(start_key));
-  for (int c = 0; c < doc_num; c++, it->Next()) {
-    if (!it->Valid()) {
-      LOG(ERROR) << "rocksdb iterator error, count=" << c;
-      delete it;
-      return 2;
-    }
-    Slice value = it->value();
-    const char *data = value.data_;
-
-    int seg_pos;
-    size_t in_seg_pos;
-    int ret = GetSegPos(c, 0, seg_pos, in_seg_pos);
-    if (ret != 0) {
-      return ret;
-    }
-    size_t offset = in_seg_pos * item_length_;
-    TableData *seg_file = main_file_[seg_pos];
-    char *base = seg_file->Base();
-    str_offset_t str_offset = seg_file->StrOffset();
-
-    memcpy((void *)(base + offset), data, item_length_);
-    data += item_length_;
-    seg_file->WriteStr(data, value.size_ - item_length_);
-
-    for (size_t field_id = 0; field_id < idx_attr_offset_.size(); ++field_id) {
-      if (attrs_[field_id] != tig_gamma::DataType::STRING) continue;
-
-      int field_offset = idx_attr_offset_[field_id];
-      char *field = base + offset + field_offset;
-      memcpy((void *)field, (void *)&str_offset, sizeof(str_offset));
-      str_len_t field_len = 0;
-      memcpy((void *)&field_len, (field + sizeof(str_offset)),
-             sizeof(field_len));
-      str_offset += field_len;
-    }
-  }
-  delete it;
 
   const string str_id = "_id";
   const auto &iter = attr_idx_map_.find(str_id);
@@ -142,7 +93,8 @@ int Table::Load(const std::vector<string> &folders, int &doc_num) {
       std::string key;
       DecompressStr decompress_str;
       GetFieldString(i, idx, key, decompress_str);
-      item_to_docid_str_.insert(std::move(key), i);
+      int64_t k = utils::StringToInt64(key);
+      item_to_docid_.insert(k, i);
     } else {
       long key = -1;
       GetField<long>(i, idx, key);
@@ -151,23 +103,31 @@ int Table::Load(const std::vector<string> &folders, int &doc_num) {
   }
 
   LOG(INFO) << "Table load successed! doc num=" << doc_num;
-#else
-  LOG(ERROR) << "rocksdb is need when compiling for table's loading";
-#endif
+  last_docid_ = doc_num;
   return 0;
 }
 
-int Table::CreateTable(tig_gamma::TableInfo &table) {
+int Table::Sync() {
+  for (int i = 0; i < seg_num_; ++i) {
+    main_file_[i]->Sync();
+  }
+  return 0;
+}
+
+int Table::CreateTable(TableInfo &table, TableParams &table_params) {
   if (table_created_) {
     return -10;
   }
   name_ = table.Name();
-  std::vector<struct tig_gamma::FieldInfo> &fields = table.Fields();
+  std::vector<struct FieldInfo> &fields = table.Fields();
+
+  b_compress_ = table.IsCompress();
+  LOG(INFO) << "Table compress [" << b_compress_ << "]";
 
   size_t fields_num = fields.size();
   for (size_t i = 0; i < fields_num; ++i) {
     const string name = fields[i].name;
-    tig_gamma::DataType ftype = fields[i].data_type;
+    DataType ftype = fields[i].data_type;
     bool is_index = fields[i].is_index;
     LOG(INFO) << "Add field name [" << name << "], type [" << (int)ftype
               << "], index [" << is_index << "]";
@@ -182,19 +142,9 @@ int Table::CreateTable(tig_gamma::TableInfo &table) {
     return -1;
   }
 
-#ifdef WITH_ROCKSDB
-  // open DB
-  Options options;
-  options.IncreaseParallelism();
-  // options.OptimizeLevelStyleCompaction();
-  // create the DB if it's not already present
-  options.create_if_missing = true;
-  Status s = DB::Open(options, db_path_, &db_);
-  if (!s.ok()) {
-    LOG(ERROR) << "open rocks db error: " << s.ToString();
-    return -1;
+  if (!utils::isFolderExist(root_path_.c_str())) {
+    mkdir(root_path_.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   }
-#endif
 
 #ifdef USE_BTREE
   uint mainleafxtra = 0;
@@ -205,12 +155,8 @@ int Table::CreateTable(tig_gamma::TableInfo &table) {
   uint mainbits = 16;
   uint bits = 16;
 
-  if (!utils::isFolderExist(db_path_.c_str())) {
-    mkdir(db_path_.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-  }
-
-  string cache_file = db_path_ + string("/cache_") + ".dis";
-  string main_file = db_path_ + string("/main_") + ".dis";
+  string cache_file = root_path_ + string("/cache_") + ".dis";
+  string main_file = root_path_ + string("/main_") + ".dis";
 
   remove(cache_file.c_str());
   remove(main_file.c_str());
@@ -223,22 +169,25 @@ int Table::CreateTable(tig_gamma::TableInfo &table) {
   main_mgr_->maxleaves = maxleaves;
 #endif
 
+  table_params_ = new TableParams("table");
   table_created_ = true;
-  LOG(INFO) << "Create table " << name_ << " success!";
+  LOG(INFO) << "Create table " << name_
+            << " success! item length=" << item_length_
+            << ", field num=" << (int)field_num_;
   return 0;
 }
 
-int Table::FTypeSize(tig_gamma::DataType fType) {
+int Table::FTypeSize(DataType fType) {
   int length = 0;
-  if (fType == tig_gamma::DataType::INT) {
+  if (fType == DataType::INT) {
     length = sizeof(int32_t);
-  } else if (fType == tig_gamma::DataType::LONG) {
+  } else if (fType == DataType::LONG) {
     length = sizeof(int64_t);
-  } else if (fType == tig_gamma::DataType::FLOAT) {
+  } else if (fType == DataType::FLOAT) {
     length = sizeof(float);
-  } else if (fType == tig_gamma::DataType::DOUBLE) {
+  } else if (fType == DataType::DOUBLE) {
     length = sizeof(double);
-  } else if (fType == tig_gamma::DataType::STRING) {
+  } else if (fType == DataType::STRING) {
     length = sizeof(str_offset_t) + sizeof(str_len_t);
   }
   return length;
@@ -247,56 +196,56 @@ int Table::FTypeSize(tig_gamma::DataType fType) {
 void Table::SetFieldValue(int docid, const std::string &field, int field_id,
                           const char *value, str_len_t len) {
   size_t offset = idx_attr_offset_[field_id];
-  tig_gamma::DataType attr = attrs_[field_id];
+  DataType attr = attrs_[field_id];
 
-  if (attr != tig_gamma::DataType::STRING) {
+  if (attr != DataType::STRING) {
     int type_size = FTypeSize(attr);
 
     int seg_pos;
     size_t in_seg_pos;
-    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
+    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos, false);
     if (ret != 0) {
       return;
     }
     offset += in_seg_pos * item_length_;
     TableData *seg_file = main_file_[seg_pos];
-    char *base = seg_file->Base();
-    memcpy(base + offset, value, type_size);
+    seg_file->Write(value, offset, type_size);
   } else {
     size_t ofst = sizeof(str_offset_t);
     int seg_pos;
     size_t in_seg_pos;
-    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
+    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos, false);
     if (ret != 0) {
       return;
     }
     offset += in_seg_pos * item_length_;
     TableData *seg_file = main_file_[seg_pos];
-    char *base = seg_file->Base();
     str_offset_t str_offset = seg_file->StrOffset();
-    memcpy(base + offset, &str_offset, sizeof(str_offset));
-    memcpy(base + offset + ofst, &len, sizeof(len));
+    seg_file->Write((char *)&str_offset, offset, sizeof(str_offset));
+    seg_file->Write((char *)&len, offset + ofst, sizeof(len));
 
     seg_file->WriteStr(value, sizeof(char) * len);
   }
 }
 
-int Table::AddField(const string &name, tig_gamma::DataType ftype,
-                    bool is_index) {
+int Table::AddField(const string &name, DataType ftype, bool is_index) {
   if (attr_idx_map_.find(name) != attr_idx_map_.end()) {
     LOG(ERROR) << "Duplicate field " << name;
     return -1;
   }
   if (name == "_id") {
     key_idx_ = field_num_;
-    id_type_ = ftype == tig_gamma::DataType::STRING ? 0 : 1;
+    id_type_ = ftype == DataType::STRING ? 0 : 1;
+  }
+  if (ftype == DataType::STRING) {
+    ++string_field_num_;
   }
   idx_attr_offset_.push_back(item_length_);
   item_length_ += FTypeSize(ftype);
   attrs_.push_back(ftype);
   idx_attr_map_.insert(std::pair<int, string>(field_num_, name));
   attr_idx_map_.insert(std::pair<string, int>(name, field_num_));
-  attr_type_map_.insert(std::pair<string, tig_gamma::DataType>(name, ftype));
+  attr_type_map_.insert(std::pair<string, DataType>(name, ftype));
   attr_is_index_map_.insert(std::pair<string, bool>(name, is_index));
   ++field_num_;
   return 0;
@@ -331,32 +280,13 @@ int Table::GetDocIDByKey(std::string &key, int &docid) {
   return -1;
 }
 
-int Table::Add(const std::vector<struct tig_gamma::Field> &fields, int docid) {
+int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
+               int docid) {
   if (fields.size() != attr_idx_map_.size()) {
     LOG(ERROR) << "Field num [" << fields.size() << "] not equal to ["
                << attr_idx_map_.size() << "]";
     return -2;
   }
-  std::vector<tig_gamma::Field> fields_reorder(fields.size());
-  std::string key;
-  for (size_t i = 0; i < fields.size(); ++i) {
-    const auto &field_value = fields[i];
-    const string &name = field_value.name;
-
-    auto it = attr_idx_map_.find(name);
-    if (it == attr_idx_map_.end()) {
-      LOG(ERROR) << "Unknown field " << name;
-      continue;
-    }
-    int field_idx = it->second;
-    fields_reorder[field_idx] = field_value;
-    if (name == "_id") {
-      key = field_value.value;
-    }
-  }
-#ifdef DEBUG__
-  printDoc(doc);
-#endif
   if (key.size() == 0) {
     LOG(ERROR) << "Add item error : _id is null!";
     return -3;
@@ -382,21 +312,25 @@ int Table::Add(const std::vector<struct tig_gamma::Field> &fields, int docid) {
 
     item_to_docid_.insert(key_long, docid);
   }
-
 #endif
 
-  for (size_t i = 0; i < fields_reorder.size(); ++i) {
-    const auto &field_value = fields_reorder[i];
+  for (size_t i = 0; i < fields.size(); ++i) {
+    const auto &field_value = fields[i];
     const string &name = field_value.name;
 
-    SetFieldValue(docid, name.c_str(), i, field_value.value.c_str(),
+    SetFieldValue(docid, name, i, field_value.value.c_str(),
                   field_value.value.size());
   }
 
-  if (PutToDB(docid)) {
-    LOG(ERROR) << "put to rocksdb error, docid=" << docid;
-    return -2;
-  }
+  TableData *seg_file = main_file_[docid / DOCNUM_PER_SEGMENT];
+  seg_file->SetSize(seg_file->Size() + 1);
+  // if (PutToDB(docid)) {
+  //   LOG(ERROR) << "Put to rocksdb error, docid [" << docid << "]";
+  //   return -2;
+  // }
+
+  Compress();
+
   if (docid % 10000 == 0) {
     if (id_type_ == 0) {
       LOG(INFO) << "Add item _id [" << key << "], num [" << docid << "]";
@@ -406,14 +340,86 @@ int Table::Add(const std::vector<struct tig_gamma::Field> &fields, int docid) {
       LOG(INFO) << "Add item _id [" << key_long << "], num [" << docid << "]";
     }
   }
+  last_docid_ = docid;
   return 0;
 }
 
-int Table::Update(const std::vector<tig_gamma::Field> &fields, int docid) {
+int Table::BatchAdd(int start_id, int batch_size, int docid,
+                    std::vector<Doc> &doc_vec, BatchResult &result) {
+#ifdef PERFORMANCE_TESTING
+  double start = utils::getmillisecs();
+#endif
+
+#pragma omp parallel for
+  for (size_t i = 0; i < batch_size; ++i) {
+    int id = docid + i;
+    Doc &doc = doc_vec[start_id + i];
+
+    std::string &key = doc.Key();
+    if (key.size() == 0) {
+      std::string msg = "Add item error : _id is null!";
+      result.SetResult(i, -1, msg);
+      LOG(ERROR) << msg;
+      continue;
+    }
+
+    if (id_type_ == 0) {
+      int64_t k = utils::StringToInt64(key);
+      item_to_docid_.insert(k, id);
+    } else {
+      long key_long = -1;
+      memcpy(&key_long, key.data(), sizeof(key_long));
+
+      item_to_docid_.insert(key_long, id);
+    }
+  }
+
+  for (size_t i = 0; i < batch_size; ++i) {
+    int id = docid + i;
+    Doc &doc = doc_vec[start_id + i];
+    std::vector<Field> &fields = doc.TableFields();
+    for (size_t j = 0; j < attr_idx_map_.size(); ++j) {
+      const auto &field_value = fields[j];
+      const string &name = field_value.name;
+
+      SetFieldValue(id, name, j, field_value.value.c_str(),
+                    field_value.value.size());
+    }
+    if (id % 10000 == 0) {
+      std::string &key = doc_vec[i].Key();
+      if (id_type_ == 0) {
+        LOG(INFO) << "Add item _id [" << key << "], num [" << id << "]";
+      } else {
+        long key_long = -1;
+        memcpy(&key_long, key.data(), sizeof(key_long));
+        LOG(INFO) << "Add item _id [" << key_long << "], num [" << id << "]";
+      }
+    }
+    TableData *seg_file = main_file_[id / DOCNUM_PER_SEGMENT];
+    seg_file->SetSize(seg_file->Size() + 1);
+  }
+
+  // if (BatchPutToDB(docid, batch_size)) {
+  //   LOG(ERROR) << "put to rocksdb error, docid=" << docid;
+  //   return -2;
+  // }
+
+  Compress();
+#ifdef PERFORMANCE_TESTING
+  double end = utils::getmillisecs();
+  if (docid % 10000 == 0) {
+    LOG(INFO) << "table cost [" << end - start << "]ms";
+  }
+#endif
+  last_docid_ = docid + batch_size;
+  return 0;
+}
+
+int Table::Update(const std::vector<Field> &fields, int docid) {
   if (fields.size() == 0) return 0;
 
   for (size_t i = 0; i < fields.size(); ++i) {
-    const struct tig_gamma::Field &field_value = fields[i];
+    const struct Field &field_value = fields[i];
     const string &name = field_value.name;
     const auto &it = attr_idx_map_.find(name);
     if (it == attr_idx_map_.end()) {
@@ -423,12 +429,12 @@ int Table::Update(const std::vector<tig_gamma::Field> &fields, int docid) {
 
     int field_id = it->second;
 
-    if (field_value.datatype == tig_gamma::DataType::STRING) {
+    if (field_value.datatype == DataType::STRING) {
       int offset = idx_attr_offset_[field_id];
 
       int seg_pos;
       size_t in_seg_pos;
-      int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
+      int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos, false);
       if (ret != 0) {
         return ret;
       }
@@ -443,34 +449,37 @@ int Table::Update(const std::vector<tig_gamma::Field> &fields, int docid) {
 
       size_t value_len = field_value.value.size();
       if (len >= value_len) {
-        memcpy(base + offset + sizeof(str_offset), &(value_len), sizeof(len));
-
+        seg_file->Write((char *)&value_len, offset + sizeof(str_offset),
+                        sizeof(len));
         seg_file->WriteStr(field_value.value.data(), str_offset, value_len);
       } else {
         len = value_len;
         int ofst = sizeof(str_offset);
         str_offset = seg_file->StrOffset();
-        memcpy(base + offset, &str_offset, sizeof(str_offset));
-        memcpy(base + offset + ofst, &len, sizeof(len));
+        seg_file->Write((char *)&str_offset, offset, sizeof(str_offset));
+        seg_file->Write((char *)&len, offset + ofst, sizeof(len));
         seg_file->WriteStr(field_value.value.data(), sizeof(char) * len);
       }
     } else {
-      SetFieldValue(docid, name.c_str(), field_id, field_value.value.data(),
+      SetFieldValue(docid, name, field_id, field_value.value.data(),
                     field_value.value.size());
     }
   }
 
-  if (PutToDB(docid)) {
-    LOG(ERROR) << "update to rocksdb error, docid=" << docid;
-    return -2;
-  }
+  // if (PutToDB(docid)) {
+  //   LOG(ERROR) << "update to rocksdb error, docid=" << docid;
+  //   return -2;
+  // }
+
+  Compress();
 
   return 0;
 }
 
 int Table::Delete(std::string &key) {
   if (id_type_ == 0) {
-    item_to_docid_str_.erase(key);
+    int64_t k = utils::StringToInt64(key);
+    item_to_docid_.erase(k);
   } else {
     long key_long = -1;
     memcpy(&key_long, key.data(), sizeof(key_long));
@@ -478,12 +487,6 @@ int Table::Delete(std::string &key) {
     item_to_docid_.erase(key_long);
   }
   return 0;
-}
-
-void Table::ToRowKey(int id, string &key) const {
-  char data[11];
-  snprintf(data, 11, "%010d", id);
-  key.assign(data, 10);
 }
 
 int Table::GetRawDoc(int docid, vector<char> &raw_doc) {
@@ -502,7 +505,7 @@ int Table::GetRawDoc(int docid, vector<char> &raw_doc) {
   DecompressStr decompress_str;
 
   for (int i = 0; i < (int)idx_attr_offset_.size(); i++) {
-    if (attrs_[i] != tig_gamma::DataType::STRING) continue;
+    if (attrs_[i] != DataType::STRING) continue;
 
     char *field = base + offset + idx_attr_offset_[i];
     str_len_t str_len = 0;
@@ -513,7 +516,11 @@ int Table::GetRawDoc(int docid, vector<char> &raw_doc) {
     str_offset_t str_offset = 0;
     memcpy((void *)&str_offset, field, sizeof(str_offset));
     std::string str;
-    seg_file->GetStr(str_offset, str_len, str, decompress_str);
+    int ret = seg_file->GetStr(str_offset, str_len, str, decompress_str);
+    if (ret != 0) {
+      LOG(ERROR) << "Get str error [" << docid << "] len [" << (int)str_len
+                 << "]";
+    }
     memcpy((void *)(raw_doc.data() + len), str.c_str(), str_len);
     len += str_len;
   }
@@ -521,9 +528,13 @@ int Table::GetRawDoc(int docid, vector<char> &raw_doc) {
 }
 
 int Table::GetSegPos(IN int32_t docid, IN int32_t field_id, OUT int &seg_pos,
-                     OUT size_t &in_seg_pos) {
+                     OUT size_t &in_seg_pos, bool bRead) {
   seg_pos = docid / DOCNUM_PER_SEGMENT;
   if (seg_pos >= seg_num_) {
+    if (bRead) {
+      LOG(ERROR) << "Pos [" << seg_pos << "] out of bound [" << seg_num_ << "]";
+      return -1;
+    }
     int ret = Extend();
     if (ret != 0) {
       LOG(ERROR) << "docid [" << docid << "], main_file [" << seg_pos
@@ -535,52 +546,28 @@ int Table::GetSegPos(IN int32_t docid, IN int32_t field_id, OUT int &seg_pos,
   return 0;
 }
 
-int Table::PutToDB(int docid) {
-#ifdef WITH_ROCKSDB
-  vector<char> doc;
-  GetRawDoc(docid, doc);
-  string key;
-  ToRowKey(docid, key);
-  Status s = db_->Put(WriteOptions(), Slice(key),
-                      Slice((char *)doc.data(), doc.size()));
-  if (!s.ok()) {
-    LOG(ERROR) << "rocksdb put error:" << s.ToString() << ", key=" << key;
-    return -2;
-  }
-#endif
-  return 0;
-}
-
 int Table::Extend() {
-  if (seg_num_ >= 1) {
-    main_file_[seg_num_ - 1]->Compress();
-  }
-
   main_file_[seg_num_] = new TableData(item_length_);
-  main_file_[seg_num_]->Init();
+  main_file_[seg_num_]->Init(seg_num_, root_path_, string_field_num_);
   ++seg_num_;
   return 0;
 }
 
-int Table::Dump(const string &path, int start_docid, int end_docid) {
-#ifdef WITH_ROCKSDB
-  string value;
-  ToRowKey(end_docid + 1, value);
-  Status s = db_->Put(WriteOptions(), Slice(kTableDumpedNum), Slice(value));
-  if (!s.ok()) {
-    LOG(ERROR) << "rocksdb put error:" << s.ToString()
-               << ", key=" << kTableDumpedNum << ", value=" << value;
-    return -2;
+void Table::Compress() {
+  if (b_compress_) {
+    if (seg_num_ < 2) return;
+
+    for (int i = compressed_num_; i < seg_num_ - 1; ++i) {
+      main_file_[i]->Compress();
+    }
+
+    compressed_num_ = seg_num_ - 1;
   }
-#else
-  LOG(ERROR) << "rocksdb is need when compiling for table's dumping";
-#endif
-  return 0;
 }
 
 long Table::GetMemoryBytes() { return 0; }
 
-int Table::GetDocInfo(std::string &id, tig_gamma::Doc &doc,
+int Table::GetDocInfo(std::string &id, Doc &doc,
                       DecompressStr &decompress_str) {
   int doc_id = 0;
   int ret = GetDocIDByKey(id, doc_id);
@@ -590,59 +577,63 @@ int Table::GetDocInfo(std::string &id, tig_gamma::Doc &doc,
   return GetDocInfo(doc_id, doc, decompress_str);
 }
 
-int Table::GetDocInfo(const int docid, tig_gamma::Doc &doc,
+int Table::GetDocInfo(const int docid, Doc &doc,
                       DecompressStr &decompress_str) {
+  if (docid > last_docid_) {
+    LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
+    return -1;
+  }
   int i = 0;
+  std::vector<struct Field> &table_fields = doc.TableFields();
+  table_fields.resize(attr_type_map_.size());
+
   for (const auto &it : attr_type_map_) {
     const string &attr = it.first;
-    struct tig_gamma::Field field;
-    GetFieldInfo(docid, attr, field, decompress_str);
-    doc.AddField(std::move(field));
+    GetFieldInfo(docid, attr, table_fields[i], decompress_str);
     ++i;
   }
   return 0;
 }
 
 void Table::GetFieldInfo(const int docid, const string &field_name,
-                         struct tig_gamma::Field &field,
-                         DecompressStr &decompress_str) {
+                         struct Field &field, DecompressStr &decompress_str) {
   const auto &it = attr_type_map_.find(field_name);
   if (it == attr_type_map_.end()) {
     LOG(ERROR) << "Cannot find field [" << field_name << "]";
     return;
   }
 
-  tig_gamma::DataType type = it->second;
+  DataType type = it->second;
 
   std::string source;
   field.name = field_name;
   field.source = source;
   field.datatype = type;
 
-  if (type == tig_gamma::DataType::STRING) {
+  if (type == DataType::STRING) {
     GetFieldString(docid, field_name, field.value, decompress_str);
   } else {
     int value_len = FTypeSize(type);
 
     std::string str_value;
-    if (type == tig_gamma::DataType::INT) {
+    if (type == DataType::INT) {
       int value = 0;
       GetField<int>(docid, field_name, value);
       str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    } else if (type == tig_gamma::DataType::LONG) {
+    } else if (type == DataType::LONG) {
       long value = 0;
       GetField<long>(docid, field_name, value);
       str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    } else if (type == tig_gamma::DataType::FLOAT) {
+    } else if (type == DataType::FLOAT) {
       float value = 0;
       GetField<float>(docid, field_name, value);
       str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    } else if (type == tig_gamma::DataType::DOUBLE) {
+    } else if (type == DataType::DOUBLE) {
       double value = 0;
       GetField<double>(docid, field_name, value);
       str_value = std::string(reinterpret_cast<char *>(&value), value_len);
     }
-    field.value = str_value;
+    field.value = std::move(str_value);
   }
 }
 
@@ -683,15 +674,18 @@ int Table::GetFieldString(int docid, int field_id, std::string &value,
 
   str_len_t len;
   memcpy(&len, base + offset + sizeof(str_offset), sizeof(len));
-  seg_file->GetStr(str_offset, len, value, decompress_str);
-  return 0;
+  ret = seg_file->GetStr(str_offset, len, value, decompress_str);
+  if (ret != 0) {
+    decompress_str.SetHit(false);
+  }
+  return ret;
 }
 
 int Table::GetFieldRawValue(int docid, int field_id, std::string &value) {
   if ((docid < 0) or (field_id < 0 || field_id >= field_num_)) return -1;
 
-  tig_gamma::DataType data_type = attrs_[field_id];
-  if (data_type != tig_gamma::DataType::STRING) {
+  DataType data_type = attrs_[field_id];
+  if (data_type != DataType::STRING) {
     size_t offset = idx_attr_offset_[field_id];
     int data_len = FTypeSize(data_type);
     int seg_pos;
@@ -711,8 +705,7 @@ int Table::GetFieldRawValue(int docid, int field_id, std::string &value) {
   return 0;
 }
 
-int Table::GetFieldType(const std::string &field_name,
-                        tig_gamma::DataType &type) {
+int Table::GetFieldType(const std::string &field_name, DataType &type) {
   const auto &it = attr_type_map_.find(field_name);
   if (it == attr_type_map_.end()) {
     LOG(ERROR) << "Cannot find field [" << field_name << "]";
@@ -722,8 +715,7 @@ int Table::GetFieldType(const std::string &field_name,
   return 0;
 }
 
-int Table::GetAttrType(
-    std::map<std::string, tig_gamma::DataType> &attr_type_map) {
+int Table::GetAttrType(std::map<std::string, DataType> &attr_type_map) {
   for (const auto attr_type : attr_type_map_) {
     attr_type_map.insert(attr_type);
   }
@@ -742,4 +734,34 @@ int Table::GetAttrIdx(const std::string &field) const {
   return (iter != attr_idx_map_.end()) ? iter->second : -1;
 }
 
+int Table::AddRawDoc(int docid, const char *raw_doc, int doc_size) {
+  int seg_pos;
+  size_t in_seg_pos;
+  int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
+  if (ret != 0) {
+    return ret;
+  }
+  size_t offset = in_seg_pos * item_length_;
+  TableData *seg_file = main_file_[seg_pos];
+  char *base = seg_file->Base();
+  uint64_t str_offset = seg_file->StrOffset();
+
+  memcpy((void *)(base + offset), raw_doc, item_length_);
+  raw_doc += item_length_;
+  seg_file->WriteStr(raw_doc, doc_size - item_length_);
+
+  for (size_t field_id = 0; field_id < idx_attr_offset_.size(); ++field_id) {
+    if (attrs_[field_id] != DataType::STRING) continue;
+
+    int field_offset = idx_attr_offset_[field_id];
+    char *field = base + offset + field_offset;  // TODO base is read only
+    memcpy((void *)field, (void *)&str_offset, sizeof(str_offset));
+    str_len_t field_len = 0;
+    memcpy((void *)&field_len, (field + sizeof(str_offset)), sizeof(field_len));
+    str_offset += field_len;
+  }
+  return 0;
+}
+
 }  // namespace table
+}  // namespace tig_gamma

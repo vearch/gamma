@@ -154,11 +154,13 @@ struct IVFPQModelParams {
   int ncentroids;     // coarse cluster center number
   int nsubvector;     // number of sub cluster center
   int nbits_per_idx;  // bit number of sub cluster center
+  DistanceComputeType metric_type;
 
   IVFPQModelParams() {
     ncentroids = 2048;
     nsubvector = 64;
     nbits_per_idx = 8;
+    metric_type = DistanceComputeType::INNER_PRODUCT;
   }
 
   int Parse(const char *str) {
@@ -202,6 +204,21 @@ struct IVFPQModelParams {
       }
       if (nbits_per_idx > 0) this->nbits_per_idx = nbits_per_idx;
     }
+
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = DistanceComputeType::L2;
+      else
+        this->metric_type = DistanceComputeType::INNER_PRODUCT;
+    }
+
     if (!Validate()) return -1;
     return 0;
   }
@@ -277,7 +294,9 @@ int GammaIVFPQGPUIndex::Init(const std::string &model_parameters) {
   this->nlist_ = ivfpq_param.ncentroids;
   this->M_ = ivfpq_param.nsubvector;
   this->nbits_per_idx_ = ivfpq_param.nbits_per_idx;
-  this->nprobe_ = 20;
+  this->nprobe_ = 80;
+
+  metric_type_ = ivfpq_param.metric_type;
 
   b_exited_ = false;
   use_standard_resource_ = true;
@@ -286,6 +305,7 @@ int GammaIVFPQGPUIndex::Init(const std::string &model_parameters) {
   cpu_index_ = new GammaIVFPQIndex();
   cpu_index_->vector_ = vector_;
   cpu_index_->Init(model_parameters);
+
 #ifdef PERFORMANCE_TESTING
   search_count_ = 0;
 #endif
@@ -317,7 +337,7 @@ RetrievalParameters *GammaIVFPQGPUIndex::Parse(const std::string &parameters) {
       retrieval_params->SetDistanceComputeType(
           DistanceComputeType::INNER_PRODUCT);
   } else {
-    LOG(ERROR) << "cannot get metric type, so use default value";
+    retrieval_params->SetDistanceComputeType(metric_type_);
   }
 
   int recall_num;
@@ -533,6 +553,7 @@ int GammaIVFPQGPUIndex::Load(const string &index_dir) {
   int ret = cpu_index_->Load(index_dir);
   is_trained_ = cpu_index_->is_trained;
   d_ = cpu_index_->d_;
+  metric_type_ = cpu_index_->metric_type_;
   return ret;
 }
 
@@ -765,7 +786,7 @@ int GammaIVFPQGPUIndex::Search(RetrievalContext *retrieval_context, int n,
           retrieval_context->RetrievalParams());
   utils::ScopeDeleter1<GPURetrievalParameters> del_params;
   if (retrieval_params == nullptr) {
-    retrieval_params = new GPURetrievalParameters();
+    retrieval_params = new GPURetrievalParameters(metric_type_);
     del_params.set(retrieval_params);
   }
   const float *xq = reinterpret_cast<const float *>(x);
@@ -793,8 +814,6 @@ int GammaIVFPQGPUIndex::Search(RetrievalContext *retrieval_context, int n,
   if (recall_num > max_recallnum) {
     LOG(WARNING) << "recall_num should less than [" << max_recallnum << "]";
     recall_num = max_recallnum;
-  } else if (recall_num == -1) {
-    recall_num = k;
   } else if (recall_num < k) {
     LOG(WARNING) << "recall_num = " << recall_num
                  << " should't less than topK = " << k;

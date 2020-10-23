@@ -29,20 +29,21 @@ static void FReadByteArray(utils::FileIO *fio, std::string &ba) {
   delete data;
 }
 
-TableIO::TableIO(std::string &file_path) { fio = new utils::FileIO(file_path); }
+TableSchemaIO::TableSchemaIO(std::string &file_path) { fio = new utils::FileIO(file_path); }
 
-TableIO::~TableIO() {
+TableSchemaIO::~TableSchemaIO() {
   if (fio) {
     delete fio;
     fio = nullptr;
   }
 }
 
-int TableIO::Write(TableInfo &table) {
+int TableSchemaIO::Write(TableInfo &table) {
   if (!fio->IsOpen() && fio->Open("wb")) {
     LOG(INFO) << "open error, file path=" << fio->Path();
     return -1;
   }
+  WriteIndexingSize(table);
   WriteFieldInfos(table);
   WriteVectorInfos(table);
   WriteRetrievalType(table);
@@ -50,7 +51,12 @@ int TableIO::Write(TableInfo &table) {
   return 0;
 }
 
-void TableIO::WriteFieldInfos(TableInfo &table) {
+void TableSchemaIO::WriteIndexingSize(TableInfo &table) {
+  int indexing_size = table.IndexingSize();
+  fio->Write((void *)&indexing_size, sizeof(int), 1);
+}
+
+void TableSchemaIO::WriteFieldInfos(TableInfo &table) {
   std::vector<struct FieldInfo> &fields = table.Fields();
   int fields_num = fields.size();
 
@@ -63,7 +69,7 @@ void TableIO::WriteFieldInfos(TableInfo &table) {
   }
 }
 
-void TableIO::WriteVectorInfos(TableInfo &table) {
+void TableSchemaIO::WriteVectorInfos(TableInfo &table) {
   std::vector<struct VectorInfo> &vectors = table.VectorInfos();
   int vectors_num = vectors.size();
 
@@ -86,20 +92,21 @@ void TableIO::WriteVectorInfos(TableInfo &table) {
   }
 }
 
-void TableIO::WriteRetrievalType(TableInfo &table) {
+void TableSchemaIO::WriteRetrievalType(TableInfo &table) {
   FWriteByteArray(fio, table.RetrievalType());
 }
 
-void TableIO::WriteRetrievalParam(TableInfo &table) {
+void TableSchemaIO::WriteRetrievalParam(TableInfo &table) {
   FWriteByteArray(fio, table.RetrievalParam());
 }
 
-int TableIO::Read(std::string &name, TableInfo &table) {
+int TableSchemaIO::Read(std::string &name, TableInfo &table) {
   if (!fio->IsOpen() && fio->Open("rb")) {
     LOG(INFO) << "open error, file path=" << fio->Path();
     return -1;
   }
   table.SetName(name);
+  ReadIndexingSize(table);
   ReadFieldInfos(table);
   ReadVectorInfos(table);
   ReadRetrievalType(table);
@@ -107,7 +114,13 @@ int TableIO::Read(std::string &name, TableInfo &table) {
   return 0;
 }
 
-void TableIO::ReadFieldInfos(TableInfo &table) {
+void TableSchemaIO::ReadIndexingSize(TableInfo &table) {
+  int indexing_size = 0;
+  fio->Read((void *)&indexing_size, sizeof(int), 1);
+  table.SetIndexingSize(indexing_size);
+}
+
+void TableSchemaIO::ReadFieldInfos(TableInfo &table) {
   int fields_num = 0;
   fio->Read((void *)&fields_num, sizeof(int), 1);
 
@@ -120,7 +133,7 @@ void TableIO::ReadFieldInfos(TableInfo &table) {
   }
 }
 
-void TableIO::ReadVectorInfos(TableInfo &table) {
+void TableSchemaIO::ReadVectorInfos(TableInfo &table) {
   int vectors_num = 0;
 
   fio->Read((void *)&vectors_num, sizeof(int), 1);
@@ -141,11 +154,11 @@ void TableIO::ReadVectorInfos(TableInfo &table) {
   }
 }
 
-void TableIO::ReadRetrievalType(TableInfo &table) {
+void TableSchemaIO::ReadRetrievalType(TableInfo &table) {
   FReadByteArray(fio, table.RetrievalType());
 }
 
-void TableIO::ReadRetrievalParam(TableInfo &table) {
+void TableSchemaIO::ReadRetrievalParam(TableInfo &table) {
   FReadByteArray(fio, table.RetrievalParam());
 }
 

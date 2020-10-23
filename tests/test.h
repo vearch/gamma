@@ -52,7 +52,7 @@ struct Options {
     print_doc = true;
     search_thread_num = 1;
     max_doc_size = 10000 * 200;
-    add_doc_num = 10000 * 2;
+    add_doc_num = 10000 * 20;
     search_num = 100;
     indexing_size = 10000 * 1;
     fields_vec = {"_id", "img", "field1", "field2", "field3"};
@@ -68,6 +68,7 @@ struct Options {
     // store_type = "RocksDB";
     profiles.resize(max_doc_size * fields_vec.size());
     engine = nullptr;
+    add_type = 0;
   }
 
   int nprobe;
@@ -89,6 +90,7 @@ struct Options {
   string model_id;
   string retrieval_type;
   string store_type;
+  int add_type; // 0 single add, 1 batch add
 
   std::vector<string> profiles;
   float *feature;

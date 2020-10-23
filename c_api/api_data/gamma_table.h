@@ -45,7 +45,10 @@ struct FieldInfo {
 
 class TableInfo : public RawData {
  public:
-  TableInfo() { table_ = nullptr; }
+  TableInfo() {
+    table_ = nullptr;
+    b_compress_ = false;
+  }
 
   virtual int Serialize(char **out, int *out_len);
   virtual void Deserialize(const char *data, int len);
@@ -53,6 +56,10 @@ class TableInfo : public RawData {
   std::string &Name();
 
   void SetName(std::string &name);
+
+  bool IsCompress() { return b_compress_; }
+
+  void SetCompress(bool b_compress) { b_compress_ = b_compress; }
 
   std::vector<struct FieldInfo> &Fields();
 
@@ -88,6 +95,7 @@ class TableInfo : public RawData {
   int indexing_size_;
   std::string retrieval_type_;
   std::string retrieval_param_;
+  bool b_compress_;
 };
 
 }  // namespace tig_gamma

@@ -14,7 +14,8 @@
 #include "rocksdb_wrapper.h"
 
 namespace tig_gamma {
-static const int kMaxSegments = 1000;
+
+class MemoryRawVectorIO;
 
 class MemoryRawVector : public RawVector {
  public:
@@ -32,23 +33,24 @@ class MemoryRawVector : public RawVector {
 
   int UpdateToStore(int vid, uint8_t *v, int len) override;
 
-  int LoadVectors(int vec_num) override;
+  // int LoadVectors(int vec_num) override;
 
  protected:
   int GetVector(long vid, const uint8_t *&vec, bool &deleteable) const override;
 
  private:
+  friend MemoryRawVectorIO;
   int ExtendSegments();
   int AddToMem(uint8_t *v, int len);
+  uint8_t *GetFromMem(long vid) const;
 
   uint8_t **segments_;
   int nsegments_;
   int segment_size_;
   uint8_t *current_segment_;
   int curr_idx_in_seg_;
-#ifdef WITH_ROCKSDB
-  RocksDBWrapper rdb_;
-#endif
+
+  // RocksDBWrapper rdb_;
 };
 
 }  // namespace tig_gamma

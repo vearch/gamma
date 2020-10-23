@@ -12,8 +12,10 @@
 #include <string>
 #include <vector>
 
+#include "api_data/gamma_batch_result.h"
 #include "api_data/gamma_doc.h"
 #include "api_data/gamma_table.h"
+#include "io_common.h"
 #include "log.h"
 #include "table_data.h"
 #include "table_define.h"
@@ -22,38 +24,48 @@
 #include "threadskv10h.h"
 #endif
 
-#ifdef WITH_ROCKSDB
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/table.h"
-#endif
+using namespace tig_gamma::table;
 
-using namespace table;
+namespace tig_gamma {
 
 namespace table {
+
+class TableIO;
+
+struct TableParams : DumpConfig {
+  // currently no configure need to dump
+  TableParams(const std::string &name_ = "") : DumpConfig(name_) {}
+  int Parse(utils::JsonParser &jp) { return 0; }
+};
 
 /** table, support add, update, delete, dump and load.
  */
 class Table {
  public:
-  explicit Table(const std::string &root_path);
+  explicit Table(const std::string &root_path, bool b_compress = false);
 
   ~Table();
 
   /** create table
    *
    * @param table  table definition
+   * @param table_params unused
    * @return 0 if successed
    */
-  int CreateTable(tig_gamma::TableInfo &table);
+  int CreateTable(TableInfo &table, TableParams &table_params);
 
   /** add a doc to table
    *
+   * @param key     doc's key
    * @param doc     doc to add
    * @param docid   doc index number
    * @return 0 if successed
    */
-  int Add(const std::vector<struct tig_gamma::Field> &fields, int docid);
+  int Add(const std::string &key, const std::vector<struct Field> &fields,
+          int docid);
+
+  int BatchAdd(int start_id, int batch_size, int docid,
+               std::vector<Doc> &doc_vec, BatchResult &result);
 
   /** update a doc
    *
@@ -61,7 +73,7 @@ class Table {
    * @param docid   doc index number
    * @return 0 if successed
    */
-  int Update(const std::vector<struct tig_gamma::Field> &fields, int docid);
+  int Update(const std::vector<struct Field> &fields, int docid);
 
   int Delete(std::string &key);
 
@@ -77,15 +89,15 @@ class Table {
    *
    * @return ResultCode
    */
-  int Dump(const std::string &path, int start_docid, int end_docid);
+  // int Dump(const std::string &path, int start_docid, int end_docid);
 
   long GetMemoryBytes();
 
-  int GetDocInfo(std::string &id, tig_gamma::Doc &doc, DecompressStr &decompress_str);
-  int GetDocInfo(const int docid, tig_gamma::Doc &doc, DecompressStr &decompress_str);
+  int GetDocInfo(std::string &id, Doc &doc, DecompressStr &decompress_str);
+  int GetDocInfo(const int docid, Doc &doc, DecompressStr &decompress_str);
 
   void GetFieldInfo(const int docid, const std::string &field_name,
-                    struct tig_gamma::Field &field, DecompressStr &decompress_str);
+                    struct Field &field, DecompressStr &decompress_str);
 
   template <typename T>
   bool GetField(const int docid, const int field_id, T &value) {
@@ -123,67 +135,87 @@ class Table {
 
   int GetFieldRawValue(int docid, int field_id, std::string &value);
 
-  int GetFieldType(const std::string &field, tig_gamma::DataType &type);
+  int GetFieldType(const std::string &field, DataType &type);
 
-  int GetAttrType(std::map<std::string, tig_gamma::DataType> &attr_type_map);
+  int GetAttrType(std::map<std::string, DataType> &attr_type_map);
 
   int GetAttrIsIndex(std::map<std::string, bool> &attr_is_index_map);
 
   int GetAttrIdx(const std::string &field) const;
 
-  int Load(const std::vector<std::string> &folders, int &doc_num);
+  uint8_t StringFieldNum() const { return string_field_num_; }
 
-  int FieldsNum() { return attrs_.size(); };
+  int Load(int &doc_num);
+
+  int Sync();
+
+  int FieldsNum() { return attrs_.size(); }
+
+  std::map<std::string, int> &FieldMap() { return attr_idx_map_; }
+
+  DumpConfig *GetDumpConfig() { return table_params_; }
+
+  int GetRawDoc(int docid, std::vector<char> &raw_doc);
+
+  bool IsCompress() { return b_compress_; }
+
+  std::string root_path_;
+  int last_docid_;
 
  private:
-  int FTypeSize(tig_gamma::DataType fType);
+  int FTypeSize(DataType fType);
 
   void SetFieldValue(int docid, const std::string &field, int field_id,
                      const char *value, str_len_t len);
 
-  int AddField(const std::string &name, tig_gamma::DataType ftype,
-               bool is_index);
+  int AddField(const std::string &name, DataType ftype, bool is_index);
 
-  void ToRowKey(int id, std::string &key) const;
+  // void ToRowKey(int id, std::string &key) const;
 
-  int GetRawDoc(int docid, std::vector<char> &raw_doc);
+  int AddRawDoc(int docid, const char *raw_doc, int doc_size);
 
   int GetSegPos(IN int32_t docid, IN int32_t field_id, OUT int &seg_pos,
-                OUT size_t &in_seg_pos);
+                OUT size_t &in_seg_pos, bool bRead = true);
 
-  int PutToDB(int docid);
+  // int PutToDB(int docid);
+
+  int BatchPutToDB(int docid, int batch_size);
 
   int Extend();
+
+  void Compress();
+
+  void BufferQueueWorker();
 
   std::string name_;   // table name
   int item_length_;    // every doc item length
   uint8_t field_num_;  // field number
-  int key_idx_;        // key postion
+  uint8_t string_field_num_;
+  int key_idx_;  // key postion
 
   std::map<int, std::string> idx_attr_map_;
   std::map<std::string, int> attr_idx_map_;
-  std::map<std::string, tig_gamma::DataType> attr_type_map_;
+  std::map<std::string, DataType> attr_type_map_;
   std::map<std::string, bool> attr_is_index_map_;
   std::vector<int> idx_attr_offset_;
-  std::vector<tig_gamma::DataType> attrs_;
+  std::vector<DataType> attrs_;
 
   uint8_t id_type_;  // 0 string, 1 long, default 1
+  bool b_compress_;
   cuckoohash_map<long, int> item_to_docid_;
-  cuckoohash_map<std::string, int> item_to_docid_str_;
 
   TableData *main_file_[MAX_SEGMENT_NUM];
   int seg_num_;  // cur segment num
+  int compressed_num_;
 
   bool table_created_;
-#ifdef WITH_ROCKSDB
-  rocksdb::DB *db_;
-#endif
 
 #ifdef USE_BTREE
   BtMgr *main_mgr_;
   BtMgr *cache_mgr_;
 #endif
-  std::string db_path_;
+  TableParams *table_params_;
 };
 
 }  // namespace table
+}  // namespace tig_gamma

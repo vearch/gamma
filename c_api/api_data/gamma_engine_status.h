@@ -48,6 +48,10 @@ class EngineStatus : public RawData {
 
   void SetDocNum(int doc_num);
 
+  int MaxDocID();
+
+  void SetMaxDocID(int docid);
+
  private:
   gamma_api::EngineStatus *engine_status_;
 
@@ -59,6 +63,7 @@ class EngineStatus : public RawData {
   long bitmap_mem_bytes_;
 
   int doc_num_;
+  int max_docid_;
 };
 
 }  // namespace tig_gamma

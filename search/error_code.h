@@ -22,5 +22,6 @@
 #define ALLOC_ERR 301     // bad memory allocation
 #define SYSTEM_ERR 302    // system call error
 #define LIMIT_ERR 303     // exceed system limit error
+#define TIMEOUT_ERR 304   // timeout error
 
 #endif

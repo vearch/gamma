@@ -37,8 +37,12 @@ using namespace faiss;
 
 struct IVFFlatModelParams {
   int ncentroids;  // coarse cluster center number
+  DistanceComputeType metric_type;
 
-  IVFFlatModelParams() { ncentroids = 2048; }
+  IVFFlatModelParams() { 
+    ncentroids = 2048;
+    metric_type = DistanceComputeType::INNER_PRODUCT; 
+  }
 
   int Parse(const char *str) {
     utils::JsonParser jp;
@@ -61,6 +65,20 @@ struct IVFFlatModelParams {
         return PARAM_ERR;
       }
     }
+
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = DistanceComputeType::L2;
+      else
+        this->metric_type = DistanceComputeType::INNER_PRODUCT;
+    }
+
     return 0;
   }
 
@@ -89,10 +107,7 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   }
   LOG(INFO) << params.ToString();
 
-  RawVector *raw_vec = nullptr;
-#ifdef WITH_ROCKSDB
-  raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
-#endif
+  RawVector *raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
   if (raw_vec == nullptr) {
     LOG(ERROR) << "IVFFlat needs store type=RocksDB";
     return PARAM_ERR;
@@ -121,14 +136,28 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   this->invlists =
       new realtime::RTInvertedLists(rt_invert_index_ptr_, nlist, code_size);
 
+  if (params.metric_type ==
+      DistanceComputeType::INNER_PRODUCT) {
+    metric_type = faiss::METRIC_INNER_PRODUCT;
+  } else {
+    metric_type = faiss::METRIC_L2;
+  }
+
   LOG(INFO) << "d=" << d << ", nlist=" << nlist
             << ", metric_type=" << metric_type;
   return 0;
 }
 
 RetrievalParameters *GammaIndexIVFFlat::Parse(const std::string &parameters) {
+  enum DistanceComputeType type;
+  if(this->metric_type == faiss::METRIC_L2) {
+    type = DistanceComputeType::L2;
+  } else {
+    type = DistanceComputeType::INNER_PRODUCT;
+  }
+
   if (parameters == "") {
-    return new IVFFlatRetrievalParameters();
+    return new IVFFlatRetrievalParameters(type);
   }
 
   utils::JsonParser jp;
@@ -149,9 +178,10 @@ RetrievalParameters *GammaIndexIVFFlat::Parse(const std::string &parameters) {
     } else {
       LOG(ERROR) << "invalid metric_type = " << metric_type
                  << ", so use default value.";
-      retrieval_params->SetDistanceComputeType(
-          DistanceComputeType::INNER_PRODUCT);
+      retrieval_params->SetDistanceComputeType(type);
     }
+  } else {
+    retrieval_params->SetDistanceComputeType(type);
   }
 
   int nprobe;
@@ -166,6 +196,8 @@ RetrievalParameters *GammaIndexIVFFlat::Parse(const std::string &parameters) {
   if (!jp.GetInt("parallel_on_queries", parallel_on_queries)) {
     if (parallel_on_queries != 0) {
       retrieval_params->SetParallelOnQueries(true);
+    } else {
+      retrieval_params->SetParallelOnQueries(false);
     }
   }
 

@@ -22,7 +22,6 @@
 #include <unistd.h>
 
 #include <cstdlib>
-#include <mutex>
 #include <string>
 
 #include "error_code.h"
@@ -43,10 +42,12 @@ using ReconstructFromNeighbors = faiss::ReconstructFromNeighbors;
 struct HNSWModelParams {
   int nlinks;          // link number for hnsw graph
   int efConstruction;  // construction parameter for building hnsw graph
-
+  DistanceComputeType metric_type;
+ 
   HNSWModelParams() {
     nlinks = 32;
     efConstruction = 40;
+    metric_type = DistanceComputeType::L2;
   }
 
   bool Validate() {
@@ -68,7 +69,6 @@ struct HNSWModelParams {
     if (!jp.GetInt("nlinks", nlinks)) {
       if (nlinks < -1) {
         LOG(ERROR) << "invalid nlinks = " << nlinks;
-        LOG(ERROR) << "invalid nlinks = " << nlinks;
         return -1;
       }
       if (nlinks > 0) this->nlinks = nlinks;
@@ -89,13 +89,30 @@ struct HNSWModelParams {
       return -1;
     }
 
+    std::string metric_type;
+
+    if (!jp.GetString("metric_type", metric_type)) {
+      if (strcasecmp("L2", metric_type.c_str()) &&
+          strcasecmp("InnerProduct", metric_type.c_str())) {
+        LOG(ERROR) << "invalid metric_type = " << metric_type;
+        return -1;
+      }
+      if (!strcasecmp("L2", metric_type.c_str()))
+        this->metric_type = DistanceComputeType::L2;
+      else
+        this->metric_type = DistanceComputeType::INNER_PRODUCT;
+    } else {
+      this->metric_type = DistanceComputeType::L2;
+    }
+
     return 0;
   }
 
   std::string ToString() {
     std::stringstream ss;
     ss << "nlinks =" << nlinks << ", ";
-    ss << "efConstruction =" << efConstruction;
+    ss << "efConstruction =" << efConstruction << ", ";
+    ss << "metric_type =" << (int)metric_type;
     return ss.str();
   }
 };
@@ -104,17 +121,12 @@ REGISTER_MODEL(HNSW, GammaHNSWIndex)
 
 GammaHNSWIndex::GammaHNSWIndex()
     : GammaFLATIndex(), faiss::IndexHNSW(0, 32), gamma_hnsw_(32) {
-  raw_vec_head_ = nullptr;
   indexed_vec_count_ = 0;
-
-  int ret = pthread_rwlock_init(&mutex_, NULL);
-  if (ret != 0) {
-    LOG(ERROR) << "init read-write lock error, ret=" << ret;
-  }
+  has_update_ = false;
 }
 
 GammaHNSWIndex::~GammaHNSWIndex() {
-  for (int i = 0; i < indexed_vec_count_; i++) {
+  for (size_t i = 0; i < locks_.size(); i++) {
     omp_destroy_lock(&locks_[i]);
   }
   int ret = pthread_rwlock_destroy(&mutex_);
@@ -143,13 +155,32 @@ int GammaHNSWIndex::Init(const std::string &model_parameters) {
   gamma_hnsw_.set_default_probas(hnsw_param.nlinks,
                                  1.0 / log(hnsw_param.nlinks));
   gamma_hnsw_.efConstruction = hnsw_param.efConstruction;
+ 
+  if (hnsw_param.metric_type ==
+      DistanceComputeType::INNER_PRODUCT) {
+    metric_type = faiss::METRIC_INNER_PRODUCT;
+  } else {
+    metric_type = faiss::METRIC_L2;
+  }
 
+  int ret = pthread_rwlock_init(&mutex_, NULL);
+  if (ret != 0) {
+    LOG(ERROR) << "init read-write lock error, ret=" << ret;
+    return -3;
+  }
   return 0;
 }
 
 RetrievalParameters *GammaHNSWIndex::Parse(const std::string &parameters) {
+  enum DistanceComputeType type;
+  if(this->metric_type == faiss::METRIC_L2) {
+    type = DistanceComputeType::L2;
+  } else {
+    type = DistanceComputeType::INNER_PRODUCT;
+  }
+
   if (parameters == "") {
-    return new HnswRetrievalParameters();
+    return new HnswRetrievalParameters(type);
   }
 
   utils::JsonParser jp;
@@ -158,7 +189,6 @@ RetrievalParameters *GammaHNSWIndex::Parse(const std::string &parameters) {
     return nullptr;
   }
 
-  enum DistanceComputeType type = DistanceComputeType::L2;
   std::string metric_type;
   if (!jp.GetString("metric_type", metric_type)) {
     if (strcasecmp("L2", metric_type.c_str()) &&
@@ -170,8 +200,6 @@ RetrievalParameters *GammaHNSWIndex::Parse(const std::string &parameters) {
       type = DistanceComputeType::L2;
     else
       type = DistanceComputeType::INNER_PRODUCT;
-  } else {
-    LOG(ERROR) << "cannot get metric type, so use default value";
   }
 
   int efSearch = 0;
@@ -183,16 +211,16 @@ RetrievalParameters *GammaHNSWIndex::Parse(const std::string &parameters) {
 }
 
 int GammaHNSWIndex::Indexing() {
-  raw_vec_head_ = nullptr;
   return 0;
 }
 
 bool GammaHNSWIndex::Add(int n, const uint8_t *vec) {
   int n0 = indexed_vec_count_;
-  ntotal = n0 + n;
   const float *x = reinterpret_cast<const float *>(vec);
-  AddVertices(n0, n, x, verbose, gamma_hnsw_.levels.size() == (size_t)ntotal);
 
+  std::unique_lock<std::mutex> templock(dump_mutex_);
+  AddVertices(n0, n, x, verbose, gamma_hnsw_.levels.size() == (size_t)(n0 + n));
+  ntotal = n0 + n;
   indexed_vec_count_ += n;
 
   return true;
@@ -343,7 +371,7 @@ int GammaHNSWIndex::AddVertices(size_t n0, size_t n, const float *x,
 
 #pragma omp parallel if (i1 > i0 + 10) num_threads(num_threads)
       {
-        DistanceComputer *dis = GetDistanceComputer(faiss::METRIC_L2);
+        DistanceComputer *dis = GetDistanceComputer(metric_type);
         faiss::ScopeDeleter1<DistanceComputer> del(dis);
 
 #pragma omp for schedule(dynamic)
@@ -474,14 +502,103 @@ long GammaHNSWIndex::GetTotalMemBytes() {
 // TODO
 int GammaHNSWIndex::Update(const std::vector<int64_t> &ids,
                            const std::vector<const uint8_t *> &vecs) {
+  std::unique_lock<std::mutex> templock(dump_mutex_);
+  has_update_ = true;
   return 0;
 }
 
 int GammaHNSWIndex::Delete(const std::vector<int64_t> &ids) { return 0; }
 
-int GammaHNSWIndex::Dump(const std::string &dir) { return 0; }
+std::string HNSWToString(const GammaHNSWIndex *idxhnsw) {
+  std::stringstream ss;
+  ss << "d=" << idxhnsw->d << ", ntotal=" << idxhnsw->ntotal
+     << ", is_trained=" << idxhnsw->is_trained
+     << ", metric_type=" << idxhnsw->metric_type
+     << ", nlinks=" << idxhnsw->gamma_hnsw_.nlinks
+     << ", efSearch=" << idxhnsw->gamma_hnsw_.efSearch
+     << ", efConstruction=" << idxhnsw->gamma_hnsw_.efConstruction;
+  return ss.str();
+}
 
-int GammaHNSWIndex::Load(const std::string &index_dir) { return 0; }
+int GammaHNSWIndex::Dump(const std::string &dir) {
+  if (!this->is_trained) {
+    LOG(INFO) << "gamma hnsw index is not trained, skip dumping";
+    return 0;
+  }
+  std::string index_name = vector_->MetaInfo()->AbsoluteName();
+  string index_dir = dir + "/" + index_name;
+  if (utils::make_dir(index_dir.c_str())) {
+    LOG(ERROR) << "mkdir error, index dir=" << index_dir;
+    return IO_ERR;
+  }
+
+  string index_file = index_dir + "/hnsw.index";
+  faiss::IOWriter *f = new FileIOWriter(index_file.c_str());
+  utils::ScopeDeleter1<FileIOWriter> del((FileIOWriter *)f);
+
+  std::unique_lock<std::mutex> templock(dump_mutex_);
+  int indexed_count = indexed_vec_count_;
+  const GammaHNSWIndex * idxhnsw = dynamic_cast<const GammaHNSWIndex *> (this);
+  uint32_t h = faiss::fourcc("IHNf");
+  WRITE1 (h);
+  write_index_header (idxhnsw, f);
+  write_hnsw (&idxhnsw->gamma_hnsw_, f);
+  WRITE1(indexed_count);
+  WRITE1(has_update_);
+  LOG(INFO) << "dump:" << HNSWToString(idxhnsw) << ", indexed count=" << indexed_count;
+  return 0;
+}
+
+int GammaHNSWIndex::Load(const std::string &index_dir) {
+  std::string index_name = vector_->MetaInfo()->AbsoluteName();
+  string index_file = index_dir + "/" + index_name + "/hnsw.index";
+  if (!utils::file_exist(index_file)) {
+    LOG(INFO) << index_file << " isn't existed, skip loading";
+    return 0;  // it should train again after load
+  }
+
+  faiss::IOReader *f = new FileIOReader(index_file.c_str());
+  utils::ScopeDeleter1<FileIOReader> del((FileIOReader *)f);
+  uint32_t h;
+  READ1(h);
+  assert(h == faiss::fourcc("IHNf"));
+  GammaHNSWIndex *idxhnsw = static_cast<GammaHNSWIndex *>(this);
+  read_index_header (idxhnsw, f);
+  read_hnsw (&idxhnsw->gamma_hnsw_, f);
+
+  READ1(indexed_vec_count_);
+  if (indexed_vec_count_ < 0 ||
+      (size_t) indexed_vec_count_ > vector_->MetaInfo()->size_) {
+    LOG(ERROR) << "invalid indexed count=" << indexed_vec_count_;
+    return INTERNAL_ERR;
+  }
+  assert(this->is_trained);
+
+  if (indexed_vec_count_ != idxhnsw->ntotal) {
+     LOG(ERROR) << "indexed count=" << indexed_vec_count_
+                << "should be equal to ntotal=" << idxhnsw->ntotal;
+     return INTERNAL_ERR;
+  }
+  READ1(has_update_);
+  if (has_update_ == true) {
+    indexed_vec_count_ = 0;
+    idxhnsw->gamma_hnsw_.reset();
+    idxhnsw->ntotal = 0;
+    LOG(INFO) << "hnsw has been updated, so reset it to rebuild the graph.";
+  }
+  LOG(INFO) << "load: " << HNSWToString(idxhnsw)
+            << ", indexed vector count=" << indexed_vec_count_;
+
+  RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
+  raw_vec->SetIndexedVectorNum(indexed_vec_count_);
+
+  omp_lock_t tmp_lock;
+  locks_.insert(locks_.end(), indexed_vec_count_, tmp_lock);
+  for(int i = 0; i < indexed_vec_count_; i++) {
+    omp_init_lock(&locks_[i]);
+  }
+  return indexed_vec_count_;
+}
 
 GammaHNSWFlatIndex::GammaHNSWFlatIndex() : GammaHNSWIndex() {
   is_trained = true;

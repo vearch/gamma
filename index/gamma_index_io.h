@@ -9,6 +9,8 @@
 #define GAMMA_INDEX_IO_H_
 
 #include "faiss/IndexIVFPQ.h"
+#include "faiss/VectorTransform.h"
+#include "faiss/impl/HNSW.h"
 #include "faiss/impl/FaissAssert.h"
 #include "faiss/impl/io.h"
 #include "faiss/index_io.h"
@@ -63,11 +65,17 @@ namespace tig_gamma {
 void write_index_header(const faiss::Index *idx, faiss::IOWriter *f);
 void write_direct_map(const faiss::DirectMap *dm, faiss::IOWriter *f);
 void write_ivf_header(const faiss::IndexIVF *ivf, faiss::IOWriter *f);
+void write_hnsw(const faiss::HNSW *hnsw, faiss::IOWriter *f);
+void write_opq (const faiss::VectorTransform *vt, faiss::IOWriter *f);
+
 void read_index_header(faiss::Index *idx, faiss::IOReader *f);
 void read_direct_map(faiss::DirectMap *dm, faiss::IOReader *f);
 void read_ivf_header(
     faiss::IndexIVF *ivf, faiss::IOReader *f,
     std::vector<std::vector<faiss::Index::idx_t>> *ids = nullptr);
+void read_hnsw(faiss::HNSW *hnsw, faiss::IOReader *f);
+void read_opq (faiss::VectorTransform* vt, faiss::IOReader *f);
+
 void write_product_quantizer(const faiss::ProductQuantizer *pq,
                             faiss::IOWriter *f);
 void read_product_quantizer(faiss::ProductQuantizer *pq, faiss::IOReader *f);

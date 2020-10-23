@@ -128,11 +128,26 @@ struct JsonParser {
   JsonParser();
   ~JsonParser();
   int Parse(const char *str);
-  int GetInt(const std::string &name, int &value);
-  int GetDouble(const std::string &name, double &value);
-  int GetString(const std::string &name, std::string &value);
-  int GetBool(const std::string &name, bool &value);
-  bool Contains(const std::string &name);
+  int GetInt(const std::string &name, int &value) const;
+  int GetDouble(const std::string &name, double &value) const;
+  int GetString(const std::string &name, std::string &value) const;
+  int GetBool(const std::string &name, bool &value) const;
+  int GetObject(const std::string &name, JsonParser &value) const;
+  bool Contains(const std::string &name) const;
+
+  int PutString(const std::string &name, const std::string &value);
+  int PutInt(const std::string &name, int value);
+  int PutDouble(const std::string &name, double value);
+  int PutObject(const std::string &name, JsonParser &&jp);
+  int PutObject(const std::string &name, JsonParser &jp);
+  int PutObject(const std::string &name, cJSON *item);
+
+  bool IsEmpty() const { return content_->child == NULL; }
+  void Reset(cJSON *content);
+  void MergeRight(JsonParser &other);
+  std::string ToStr(bool format = false) const;
+
+  JsonParser &operator=(const JsonParser &other);
 };
 
 struct FileIO {
@@ -142,7 +157,7 @@ struct FileIO {
   FileIO(std::string &file_path);
   ~FileIO();
   int Open(const char *mode);
-  size_t Write(void *data, size_t size, size_t m);
+  size_t Write(const void *data, size_t size, size_t m);
   size_t Read(void *data, size_t size, size_t m);
   bool IsOpen() { return fp != nullptr; }
   std::string Path() { return path; }
@@ -156,7 +171,8 @@ void AsyncWait(int after, callable &&f, arguments &&... args) {
   std::thread([after, task]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(after));
     task();
-  }).detach();
+  })
+      .detach();
 }
 
 /** bare-bones unique_ptr

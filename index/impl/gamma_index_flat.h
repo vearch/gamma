@@ -47,6 +47,11 @@ class FlatRetrievalParameters : public RetrievalParameters {
     distance_compute_type_ = type;
   }
 
+  FlatRetrievalParameters(enum DistanceComputeType type) {
+    parallel_on_queries_ = true;
+    distance_compute_type_ = type;
+  }
+
   ~FlatRetrievalParameters() {}
 
   bool ParallelOnQueries() { return parallel_on_queries_; }
@@ -86,6 +91,8 @@ class GammaFLATIndex : public RetrievalModel {
   int Dump(const std::string &dir) override;
 
   int Load(const std::string &index_dir) override;
+
+  DistanceComputeType metric_type_;
 };
 
 }  // namespace tig_gamma
