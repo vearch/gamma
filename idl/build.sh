@@ -27,3 +27,4 @@ FLATBUFFERS=$THIRD_PARTY/flatbuffers-1.11.0
 
 $FLATBUFFERS/flatc -g -o $FBS_GEN_PATH/go $BASE_PATH/fbs/*.fbs --go-namespace gamma_api
 $FLATBUFFERS/flatc -c --no-prefix -o $FBS_GEN_PATH/c $BASE_PATH/fbs/*.fbs
+$FLATBUFFERS/flatc -p -o $FBS_GEN_PATH/python $BASE_PATH/fbs/*.fbs
