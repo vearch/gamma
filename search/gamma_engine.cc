@@ -911,7 +911,7 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
   engine_status.SetIndexStatus(index_status_);
 
   long table_mem_bytes = table_->GetMemoryBytes();
-  long vec_mem_bytes, index_mem_bytes;
+  long vec_mem_bytes = 0, index_mem_bytes = 0;
   vec_manager_->GetTotalMemBytes(index_mem_bytes, vec_mem_bytes);
 
   long dense_b = 0, sparse_b = 0, total_mem_b = 0;
