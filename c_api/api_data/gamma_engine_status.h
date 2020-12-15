@@ -52,6 +52,12 @@ class EngineStatus : public RawData {
 
   void SetMaxDocID(int docid);
 
+  int MinIndexedNum() { return min_indexed_num_; }
+
+  void SetMinIndexedNum(int min_indexed_num) {
+    min_indexed_num_ = min_indexed_num;
+  }
+
  private:
   gamma_api::EngineStatus *engine_status_;
 
@@ -64,6 +70,8 @@ class EngineStatus : public RawData {
 
   int doc_num_;
   int max_docid_;
+
+  int min_indexed_num_;
 };
 
 }  // namespace tig_gamma

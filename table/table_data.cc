@@ -20,11 +20,10 @@
 
 #include <new>
 
+#include "error_code.h"
 #include "log.h"
 #include "thread_util.h"
 #include "utils.h"
-
-#define MAX_MMAP_SIZE (1 << 30)
 
 namespace tig_gamma {
 namespace table {
@@ -61,11 +60,10 @@ inline size_t BCompressedOff() {
 }  // namespace
 
 TableData::TableData(int item_length) {
+  base_fd_ = -1;
+  base_str_fd_ = -1;
   base_ = nullptr;
   base_str_ = nullptr;
-  mmap_buf_ = nullptr;
-  mmap_str_buf_ = nullptr;
-  b_running_ = false;
   item_length_ = item_length;
   capacity_ = 0;
   version_ = 0;
@@ -84,6 +82,16 @@ TableData::TableData(int item_length) {
 }
 
 TableData::~TableData() {
+  if (base_fd_ != -1) {
+    close(base_fd_);
+    base_fd_ = -1;
+  }
+
+  if (base_str_fd_ != -1) {
+    close(base_str_fd_);
+    base_str_fd_ = -1;
+  }
+
   if (base_) {
     delete[] base_;
     base_ = nullptr;
@@ -92,8 +100,7 @@ TableData::~TableData() {
     delete[] base_str_;
     base_str_ = nullptr;
   }
-  munmap(mmap_buf_, MAX_MMAP_SIZE);
-  munmap(mmap_str_buf_, MAX_MMAP_SIZE);
+
   pthread_rwlock_destroy(&shared_mutex_);
 }
 
@@ -105,7 +112,7 @@ uint8_t TableData::Version() {
 
 void TableData::SetVersion(uint8_t version) {
   memcpy(base_, &version, sizeof(version));
-  memcpy(mmap_buf_, &version, sizeof(version));
+  pwrite(base_fd_, &version, sizeof(version), 0);
 }
 
 uint32_t TableData::Size() {
@@ -118,7 +125,7 @@ uint32_t TableData::Size() {
 void TableData::SetSize(uint32_t size) {
   uint32_t capacity;
   memcpy(base_ + sizeof(version_) + sizeof(capacity), &size, sizeof(size));
-  memcpy(mmap_buf_ + sizeof(version_) + sizeof(capacity), &size, sizeof(size));
+  pwrite(base_fd_, &size, sizeof(size), sizeof(version_) + sizeof(capacity));
 }
 
 uint64_t TableData::StrCapacity() {
@@ -129,7 +136,7 @@ uint64_t TableData::StrCapacity() {
 
 void TableData::SetStrCapacity(uint64_t str_capacity) {
   memcpy(base_ + StrCapacityOff(), &str_capacity, sizeof(str_capacity));
-  memcpy(mmap_buf_ + StrCapacityOff(), &str_capacity, sizeof(str_capacity));
+  pwrite(base_fd_, &str_capacity, sizeof(str_capacity), StrCapacityOff());
 }
 
 str_offset_t TableData::StrSize() {
@@ -140,7 +147,7 @@ str_offset_t TableData::StrSize() {
 
 void TableData::SetStrSize(str_offset_t str_size) {
   memcpy(base_ + StrSizeOff(), &str_size, sizeof(str_size));
-  memcpy(mmap_buf_ + StrSizeOff(), &str_size, sizeof(str_size));
+  pwrite(base_fd_, &str_size, sizeof(str_size), StrSizeOff());
 }
 
 uint8_t TableData::BCompressed() {
@@ -151,7 +158,7 @@ uint8_t TableData::BCompressed() {
 
 void TableData::SetCompressed(uint8_t compressed) {
   memcpy(base_ + BCompressedOff(), &compressed, sizeof(compressed));
-  memcpy(mmap_buf_ + BCompressedOff(), &compressed, sizeof(compressed));
+  pwrite(base_fd_, &compressed, sizeof(compressed), BCompressedOff());
 }
 
 str_offset_t TableData::StrCompressedSize() {
@@ -164,26 +171,12 @@ str_offset_t TableData::StrCompressedSize() {
 void TableData::SetStrCompressedSize(str_offset_t str_compressed_size) {
   memcpy(base_ + StrCompressedOff(), &str_compressed_size,
          sizeof(str_compressed_size));
-  memcpy(mmap_buf_ + StrCompressedOff(), &str_compressed_size,
-         sizeof(str_compressed_size));
+  pwrite(base_fd_, &str_compressed_size, sizeof(str_compressed_size),
+         StrCompressedOff());
 }
 
-int TableData::Sync() {
-  if (not b_running_) return 0;
-
-  WriteThreadLock write_lock(shared_mutex_);
-  int ret = 0;
-  ret = msync(mmap_buf_, MAX_MMAP_SIZE, MS_SYNC);
-  if (ret != 0) {
-    LOG(ERROR) << "id [" << id_ << "] sync failed!";
-    return ret;
-  }
-  ret = msync(mmap_str_buf_, MAX_MMAP_SIZE, MS_SYNC);
-  if (ret != 0) {
-    LOG(ERROR) << "id [" << id_ << "] sync failed!";
-    return ret;
-  }
-  return ret;
+long TableData::GetMemoryBytes() {
+  return StrCapacity() + seg_header_size_ + item_length_ * DOCNUM_PER_SEGMENT;
 }
 
 int TableData::Init(int id, const std::string &path, uint8_t string_field_num) {
@@ -200,20 +193,12 @@ int TableData::Init(int id, const std::string &path, uint8_t string_field_num) {
 
   id_ = id;
   file_name_ = path + "/" + std::to_string(id_) + ".profile";
-  int fd = open(file_name_.c_str(), O_RDWR | O_CREAT, 00666);
-  if (-1 == fd) {
+  base_fd_ = open(file_name_.c_str(), O_RDWR | O_CREAT, 00666);
+  if (-1 == base_fd_) {
     LOG(ERROR) << "open vector file error, path=" << file_name_;
     return -1;
   }
 
-  mmap_buf_ = (char *)mmap(NULL, MAX_MMAP_SIZE, PROT_READ | PROT_WRITE,
-                           MAP_SHARED, fd, 0);
-  if ((void *)mmap_buf_ == MAP_FAILED) {
-    LOG(ERROR) << "Mmap error";
-    close(fd);
-    return -1;
-  }
-  close(fd);
   int ret = Truncate(file_name_,
                      seg_header_size_ + item_length_ * DOCNUM_PER_SEGMENT);
   if (ret != 0) {
@@ -222,20 +207,12 @@ int TableData::Init(int id, const std::string &path, uint8_t string_field_num) {
   SetStrCapacity(str_capacity);
 
   str_file_name_ = path + "/" + std::to_string(id_) + ".str.profile";
-  fd = open(str_file_name_.c_str(), O_RDWR | O_CREAT, 00666);
-  if (-1 == fd) {
+  base_str_fd_ = open(str_file_name_.c_str(), O_RDWR | O_CREAT, 00666);
+  if (-1 == base_str_fd_) {
     LOG(ERROR) << "open vector file error, path=" << str_file_name_;
     return -1;
   }
 
-  mmap_str_buf_ = (char *)mmap(NULL, MAX_MMAP_SIZE, PROT_READ | PROT_WRITE,
-                               MAP_SHARED, fd, 0);
-  if ((void *)mmap_str_buf_ == MAP_FAILED) {
-    LOG(ERROR) << "Mmap error";
-    close(fd);
-    return -1;
-  }
-  close(fd);
   ret = Truncate(str_file_name_, StrCapacity());
   if (ret != 0) {
     return -1;
@@ -247,7 +224,6 @@ int TableData::Init(int id, const std::string &path, uint8_t string_field_num) {
   }
 
   SetVersion(version_);
-  b_running_ = true;
   return ret;
 }
 
@@ -261,19 +237,14 @@ int TableData::Truncate(std::string &path, off_t length) {
 }
 
 char *TableData::Base() {
-  char *base = nullptr;
-  if (mode_ == TABLE_LOAD_MODE::MODE_DISK) {
-    base = mmap_buf_ + seg_header_size_;
-  } else {
-    base = base_ + seg_header_size_;
-  }
+  char *base = base_ + seg_header_size_;
   return base;
 }
 
 int TableData::Write(const char *value, uint64_t offset, int len) {
   WriteThreadLock write_lock(shared_mutex_);
   memcpy(base_ + seg_header_size_ + offset, value, len);
-  memcpy(mmap_buf_ + seg_header_size_ + offset, value, len);
+  pwrite(base_fd_, value, len, seg_header_size_ + offset);
   return 0;
 }
 
@@ -331,7 +302,7 @@ int TableData::WriteStr(IN const char *str, IN str_len_t len) {
     }
 
     memcpy(base_str_ + str_size, str, len);
-    memcpy(mmap_str_buf_ + str_size, str, len);
+    pwrite(base_str_fd_, str, len, str_size);
 
     SetStrSize(str_size + len);
   } else {
@@ -359,7 +330,7 @@ int TableData::WriteStr(IN const char *str, IN str_offset_t offset,
   WriteThreadLock write_lock(shared_mutex_);
   if (BCompressed() == 0) {
     memcpy(base_str_ + offset, str, len);
-    memcpy(mmap_str_buf_ + offset, str, len);
+    pwrite(base_str_fd_, str, len, offset);
   } else {
     str_offset_t compressed_size = StrCompressedSize();
     auto de_size = ZSTD_getDecompressedSize(base_str_, compressed_size);
@@ -396,7 +367,7 @@ void TableData::Compress(IN char *str) {
   base_str_ = new_str;
   delete[] old;
 
-  memcpy(mmap_str_buf_, compress_str, str_compressed_size);
+  pwrite(base_str_fd_, compress_str, str_compressed_size, 0);
   SetStrCompressedSize(str_compressed_size);
   delete[] compress_str;
 }
@@ -412,56 +383,50 @@ int TableData::Compress() {
 int TableData::Load(int id, const std::string &path) {
   id_ = id;
   file_name_ = path + "/" + std::to_string(id_) + ".profile";
-  int fd = open(file_name_.c_str(), O_RDWR, 00666);
-  if (-1 == fd) {
+  base_fd_ = open(file_name_.c_str(), O_RDWR, 00666);
+  if (-1 == base_fd_) {
     LOG(ERROR) << "open vector file error, path=" << file_name_;
     return -1;
   }
 
-  mmap_buf_ = (char *)mmap(NULL, MAX_MMAP_SIZE, PROT_READ | PROT_WRITE,
-                           MAP_SHARED, fd, 0);
-  if ((void *)mmap_buf_ == MAP_FAILED) {
-    LOG(ERROR) << "Mmap error";
-    close(fd);
-    return -1;
-  }
-  close(fd);
-
   str_file_name_ = path + "/" + std::to_string(id_) + ".str.profile";
-  fd = open(str_file_name_.c_str(), O_RDWR, 00666);
-  if (-1 == fd) {
+  base_str_fd_ = open(str_file_name_.c_str(), O_RDWR, 00666);
+  if (-1 == base_str_fd_) {
     LOG(WARNING) << "No string file" << str_file_name_;
-  } else {
-    mmap_str_buf_ = (char *)mmap(NULL, MAX_MMAP_SIZE, PROT_READ | PROT_WRITE,
-                                 MAP_SHARED, fd, 0);
-    if ((void *)mmap_str_buf_ == MAP_FAILED) {
-      LOG(ERROR) << "Mmap error";
-      close(fd);
-      return -1;
-    }
   }
 
-  close(fd);
   int ret = pthread_rwlock_init(&shared_mutex_, NULL);
   if (ret != 0) {
     LOG(ERROR) << "Mutex init failed";
   }
-  base_ = new (
-      std::nothrow) char[seg_header_size_ + item_length_ * DOCNUM_PER_SEGMENT];
-  memset(base_, 0, seg_header_size_ + item_length_ * DOCNUM_PER_SEGMENT);
+
+  size_t base_size = seg_header_size_ + item_length_ * DOCNUM_PER_SEGMENT;
+  base_ = new (std::nothrow) char[base_size];
+  memset(base_, 0, base_size);
   if (base_ == nullptr) {
     LOG(ERROR) << "Cannot init table data, not enough memory!";
     return -1;
   }
 
-  memcpy(base_, mmap_buf_,
-         seg_header_size_ + item_length_ * DOCNUM_PER_SEGMENT);
+  FILE *p_file = fopen(file_name_.c_str(), "rb");
+  if (p_file == nullptr) {
+    LOG(ERROR) << "open vector file error, path=" << file_name_;
+    return IO_ERR;
+  }
+  fread(base_, base_size, 1, p_file);
+  fclose(p_file);
 
   uint64_t str_capacity = StrCapacity();
   base_str_ = new (std::nothrow) char[str_capacity];
   if (base_str_ == nullptr) return -1;
 
-  memcpy(base_str_, mmap_str_buf_, str_capacity);
+  p_file = fopen(str_file_name_.c_str(), "rb");
+  if (p_file == nullptr) {
+    LOG(ERROR) << "open vector file error, path=" << str_file_name_;
+    return IO_ERR;
+  }
+  fread(base_str_, str_capacity, 1, p_file);
+  fclose(p_file);
 
   return ret;
 }

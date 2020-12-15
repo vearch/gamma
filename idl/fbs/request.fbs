@@ -21,6 +21,7 @@ table VectorQuery {
   max_score:double;
   boost:double;
   has_boost:int;
+  retrieval_type:string;
 }
 
 table Request {

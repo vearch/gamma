@@ -686,7 +686,7 @@ bool GammaIVFPQIndex::Add(int n, const uint8_t *vec) {
   indexed_vec_count_ = vid;
 #ifdef PERFORMANCE_TESTING
   add_count_ += n;
-  if (add_count_ >= 100000) {
+  if (add_count_ >= 10000) {
     double t1 = faiss::getmillisecs();
     LOG(INFO) << "Add time [" << (t1 - t0) / n << "]ms, count "
               << indexed_vec_count_;
@@ -1373,8 +1373,6 @@ int GammaIVFPQIndex::Load(const std::string &index_dir) {
     metric_type_ = DistanceComputeType::L2;
   }
   assert(this->is_trained);
-  RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
-  raw_vec->SetIndexedVectorNum(indexed_vec_count_);
   return indexed_vec_count_;
 }
 

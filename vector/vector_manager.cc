@@ -10,6 +10,8 @@
 #include "raw_vector_factory.h"
 #include "utils.h"
 
+using namespace std;
+
 namespace tig_gamma {
 
 static bool InnerProductCmp(const VectorDoc *a, const VectorDoc *b) {
@@ -50,10 +52,23 @@ int VectorManager::CreateVectorTable(TableInfo &table,
   }
 
   utils::JsonParser vectors_jp;
-  utils::JsonParser indexes_jp;
   if (meta_jp) {
     meta_jp->GetObject("vectors", vectors_jp);
-    meta_jp->GetObject("retrieval_model_indexes", indexes_jp);
+  }
+
+  vector<string> retrieval_params;
+  if (table.RetrievalType() != "") {
+    retrieval_types_.push_back(table.RetrievalType());
+    retrieval_params.push_back(table.RetrievalParam());
+  } else {
+    retrieval_types_ = table.RetrievalTypes();
+    retrieval_params = table.RetrievalParams();
+    for (string &type : retrieval_types_) {
+      if (type == "BINARYIVF" && retrieval_types_.size() > 1) {
+        LOG(ERROR) << "field can only has one model if it has BINARYIVF";
+        return PARAM_ERR;
+      }
+    }
   }
 
   for (size_t i = 0; i < vectors_infos.size(); i++) {
@@ -81,12 +96,8 @@ int VectorManager::CreateVectorTable(TableInfo &table,
 
     std::string &store_param = vector_info.store_param;
 
-    std::string &retrieval_type_str = table.RetrievalType();
-    std::string &retrieval_param = table.RetrievalParam();
-
-    // TODO : this should configed by schema
     VectorValueType value_type = VectorValueType::FLOAT;
-    if (retrieval_type_str == "BINARYIVF") {
+    if (retrieval_types_[0] == "BINARYIVF") {
       value_type = VectorValueType::BINARY;
       dimension /= 8;
     }
@@ -137,39 +148,49 @@ int VectorManager::CreateVectorTable(TableInfo &table,
       continue;
     }
 
-    LOG(INFO) << "Create index model [" << retrieval_type_str << "]";
-    RetrievalModel *retrieval_model = dynamic_cast<RetrievalModel *>(
-        reflector().GetNewModel(retrieval_type_str));
-    if (retrieval_model == nullptr) {
-      LOG(ERROR) << "Cannot get model=" << retrieval_type_str
-                 << ", vec_name=" << vec_name;
-      delete vec;
-      return -1;
-    }
-    retrieval_model->vector_ = vec;
+    for (size_t i = 0; i < retrieval_types_.size(); ++i) {
+      string &retrieval_type_str = retrieval_types_[i];
+      LOG(INFO) << "Create index model [" << retrieval_type_str << "]";
+      RetrievalModel *retrieval_model = dynamic_cast<RetrievalModel *>(
+          reflector().GetNewModel(retrieval_type_str));
+      if (retrieval_model == nullptr) {
+        LOG(ERROR) << "Cannot get model=" << retrieval_type_str
+                   << ", vec_name=" << vec_name;
+        delete vec;
+        return -1;
+      }
+      retrieval_model->vector_ = vec;
 
-    if (retrieval_model->Init(retrieval_param) != 0) {
-      LOG(ERROR) << "gamma index init " << vec_name << " error!";
-      delete vec;
-      delete retrieval_model;
-      return -1;
+      if (retrieval_model->Init(retrieval_params[i]) != 0) {
+        LOG(ERROR) << "gamma index init " << vec_name << " error!";
+        delete vec;
+        delete retrieval_model;
+        return -1;
+      }
+      // init indexed count
+      retrieval_model->indexed_count_ = 0;
+      vector_indexes_[IndexName(vec_name, retrieval_type_str)] =
+          retrieval_model;
     }
-    vector_indexes_[vec_name] = retrieval_model;
   }
   table_created_ = true;
+  LOG(INFO) << "create vectors and indexes success! models="
+            << utils::join(retrieval_types_, ',');
   return 0;
 }
 
 int VectorManager::AddToStore(int docid, std::vector<struct Field> &fields) {
+  int ret = 0;
   for (size_t i = 0; i < fields.size(); i++) {
     std::string &name = fields[i].name;
     if (raw_vectors_.find(name) == raw_vectors_.end()) {
       LOG(ERROR) << "Cannot find raw vector [" << name << "]";
       continue;
     }
-    raw_vectors_[name]->Add(docid, fields[i]);
+    ret = raw_vectors_[name]->Add(docid, fields[i]);
+    if (ret != 0) break;
   }
-  return 0;
+  return ret;
 }
 
 int VectorManager::Update(int docid, std::vector<Field> &fields) {
@@ -189,7 +210,14 @@ int VectorManager::Update(int docid, std::vector<Field> &fields) {
 
     int ret = raw_vector->Update(docid, fields[i]);
     if (ret) return ret;
+
     int vid = docid;  // TODO docid to vid
+    for (string &retrieval_type : retrieval_types_) {
+      auto it = vector_indexes_.find(IndexName(name, retrieval_type));
+      if (it != vector_indexes_.end()) {
+        it->second->updated_vids_.enqueue(vid);
+      }
+    }
     if (raw_vector->GetIO()) {
       ret = raw_vector->GetIO()->Update(vid);
       if (ret) return ret;
@@ -227,9 +255,10 @@ int VectorManager::Indexing() {
 int VectorManager::AddRTVecsToIndex() {
   int ret = 0;
   for (const auto &iter : vector_indexes_) {
+    RetrievalModel *retrieval_model = iter.second;
     RawVector *raw_vec = dynamic_cast<RawVector *>(iter.second->vector_);
     int total_stored_vecs = raw_vec->MetaInfo()->Size();
-    int indexed_vec_count = raw_vec->IndexedVectorNum();
+    int indexed_vec_count = retrieval_model->indexed_count_;
 
     if (indexed_vec_count > total_stored_vecs) {
       LOG(ERROR) << "internal error : indexed_vec_count=" << indexed_vec_count
@@ -246,7 +275,7 @@ int VectorManager::AddRTVecsToIndex() {
           (total_stored_vecs - indexed_vec_count) / MAX_NUM_PER_INDEX + 1;
 
       for (int i = 0; i < index_count; i++) {
-        int start_docid = raw_vec->IndexedVectorNum();
+        int start_docid = retrieval_model->indexed_count_;
         size_t count_per_index =
             (i == (index_count - 1) ? total_stored_vecs - start_docid
                                     : MAX_NUM_PER_INDEX);
@@ -286,14 +315,13 @@ int VectorManager::AddRTVecsToIndex() {
           LOG(ERROR) << "add index from docid " << start_docid << " error!";
           ret = -2;
         } else {
-          int indexed_count = raw_vec->IndexedVectorNum() + count_per_index;
-          raw_vec->SetIndexedVectorNum(indexed_count);
+          retrieval_model->indexed_count_ += count_per_index;
         }
       }
     }
     std::vector<int64_t> vids;
     int vid;
-    while (raw_vec->UpdatedVids()->try_dequeue(vid)) {
+    while (retrieval_model->updated_vids_.try_dequeue(vid)) {
       if (bitmap::test(raw_vec->Bitmap(), raw_vec->VidMgr()->VID2DocID(vid)))
         continue;
       vids.push_back(vid);
@@ -302,7 +330,7 @@ int VectorManager::AddRTVecsToIndex() {
     if (vids.size() == 0) continue;
     ScopeVectors scope_vecs;
     raw_vec->Gets(vids, scope_vecs);
-    if (iter.second->Update(vids, scope_vecs.Get())) {
+    if (retrieval_model->Update(vids, scope_vecs.Get())) {
       LOG(ERROR) << "update index error!";
       ret = -3;
     }
@@ -373,10 +401,16 @@ int VectorManager::Search(GammaQuery &query, GammaResult *results) {
     std::string &name = vec_query.name;
     vec_names[i] = name;
 
+    string index_name = name;
+    string retrieval_type = retrieval_types_[0];
+    if (retrieval_types_.size() > 1 && vec_query.retrieval_type != "") {
+      retrieval_type = vec_query.retrieval_type;
+    }
+    index_name = IndexName(name, retrieval_type);
     std::map<std::string, RetrievalModel *>::iterator iter =
-        vector_indexes_.find(name);
+        vector_indexes_.find(index_name);
     if (iter == vector_indexes_.end()) {
-      LOG(ERROR) << "Query name " << name
+      LOG(ERROR) << "Query name " << index_name
                  << " not exist in created vector table";
       return -1;
     }
@@ -396,7 +430,7 @@ int VectorManager::Search(GammaQuery &query, GammaResult *results) {
     }
 
     if (!all_vector_results[i].init(n, query.condition->topn)) {
-      LOG(ERROR) << "Query name " << name << "init vector result error";
+      LOG(ERROR) << "Query name " << index_name << "init vector result error";
       return -2;
     }
 
@@ -415,7 +449,7 @@ int VectorManager::Search(GammaQuery &query, GammaResult *results) {
 
     if (ret_vec != 0) {
       ret = ret_vec;
-      LOG(ERROR) << "faild search of query " << name;
+      LOG(ERROR) << "faild search of query " << index_name;
       return -3;
     } else {
       parse_index_search_result(n, query.condition->topn, all_vector_results[i],
@@ -661,10 +695,12 @@ int VectorManager::Load(const std::vector<std::string> &index_dirs,
 
   if (index_dirs.size() > 0) {
     for (const auto &iter : vector_indexes_) {
-      if (iter.second->Load(index_dirs[0]) < 0) {
+      int load_num = iter.second->Load(index_dirs[0]);
+      if (load_num < 0) {
         LOG(ERROR) << "vector [" << iter.first << "] load gamma index failed!";
         return -1;
       } else {
+        iter.second->indexed_count_ = load_num;
         LOG(INFO) << "vector [" << iter.first << "] load gamma index success!";
       }
     }
@@ -673,12 +709,8 @@ int VectorManager::Load(const std::vector<std::string> &index_dirs,
   return 0;
 }
 
-RetrievalModel *VectorManager::GetVectorIndex(std::string &name) const {
-  const auto &it = vector_indexes_.find(name);
-  if (it == vector_indexes_.end()) {
-    return nullptr;
-  }
-  return it->second;
+bool VectorManager::Contains(std::string &field_name) {
+  return raw_vectors_.find(field_name) != raw_vectors_.end();
 }
 
 void VectorManager::Close() {
@@ -703,5 +735,16 @@ void VectorManager::Close() {
   LOG(INFO) << "Vector indexes cleared.";
 
   LOG(INFO) << "VectorManager closed.";
+}
+
+int VectorManager::MinIndexedNum() {
+  int min = 0;
+  for (const auto &iter : vector_indexes_) {
+    if (iter.second != nullptr &&
+        (iter.second->indexed_count_ < min || min == 0)) {
+      min = iter.second->indexed_count_;
+    }
+  }
+  return min;
 }
 }  // namespace tig_gamma
