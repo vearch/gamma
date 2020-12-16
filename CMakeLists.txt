@@ -64,6 +64,14 @@ ELSE (DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
 ENDIF (DEFINED ENV{ZFP_HOME})
 
+IF (DEFINED ENV{ZSTD_HOME})
+	#MESSAGE(STATUS "ZSTD FINDED! ")
+	#SET(ZSTD_INCLUDE_DIR "$ZSTD_HOME/lib")
+	#link_directories("$ZSTD_HOME/lib")
+	ADD_DEFINITIONS(-DWITH_ZSTD)
+	FIND_PACKAGE(ZSTD REQUIRED)
+ENDIF (DEFINED ENV{ZSTD_HOME})
+
 if(TABLE_STR_INT64)
     MESSAGE(STATUS "TABLE_STR_INT64 is on")
     ADD_DEFINITIONS(-DTABLE_STR_INT64)
@@ -91,6 +99,7 @@ include_directories(
     ${RocksDB_INCLUDE_DIR}
     ${FLATBUFFERS_OUT}/c
     ${ZFP_INCLUDE_DIR}
+    ${ZSTD_INCLUDE_DIR}
 )
 
 #LINK LIBRARY
@@ -98,6 +107,7 @@ set(LIBRARIES
     ${FAISS_LIB}
     ${RocksDB_LIB}
     ${ZFP_LIB}
+    ${ZSTD_LIB}
     -lcrypto
     -lzstd
     -lopenblas
