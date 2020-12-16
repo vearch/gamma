@@ -99,6 +99,12 @@ GammaIndexIVFFlat::GammaIndexIVFFlat() {
 #endif
 }
 
+GammaIndexIVFFlat::~GammaIndexIVFFlat() {
+  CHECK_DELETE(rt_invert_index_ptr_);
+  CHECK_DELETE(invlists);
+  CHECK_DELETE(quantizer);
+}
+
 int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   IVFFlatModelParams params;
   if (params.Parse(model_parameters.c_str())) {
@@ -107,7 +113,10 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   }
   LOG(INFO) << params.ToString();
 
-  RawVector *raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+  RawVector *raw_vec = nullptr;
+#ifdef WITH_ROCKSDB
+  raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+#endif
   if (raw_vec == nullptr) {
     LOG(ERROR) << "IVFFlat needs store type=RocksDB";
     return PARAM_ERR;
@@ -116,6 +125,7 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   d = vector_->MetaInfo()->Dimension();
   nlist = params.ncentroids;
   quantizer = new faiss::IndexFlatL2(d);
+  own_fields = false;
   code_size = sizeof(float) * d;
   is_trained = false;
 
@@ -135,6 +145,7 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   }
   this->invlists =
       new realtime::RTInvertedLists(rt_invert_index_ptr_, nlist, code_size);
+  own_invlists = false;
 
   if (params.metric_type ==
       DistanceComputeType::INNER_PRODUCT) {

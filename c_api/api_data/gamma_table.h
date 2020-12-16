@@ -47,7 +47,7 @@ class TableInfo : public RawData {
  public:
   TableInfo() {
     table_ = nullptr;
-    b_compress_ = false;
+    compress_mode_ = 0;
   }
 
   virtual int Serialize(char **out, int *out_len);
@@ -57,9 +57,9 @@ class TableInfo : public RawData {
 
   void SetName(std::string &name);
 
-  bool IsCompress() { return b_compress_; }
+  bool IsCompress() { return compress_mode_; }
 
-  void SetCompress(bool b_compress) { b_compress_ = b_compress; }
+  void SetCompress(int compress_mode) { compress_mode_ = compress_mode; }
 
   std::vector<struct FieldInfo> &Fields();
 
@@ -85,6 +85,18 @@ class TableInfo : public RawData {
 
   int Write(const std::string &path);
 
+  const std::vector<std::string> &RetrievalTypes() { return retrieval_types_; }
+
+  const std::vector<std::string> &RetrievalParams() { return retrieval_params_; }
+
+  void SetRetrievalTypes(std::vector<std::string> &retrieval_types) {
+    retrieval_types_ = retrieval_types;
+  }
+
+  void SetRetrievalParams(std::vector<std::string> &retrieval_params) {
+    retrieval_params_ = retrieval_params;
+  }
+
  private:
   gamma_api::Table *table_;
 
@@ -95,7 +107,10 @@ class TableInfo : public RawData {
   int indexing_size_;
   std::string retrieval_type_;
   std::string retrieval_param_;
-  bool b_compress_;
+  int compress_mode_;
+
+  std::vector<std::string> retrieval_types_;
+  std::vector<std::string> retrieval_params_;
 };
 
 }  // namespace tig_gamma

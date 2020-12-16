@@ -11,6 +11,7 @@ table EngineStatus {
 
   doc_num:int;
   max_docid:int;
+  min_indexed_num:int;
 }
 
 root_type EngineStatus;

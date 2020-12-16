@@ -248,7 +248,6 @@ struct IVFPQModelParams {
 REGISTER_MODEL(GPU, GammaIVFPQGPUIndex)
 
 GammaIVFPQGPUIndex::GammaIVFPQGPUIndex() : RetrievalModel() {
-  indexed_vec_count_ = 0;
   M_ = 0;
   nbits_per_idx_ = 0;
   tmp_mem_num_ = 0;
@@ -508,11 +507,13 @@ int GammaIVFPQGPUIndex::AddRTVecsToIndex() {
       }
     }
   }
-  indexed_vec_count_ = cpu_index_->indexed_vec_count_;
-  raw_vec->SetIndexedVectorNum(indexed_vec_count_);
+
+  // warning: it's not recommended to access indexed_count_ and updated_vids_ in
+  // sub-class
+  this->indexed_count_ = cpu_index_->indexed_vec_count_; 
   std::vector<int64_t> vids;
   int vid;
-  while (raw_vec->UpdatedVids()->try_dequeue(vid)) {
+  while (this->updated_vids_.try_dequeue(vid)) {
     if (bitmap::test(raw_vec->Bitmap(), raw_vec->VidMgr()->VID2DocID(vid)))
       continue;
     vids.push_back(vid);

@@ -43,7 +43,9 @@ class RawVectorFactory {
         raw_vector = new MemoryRawVector(meta_info, root_path, store_params,
                                          docids_bitmap);
         store_params.store_type = "rocksdb";
+#ifdef WITH_ROCKSDB
         vio = new MemoryRawVectorIO((MemoryRawVector *)raw_vector);
+#endif
         break;
       case VectorStorageType::Mmap:
         if (!store_params.compress.IsEmpty()) {
@@ -54,7 +56,7 @@ class RawVectorFactory {
                                        docids_bitmap);
         store_params.store_type = "file";
         vio = new MmapRawVectorIO((MmapRawVector *)raw_vector);
-	break;
+        break;
 #ifdef WITH_ROCKSDB
       case VectorStorageType::RocksDB:
         raw_vector = new RocksDBRawVector(meta_info, root_path, store_params,

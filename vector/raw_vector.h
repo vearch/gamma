@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "api_data/gamma_doc.h"
-#include "concurrentqueue/concurrentqueue.h"
 #include "io_common.h"
 #include "log.h"
 #include "raw_vector_common.h"
@@ -150,17 +149,10 @@ class RawVector : public VectorReader {
   virtual size_t GetStoreMemUsage() { return 0; }
 
   long GetTotalMemBytes() {
-    GetStoreMemUsage();
-    return total_mem_bytes_;
+    return total_mem_bytes_ + GetStoreMemUsage();
   };
 
   int GetVectorNum() const { return meta_info_->Size(); };
-
-  int IndexedVectorNum() const { return indexed_vector_num_; };
-
-  void SetIndexedVectorNum(int indexed_vector_num) {
-    indexed_vector_num_ = indexed_vector_num;
-  };
 
   /** add vector to the specific implementation of RawVector(memory or disk)
    *it is called by next common function Add()
@@ -178,9 +170,6 @@ class RawVector : public VectorReader {
   int VectorByteSize() { return vector_byte_size_; }
   std::string RootPath() { return root_path_; }
   DumpConfig *GetDumpConfig();
-
-  moodycamel::ConcurrentQueue<int> *UpdatedVids() { return updated_vids_; }
-  moodycamel::ConcurrentQueue<int> *updated_vids_;
 
  protected:
   /** get vector by id
@@ -210,7 +199,6 @@ class RawVector : public VectorReader {
   std::vector<long> source_mem_pos_;  // position of each source
   bool has_source_;
   std::string desc_;  // description of this raw vector
-  int indexed_vector_num_;
   StoreParams store_params_;
 #ifdef WITH_ZFP
   ZFPCompressor zfp_compressor_;

@@ -1,3 +1,5 @@
+#ifdef WITH_ROCKSDB
+
 #include <string>
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -19,3 +21,5 @@ struct RocksDBWrapper {
 };
 
 }  // namespace tig_gamma
+
+#endif // WITH_ROCKSDB

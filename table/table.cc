@@ -67,15 +67,19 @@ Table::~Table() {
   LOG(INFO) << "Table deleted.";
 }
 
-int Table::Load(int &doc_num) {
+int Table::Load(int &num) {
   std::string file_name =
       root_path_ + "/" + std::to_string(seg_num_) + ".profile";
-  doc_num = 0;
+  int doc_num = 0;
   while (utils::file_exist(file_name)) {
     main_file_[seg_num_] = new TableData(item_length_);
     main_file_[seg_num_]->Load(seg_num_, root_path_);
     doc_num += main_file_[seg_num_]->Size();
     ++seg_num_;
+    if (doc_num >= num) {
+      doc_num = num;
+      break;
+    }
     file_name = root_path_ + "/" + std::to_string(seg_num_) + ".profile";
   }
 
@@ -107,12 +111,7 @@ int Table::Load(int &doc_num) {
   return 0;
 }
 
-int Table::Sync() {
-  for (int i = 0; i < seg_num_; ++i) {
-    main_file_[i]->Sync();
-  }
-  return 0;
-}
+int Table::Sync() { return 0; }
 
 int Table::CreateTable(TableInfo &table, TableParams &table_params) {
   if (table_created_) {
@@ -565,7 +564,13 @@ void Table::Compress() {
   }
 }
 
-long Table::GetMemoryBytes() { return 0; }
+long Table::GetMemoryBytes() {
+  long total_mem_bytes = 0;
+  for (int i = 0; i < seg_num_; ++i) {
+    total_mem_bytes += main_file_[i]->GetMemoryBytes();
+  }
+  return total_mem_bytes;
+}
 
 int Table::GetDocInfo(std::string &id, Doc &doc,
                       DecompressStr &decompress_str) {

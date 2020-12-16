@@ -72,7 +72,7 @@ class TableData {
 
   void SetStrCompressedSize(str_offset_t str_compressed_size);
 
-  int Sync();
+  long GetMemoryBytes();
 
  private:
 
@@ -95,13 +95,12 @@ class TableData {
   char *base_;
   char *base_str_;
 
-  char *mmap_buf_;
-  char *mmap_str_buf_;
+  int base_fd_;
+  int base_str_fd_;
+
   std::string file_name_;
   std::string str_file_name_;
   int id_;
-
-  bool b_running_;
 
   TABLE_LOAD_MODE mode_;
   pthread_rwlock_t shared_mutex_;

@@ -841,7 +841,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
       int *data = p_node->DataSparse();
       int size = p_node->Size();
       for (int j = 0; j < size; ++j) {
-        bitmap::set(bitmap, data[j] - min_aligned);
+        bitmap::set(bitmap, data[j] - min_doc);
       }
     }
     total += p_node->Size();

@@ -170,7 +170,6 @@ RawVector::RawVector(VectorMetaInfo *meta_info, const string &root_path,
     : VectorReader(meta_info),
       root_path_(root_path),
       total_mem_bytes_(0),
-      indexed_vector_num_(0),
       store_params_(store_params),
       docids_bitmap_(docids_bitmap) {
   data_size_ = meta_info_->DataSize();
@@ -179,7 +178,6 @@ RawVector::RawVector(VectorMetaInfo *meta_info, const string &root_path,
 
 RawVector::~RawVector() {
   CHECK_DELETE_ARRAY(str_mem_ptr_);
-  CHECK_DELETE(updated_vids_);
   CHECK_DELETE(vid_mgr_);
 }
 
@@ -204,7 +202,6 @@ int RawVector::Init(bool has_source, bool multi_vids) {
   vid_mgr_->Init(kInitSize, total_mem_bytes_);
 
   vector_byte_size_ = meta_info_->Dimension() * data_size_;
-  updated_vids_ = new moodycamel::ConcurrentQueue<int>();
 
 #ifdef WITH_ZFP
   if (!store_params_.compress.IsEmpty()) {
@@ -320,7 +317,6 @@ int RawVector::Update(int docid, struct Field &field) {
     return -1;
   }
 
-  updated_vids_->enqueue(vid);
   // TODO: update source
   return 0;
 }
