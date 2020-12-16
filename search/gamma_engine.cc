@@ -1277,14 +1277,9 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
   }
 
   std::vector<struct Field> &fields = doc.TableFields();
-  result_item.names.resize(fields.size());
-  result_item.values.resize(fields.size());
-
-  int i = 0;
   for (struct Field &field : fields) {
-    result_item.names[i] = std::move(field.name);
-    result_item.values[i] = std::move(field.value);
-    ++i;
+    result_item.names.emplace_back(std::move(field.name));
+    result_item.values.emplace_back(std::move(field.value));
   }
 
   cJSON *extra_json = cJSON_CreateObject();
