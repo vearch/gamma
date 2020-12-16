@@ -24,6 +24,7 @@ set(COMMON ${CMAKE_CURRENT_SOURCE_DIR}/common)
 set(GAMMA_SEARCH ${CMAKE_CURRENT_SOURCE_DIR}/search)
 set(GAMMA_INDEX ${CMAKE_CURRENT_SOURCE_DIR}/index)
 set(GAMMA_INDEX_IMPL ${CMAKE_CURRENT_SOURCE_DIR}/index/impl)
+set(GAMMA_INDEX_IMPL_HNSWLIB ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/hnswlib)
 set(GAMMA_VECTOR ${CMAKE_CURRENT_SOURCE_DIR}/vector)
 set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
 set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
@@ -34,9 +35,15 @@ set(FLATBUFFERS_OUT ${CMAKE_CURRENT_SOURCE_DIR}/idl/fbs-gen)
 if(APPLE)
     set(CMAKE_C_COMPILER "/usr/local/opt/llvm/bin/clang")
     set(CMAKE_CXX_COMPILER "/usr/local/opt/llvm/bin/clang++")
-    include_directories("/usr/local/include" "/usr/local/opt/llvm/include" "/usr/local/Cellar/openssl@1.1/1.1.1d/include")
-    link_directories("/usr/local/lib" "/usr/local/opt/llvm/lib" "/usr/local/Cellar/openssl@1.1/1.1.1d/lib/")
-endif()
+    include_directories("/usr/local/include"
+                        "/usr/local/opt/llvm/include" 
+                        "/usr/local/Cellar/openssl@1.1/1.1.1d/include"
+                        "/usr/local/opt/openblas/include")
+    link_directories("/usr/local/lib"
+                     "/usr/local/opt/llvm/lib"
+                     "/usr/local/Cellar/openssl@1.1/1.1.1d/lib/"
+                     "/usr/local/opt/openblas/lib")
+endif(APPLE)
 
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -std=c++11 -mavx2 -msse4 -mpopcnt -fopenmp -D_FILE_OFFSET_BITS=64 -D_LARGE_FILE -DOPEN_CORE -O0 -w -g3 -gdwarf-2")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -std=c++11 -fPIC -m64 -Wall -O3 -mavx2 -msse4 -mpopcnt -fopenmp -D_FILE_OFFSET_BITS=64 -D_LARGE_FILE -Werror=narrowing -Wno-deprecated")
@@ -75,6 +82,7 @@ include_directories(
     ${GAMMA_SEARCH}
     ${GAMMA_INDEX}
     ${GAMMA_INDEX_IMPL}
+    ${GAMMA_INDEX_IMPL_HNSWLIB}
     ${GAMMA_VECTOR}
     ${GAMMA_REALTIME}
     ${GAMMA_C_API}
@@ -92,6 +100,7 @@ set(LIBRARIES
     ${ZFP_LIB}
     -lcrypto
     -lzstd
+    -lopenblas
 )
 
 #ADDITIONAL SOURCE DIR
@@ -104,14 +113,13 @@ aux_source_directory(${COMMON} DIR_SRCS)
 aux_source_directory(${GAMMA_SEARCH} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX_IMPL} DIR_SRCS)
+aux_source_directory(${GAMMA_INDEX_IMPL_HNSWLIB} DIR_SRCS)
 aux_source_directory(${GAMMA_VECTOR} DIR_SRCS)
 aux_source_directory(${GAMMA_REALTIME} DIR_SRCS)
 aux_source_directory(${GAMMA_TABLE} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API}/api_data DIR_SRCS)
 aux_source_directory(${GAMMA_IO} DIR_SRCS)
-
-set(LIB_SRCS ${DIR_SRCS})
 
 add_definitions(-DHAVE_NETINET_IN_H)
 add_definitions(-DFINTEGER=int)
@@ -143,6 +151,15 @@ if(PERFORMANCE_TESTING STREQUAL "ON")
     message(STATUS "With preformance testing")
     add_definitions(-DPERFORMANCE_TESTING) 
 endif(PERFORMANCE_TESTING STREQUAL "ON")
+
+if(EXISTS "${GAMMA_INDEX_IMPL}/relayout/CMakeLists.txt")
+    if(NOT APPLE)
+        add_subdirectory(${GAMMA_INDEX_IMPL}/relayout)
+        include_directories(${RELAYOUT_INCLUDE})
+    endif(NOT APPLE)
+endif(EXISTS "${GAMMA_INDEX_IMPL}/relayout/CMakeLists.txt")
+
+set(LIB_SRCS ${DIR_SRCS} ${RELAYOUT_SRCS})
 
 if(BUILD_WITH_GPU)
     message(STATUS "With GPU")
@@ -177,8 +194,6 @@ else(BUILD_WITH_GPU)
     add_library(gamma SHARED ${LIB_SRCS})
 endif(BUILD_WITH_GPU)
 
-set(LIB_SRCS ${DIR_SRCS})
-
 target_link_libraries(gamma ${LIBRARIES})
 
 set_target_properties(gamma PROPERTIES VERSION 0.1 SOVERSION 0.1)
@@ -196,4 +211,3 @@ endif(BUILD_TEST)
 if(BUILD_TOOLS)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tools)
 endif(BUILD_TOOLS)
-

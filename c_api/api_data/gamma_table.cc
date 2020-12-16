@@ -32,12 +32,14 @@ int TableInfo::Serialize(char **out, int *out_len) {
     vector_info_vector.push_back(vectorinfo);
   }
 
-  auto table = gamma_api::CreateTable(
-      builder, builder.CreateString(name_),
-      builder.CreateVector(field_info_vector),
-      builder.CreateVector(vector_info_vector), indexing_size_,
-      builder.CreateString(retrieval_type_),
-      builder.CreateString(retrieval_param_));
+  auto table = gamma_api::CreateTable(builder, builder.CreateString(name_),
+                                      builder.CreateVector(field_info_vector),
+                                      builder.CreateVector(vector_info_vector),
+                                      indexing_size_, compress_mode_,
+                                      builder.CreateString(retrieval_type_),
+                                      builder.CreateString(retrieval_param_),
+				      builder.CreateVectorOfStrings(retrieval_types_),
+				      builder.CreateVectorOfStrings(retrieval_params_));
   builder.Finish(table);
   *out_len = builder.GetSize();
   *out = (char *)malloc(*out_len * sizeof(char));
@@ -80,6 +82,17 @@ void TableInfo::Deserialize(const char *data, int len) {
   indexing_size_ = table_->indexing_size();
   retrieval_type_ = table_->retrieval_type()->str();
   retrieval_param_ = table_->retrieval_param()->str();
+  compress_mode_ = table_->compress_mode();
+
+  retrieval_types_.resize(table_->retrieval_types()->size());
+  for (size_t i = 0; i < table_->retrieval_types()->size(); ++i) {
+    retrieval_types_[i] = table_->retrieval_types()->Get(i)->str();
+  }
+
+  retrieval_params_.resize(table_->retrieval_params()->size());
+  for (size_t i = 0; i < table_->retrieval_params()->size(); ++i) {
+    retrieval_params_[i] = table_->retrieval_params()->Get(i)->str();
+  }
 }
 
 std::string &TableInfo::Name() { return name_; }
@@ -88,13 +101,17 @@ void TableInfo::SetName(std::string &name) { name_ = name; }
 
 std::vector<struct FieldInfo> &TableInfo::Fields() { return fields_; }
 
-std::vector<struct VectorInfo> &TableInfo::VectorInfos() { return vectors_infos_; }
+std::vector<struct VectorInfo> &TableInfo::VectorInfos() {
+  return vectors_infos_;
+}
 
 void TableInfo::AddVectorInfo(struct VectorInfo &vector_info) {
   vectors_infos_.emplace_back(vector_info);
 }
 
-void TableInfo::AddField(struct FieldInfo &field) { fields_.emplace_back(field); }
+void TableInfo::AddField(struct FieldInfo &field) {
+  fields_.emplace_back(field);
+}
 
 int TableInfo::IndexingSize() { return indexing_size_; }
 

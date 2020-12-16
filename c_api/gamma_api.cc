@@ -34,10 +34,11 @@ void *Init(const char *config_str, int len) {
   tig_gamma::Config config;
   config.Deserialize(config_str, len);
 
-  if (not log_dir_flag) {
+  bool flag = __sync_fetch_and_or(&log_dir_flag, true);
+
+  if (not flag) {
     const std::string &log_dir = config.LogDir();
     SetLogDictionary(log_dir);
-    log_dir_flag = true;
   }
 
   const std::string &path = config.Path();
@@ -46,6 +47,8 @@ void *Init(const char *config_str, int len) {
     LOG(ERROR) << "Engine init faild!";
     return nullptr;
   }
+
+  tig_gamma::RequestConcurrentController::GetInstance();
   LOG(INFO) << "Engine init successed!";
   return static_cast<void *>(engine);
 }

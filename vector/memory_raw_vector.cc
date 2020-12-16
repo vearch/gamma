@@ -12,12 +12,9 @@
 #include "error_code.h"
 
 using std::string;
+#ifdef WITH_ROCKSDB
 using namespace rocksdb;
-
-#include "error_code.h"
-
-using std::string;
-using namespace rocksdb;
+#endif
 namespace tig_gamma {
 
 MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,

@@ -16,7 +16,7 @@ int EngineStatus::Serialize(char **out, int *out_len) {
   auto table = gamma_api::CreateEngineStatus(
       builder, index_status_, table_mem_bytes_, index_mem_bytes_,
       vector_mem_bytes_, field_range_mem_bytes_, bitmap_mem_bytes_, doc_num_,
-      max_docid_);
+      max_docid_, min_indexed_num_);
   builder.Finish(table);
   *out_len = builder.GetSize();
   *out = (char *)malloc(*out_len * sizeof(char));
@@ -37,6 +37,7 @@ void EngineStatus::Deserialize(const char *data, int len) {
 
   doc_num_ = engine_status_->doc_num();
   max_docid_ = engine_status_->max_docid();
+  min_indexed_num_ = engine_status_->min_indexed_num();
 }
 
 int EngineStatus::IndexStatus() { return index_status_; }

@@ -47,10 +47,10 @@ class VectorManager {
   int Dump(const std::string &path, int dump_docid, int max_docid);
   int Load(const std::vector<std::string> &path, int doc_num);
 
-  RetrievalModel *GetVectorIndex(std::string &name) const;
+  bool Contains(std::string &field_name);
 
   void VectorNames(std::vector<std::string> &names) {
-    for (const auto &it : vector_indexes_) {
+    for (const auto &it : raw_vectors_) {
       names.push_back(it.first);
     }
   }
@@ -66,8 +66,14 @@ class VectorManager {
     return vector_indexes_;
   }
 
+  int MinIndexedNum();
+
  private:
   void Close();  // release all resource
+  inline std::string IndexName(const std::string &field_name,
+                               const std::string &retrieval_type) {
+    return field_name + "_" + retrieval_type;
+  }
 
  private:
   VectorStorageType default_store_type_;
@@ -77,6 +83,7 @@ class VectorManager {
 
   std::map<std::string, RawVector *> raw_vectors_;
   std::map<std::string, RetrievalModel *> vector_indexes_;
+  std::vector<std::string> retrieval_types_;
 };
 
 }  // namespace tig_gamma
