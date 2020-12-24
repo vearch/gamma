@@ -171,9 +171,9 @@ class RequestConcurrentController {
 
   ~RequestConcurrentController() = default;
 
-  bool Acquire();
+  bool Acquire(int req_num);
 
-  void Release();
+  void Release(int req_num);
 
  private:
   RequestConcurrentController();

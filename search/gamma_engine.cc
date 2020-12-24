@@ -41,9 +41,9 @@ using namespace tig_gamma::table;
 
 namespace tig_gamma {
 
-bool RequestConcurrentController::Acquire() {
+bool RequestConcurrentController::Acquire(int req_num) {
 #ifndef __APPLE__
-  int num = __sync_fetch_and_add(&cur_concurrent_num_, 1);
+  int num = __sync_fetch_and_add(&cur_concurrent_num_, req_num);
 
   if (num < concurrent_threshold_) {
     return true;
@@ -57,9 +57,9 @@ bool RequestConcurrentController::Acquire() {
 #endif
 }
 
-void RequestConcurrentController::Release() {
+void RequestConcurrentController::Release(int req_num) {
 #ifndef __APPLE__
-  __sync_fetch_and_sub(&cur_concurrent_num_, 1);
+  __sync_fetch_and_sub(&cur_concurrent_num_, req_num);
 #else
   return;
 #endif
@@ -292,20 +292,19 @@ int GammaEngine::Search(Request &request, Response &response_results) {
 // LOG(INFO) << "search request:" << RequestToString(request);
 #endif
 
-  bool req_permit = RequestConcurrentController::GetInstance().Acquire();
-  if (not req_permit) {
-    LOG(WARNING) << "Resource temporarily unavailable";
-    RequestConcurrentController::GetInstance().Release();
-    return -1;
-  }
-
   int ret = 0;
   int req_num = request.ReqNum();
 
   if (req_num <= 0) {
     string msg = "req_num should not less than 0";
     LOG(ERROR) << msg;
-    RequestConcurrentController::GetInstance().Release();
+    return -1;
+  }
+
+  bool req_permit = RequestConcurrentController::GetInstance().Acquire(req_num);
+  if (not req_permit) {
+    LOG(WARNING) << "Resource temporarily unavailable";
+    RequestConcurrentController::GetInstance().Release(req_num);
     return -1;
   }
 
@@ -327,7 +326,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
       result.result_code = SearchResultCode::INDEX_NOT_TRAINED;
       response_results.AddResults(std::move(result));
     }
-    RequestConcurrentController::GetInstance().Release();
+    RequestConcurrentController::GetInstance().Release(req_num);
     return -2;
   }
 
@@ -361,7 +360,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
     int num = MultiRangeQuery(request, gamma_query.condition, response_results,
                               &range_query_result);
     if (num == 0) {
-      RequestConcurrentController::GetInstance().Release();
+      RequestConcurrentController::GetInstance().Release(req_num);
       return 0;
     }
   }
@@ -388,7 +387,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
         result.result_code = SearchResultCode::SEARCH_ERROR;
         response_results.AddResults(std::move(result));
       }
-      RequestConcurrentController::GetInstance().Release();
+      RequestConcurrentController::GetInstance().Release(req_num);
       return -3;
     }
 
@@ -471,7 +470,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
         gamma_query.condition->GetPerfTool().OutputPerf().str());
   }
 
-  RequestConcurrentController::GetInstance().Release();
+  RequestConcurrentController::GetInstance().Release(req_num);
   return ret;
 }
 
