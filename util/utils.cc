@@ -78,6 +78,27 @@ int count_lines(const char *filename) {
   }
 }
 
+void GenRandom(std::mt19937 &rng, unsigned *addr, unsigned size, unsigned N) {
+  for (unsigned i = 0; i < size; ++i) {
+    if (size >= N) {
+      addr[i] = rng() % N;
+    } else {
+      addr[i] = rng() % (N - size);
+    }
+  }
+  std::sort(addr, addr + size);
+  for (unsigned i = 1; i < size; ++i) {
+    if (addr[i] <= addr[i - 1]) {
+      addr[i] = addr[i - 1] + 1;
+    }
+  }
+
+  unsigned off = rng() % N;
+  for (unsigned i = 0; i < size; ++i) {
+    addr[i] = (addr[i] + off) % N;
+  }
+}
+
 double elapsed() {
   struct timeval tv;
   gettimeofday(&tv, NULL);

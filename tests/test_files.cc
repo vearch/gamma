@@ -266,7 +266,7 @@ int SearchThread(void *engine, size_t num) {
       term_filter.value = "1315\00115248";
       term_filter.is_union = 1;
 
-      // request.AddTermFielter(term_filter);
+      request.AddTermFielter(term_filter);
 
       std::string field_name = "field1";
       request.AddField(field_name);
