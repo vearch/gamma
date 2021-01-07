@@ -1,3 +1,5 @@
+#ifdef WITH_ROCKSDB
+
 #include "rocksdb_wrapper.h"
 #include "error_code.h"
 #include "log.h"
@@ -62,3 +64,5 @@ void RocksDBWrapper::ToRowKey(int key, string &key_str) {
 }
 
 }  // namespace tig_gamma
+
+#endif // WITH_ROCKSDB

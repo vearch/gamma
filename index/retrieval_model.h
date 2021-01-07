@@ -9,6 +9,7 @@
 
 #include <vector>
 
+#include "concurrentqueue/concurrentqueue.h"
 #include "reflector.h"
 #include "utils.h"
 
@@ -210,6 +211,7 @@ class RetrievalModel {
  public:
   RetrievalModel() {
     vector_ = nullptr;
+    indexed_count_ = 0;
   }
 
   virtual ~RetrievalModel() {}
@@ -285,9 +287,12 @@ class RetrievalModel {
   /** Load model and index
    *
    * @param dir   load directory
-   * @return 0 if successed
+   * @return load number(>=0) if successed
    */
   virtual int Load(const std::string &dir) = 0;
 
   VectorReader *vector_;
+  moodycamel::ConcurrentQueue<int> updated_vids_;
+  // warining: indexed_count_ is only used by framework, sub-class cann't use it
+  int indexed_count_;
 };

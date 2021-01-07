@@ -45,6 +45,7 @@ type Table struct {
 	Fields         []FieldInfo
 	VectorsInfos   []VectorInfo
 	IndexingSize   int32
+	CompressMode   int32
 	RetrievalType  string
 	RetrievalParam string
 	table          *gamma_api.Table
@@ -120,6 +121,7 @@ func (table *Table) Serialize(out *[]byte) int {
 	gamma_api.TableAddFields(builder, fields)
 	gamma_api.TableAddVectorsInfo(builder, vecInfos)
 	gamma_api.TableAddIndexingSize(builder, table.IndexingSize)
+	gamma_api.TableAddCompressMode(builder, table.CompressMode)
 	gamma_api.TableAddRetrievalType(builder, retrievalType)
 	gamma_api.TableAddRetrievalParam(builder, retrievalParam)
 	builder.Finish(builder.EndObject())
@@ -156,6 +158,7 @@ func (table *Table) DeSerialize(buffer []byte) {
 	}
 
 	table.IndexingSize = table.table.IndexingSize()
+	table.CompressMode = table.table.CompressMode()
 	table.RetrievalType = string(table.table.RetrievalType())
 	table.RetrievalParam = string(table.table.RetrievalParam())
 }

@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <future>
+#include <iostream>
 
 #include "c_api/api_data/gamma_docs.h"
 #include "c_api/api_data/gamma_engine_status.h"
@@ -31,6 +32,8 @@
  **/
 
 namespace test {
+
+using namespace std;
 
 static struct Options opt;
 
@@ -64,6 +67,17 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
 
       field.source = url;
 
+      doc.AddField(std::move(field));
+    }
+    {
+      tig_gamma::Field field;
+      field.name = "float";
+      field.datatype = tig_gamma::DataType::FLOAT;
+
+      float f = random_float(0, 100);
+      int s = sizeof(f);
+      field.value = std::string((char *)(&f), sizeof(f));
+      field.source = "url";
       doc.AddField(std::move(field));
     }
 
@@ -159,7 +173,8 @@ int BatchAddDocToEngine(void *engine, int doc_num, int interval = 0) {
     double start = utils::getmillisecs();
     char *result_str = nullptr;
     int result_len = 0;
-    int ret = AddOrUpdateDocs(engine, doc_str, doc_len, &result_str, &result_len);
+    int ret =
+        AddOrUpdateDocs(engine, doc_str, doc_len, &result_str, &result_len);
     tig_gamma::BatchResult result;
     result.Deserialize(result_str, 0);
     free(result_str);
@@ -181,7 +196,7 @@ int SearchThread(void *engine, size_t num) {
   size_t idx = 0;
   double time = 0;
   int failed_count = 0;
-  int req_num = 1;
+  int req_num = 2;
   string error;
   while (idx < num) {
     double start = utils::getmillisecs();
@@ -236,9 +251,9 @@ int SearchThread(void *engine, size_t num) {
 
       {
         struct tig_gamma::RangeFilter range_filter;
-        range_filter.field = "field1";
-        low = 1316;
-        upper = 999999;
+        range_filter.field = "float";
+        float low = 0;
+        float upper = 0.9;
         range_filter.lower_value = string((char *)&low, sizeof(low));
         range_filter.upper_value = string((char *)&upper, sizeof(upper));
         range_filter.include_lower = false;
@@ -258,6 +273,9 @@ int SearchThread(void *engine, size_t num) {
 
       std::string id = "_id";
       request.AddField(id);
+
+      std::string ff = "float";
+      request.AddField(ff);
     }
 
     char *request_str, *response_str;
@@ -287,6 +305,7 @@ int SearchThread(void *engine, size_t num) {
         std::vector<struct tig_gamma::ResultItem> &result_items =
             result.result_items;
         if (result_items.size() <= 0) {
+	  LOG(ERROR) << "search no result, id=" << ii; 
           continue;
         }
         msg += string("total [") + std::to_string(result.total) + "], ";
@@ -492,6 +511,14 @@ int Create() {
     table.AddField(field_info);
   }
 
+  {
+    struct tig_gamma::FieldInfo field_info;
+    field_info.name = "float";
+
+    field_info.is_index = 1;
+    field_info.data_type = tig_gamma::DataType::FLOAT;
+    table.AddField(field_info);
+  }
   struct tig_gamma::VectorInfo vector_info;
   vector_info.name = opt.vector_name;
   vector_info.data_type = tig_gamma::DataType::FLOAT;
@@ -672,7 +699,10 @@ int CloseEngine() {
 }  // namespace test
 
 int main(int argc, char **argv) {
-  utils::remove_dir(test::opt.path.c_str());
+  bool bLoad = false;
+  if (not bLoad) {
+    utils::remove_dir(test::opt.path.c_str());
+  }
   setvbuf(stdout, (char *)NULL, _IONBF, 0);
   if (argc != 3) {
     std::cout << "Usage: [Program] [profile_file] [vectors_file]\n";
@@ -683,14 +713,19 @@ int main(int argc, char **argv) {
   std::cout << test::opt.profile_file.c_str() << " "
             << test::opt.feature_file.c_str() << std::endl;
   test::InitEngine();
-  // test::LoadEngine();
-  // test::opt.doc_id = 20000;
-  test::Create();
-  test::Add();
+  if (bLoad) {
+    test::LoadEngine();
+    test::opt.doc_id = 20000;
+  } else {
+    test::Create();
+    test::Add();
+  }
   test::BuildEngineIndex();
   // test::Add();
   test::Search();
-  test::DumpEngine();
+  if (not bLoad) {
+    test::DumpEngine();
+  }
   // test::LoadEngine();
   // test::BuildEngineIndex();
   // test::Search();

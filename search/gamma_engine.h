@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef GAMMA_ENGINE_H_
-#define GAMMA_ENGINE_H_
+#pragma once
 
 #include <condition_variable>
 #include <string>
@@ -18,11 +17,11 @@
 #include "api_data/gamma_request.h"
 #include "api_data/gamma_response.h"
 #include "api_data/gamma_table.h"
+#include "async_flush.h"
 #include "field_range_index.h"
 #include "table.h"
-#include "vector_manager.h"
-#include "async_flush.h"
 #include "table_io.h"
+#include "vector_manager.h"
 
 namespace tig_gamma {
 
@@ -118,8 +117,6 @@ class GammaEngine {
   VectorManager *vec_manager_;
 
   int AddNumIndexFields();
-  template <typename T>
-  int AddNumIndexField(const std::string &field);
 
   int max_docid_;
   int indexing_size_;
@@ -152,8 +149,6 @@ class GammaEngine {
 
   bool created_table_;
 
-  int indexed_field_num_;
-
   bool b_loading_;
 
   std::vector<char *> batch_docs_;
@@ -166,9 +161,36 @@ class GammaEngine {
   AsyncFlushExecutor *af_exector_;
 };
 
-// specialization for string
-template <>
-int GammaEngine::AddNumIndexField<std::string>(const std::string &field);
+
+class RequestConcurrentController {
+ public:
+  static RequestConcurrentController &GetInstance() {
+    static RequestConcurrentController intance;
+    return intance;
+  }
+
+  ~RequestConcurrentController() = default;
+
+  bool Acquire(int req_num);
+
+  void Release(int req_num);
+
+ private:
+  RequestConcurrentController();
+
+  RequestConcurrentController(const RequestConcurrentController &) = delete;
+
+  RequestConcurrentController &operator=(const RequestConcurrentController &) =
+      delete;
+
+  int GetMaxThread();
+
+  int GetSystemInfo(const char *cmd);
+
+ private:
+  int cur_concurrent_num_;
+  int concurrent_threshold_;
+  int max_threads_;
+};
 
 }  // namespace tig_gamma
-#endif

@@ -12,11 +12,11 @@
 #ifndef __APPLE__
 #include <malloc.h>
 #endif
+#include <string.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
-#include <string.h>
 #include <chrono>
 #include <cstring>
 #include <fstream>
@@ -31,6 +31,7 @@
 #include "gamma_common_data.h"
 #include "gamma_table_io.h"
 #include "log.h"
+#include "omp.h"
 #include "raw_vector_io.h"
 #include "table_io.h"
 #include "utils.h"
@@ -39,6 +40,80 @@ using std::string;
 using namespace tig_gamma::table;
 
 namespace tig_gamma {
+
+bool RequestConcurrentController::Acquire(int req_num) {
+#ifndef __APPLE__
+  int num = __sync_fetch_and_add(&cur_concurrent_num_, req_num);
+
+  if (num < concurrent_threshold_) {
+    return true;
+  } else {
+    LOG(WARNING) << "cur_threads_num [" << num << "] concurrent_threshold ["
+                 << concurrent_threshold_ << "]";
+    return false;
+  }
+#else
+  return true;
+#endif
+}
+
+void RequestConcurrentController::Release(int req_num) {
+#ifndef __APPLE__
+  __sync_fetch_and_sub(&cur_concurrent_num_, req_num);
+#else
+  return;
+#endif
+}
+
+RequestConcurrentController::RequestConcurrentController() {
+  concurrent_threshold_ = 0;
+  max_threads_ = 0;
+  cur_concurrent_num_ = 0;
+  GetMaxThread();
+}
+
+int RequestConcurrentController::GetMaxThread() {
+#ifndef __APPLE__
+  // Get system config and calculate max threads
+  int omp_max_threads = omp_get_max_threads();
+  int threads_max = GetSystemInfo("cat /proc/sys/kernel/threads-max");
+  int max_map_count = GetSystemInfo("cat /proc/sys/vm/max_map_count");
+  int pid_max = GetSystemInfo("cat /proc/sys/kernel/pid_max");
+  LOG(INFO) << "System info: threads_max [" << threads_max
+            << "] max_map_count [" << max_map_count << "] pid_max [" << pid_max
+            << "]";
+  max_threads_ = std::min(threads_max, pid_max);
+  max_threads_ = std::min(max_threads_, max_map_count / 2);
+  // calculate concurrent threshold
+  concurrent_threshold_ = (max_threads_ * 0.5) / (omp_max_threads + 1);
+  LOG(INFO) << "max_threads [" << max_threads_ << "] concurrent_threshold ["
+            << concurrent_threshold_ << "]";
+  if (concurrent_threshold_ == 0) {
+    LOG(FATAL) << "concurrent_threshold cannot be 0!";
+  }
+  return max_threads_;
+#else
+  return 0;
+#endif
+}
+
+int RequestConcurrentController::GetSystemInfo(const char *cmd) {
+  int num = 0;
+
+  char buff[1024];
+  memset(buff, 0, sizeof(buff));
+
+  FILE *fstream = popen(cmd, "r");
+  if (fstream == nullptr) {
+    LOG(ERROR) << "execute command failed: " << strerror(errno);
+    num = -1;
+  } else {
+    fgets(buff, sizeof(buff), fstream);
+    num = atoi(buff);
+    pclose(fstream);
+  }
+  return num;
+}
 
 #ifdef DEBUG
 static string float_array_to_string(float *data, int len) {
@@ -102,7 +177,6 @@ GammaEngine::GammaEngine(const string &index_root_path)
   table_ = nullptr;
   vec_manager_ = nullptr;
   index_status_ = IndexStatus::UNINDEXED;
-  // max_doc_size_ = init_max_doc_size;
   delete_num_ = 0;
   b_running_ = false;
   b_field_running_ = false;
@@ -110,7 +184,6 @@ GammaEngine::GammaEngine(const string &index_root_path)
   bitmap_bytes_size_ = 0;
   field_range_index_ = nullptr;
   created_table_ = false;
-  indexed_field_num_ = 0;
   b_loading_ = false;
 #ifdef PERFORMANCE_TESTING
   search_num_ = 0;
@@ -228,6 +301,13 @@ int GammaEngine::Search(Request &request, Response &response_results) {
     return -1;
   }
 
+  bool req_permit = RequestConcurrentController::GetInstance().Acquire(req_num);
+  if (not req_permit) {
+    LOG(WARNING) << "Resource temporarily unavailable";
+    RequestConcurrentController::GetInstance().Release(req_num);
+    return -1;
+  }
+
   // TODO: it may be opened later
   // utils::OnlineLogger logger;
   // if (0 != logger.Init(online_log_level)) {
@@ -235,9 +315,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
   // }
 
   int topn = request.TopN();
-  bool brute_force_search = ((request.BruteForceSearch() == 1) ||
-                             ((request.BruteForceSearch() == 0) &&
-                              (index_status_ != IndexStatus::INDEXED)));
+  bool brute_force_search = request.BruteForceSearch();
 
   if ((not brute_force_search) && (index_status_ != IndexStatus::INDEXED)) {
     string msg = "index not trained!";
@@ -248,6 +326,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
       result.result_code = SearchResultCode::INDEX_NOT_TRAINED;
       response_results.AddResults(std::move(result));
     }
+    RequestConcurrentController::GetInstance().Release(req_num);
     return -2;
   }
 
@@ -281,6 +360,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
     int num = MultiRangeQuery(request, gamma_query.condition, response_results,
                               &range_query_result);
     if (num == 0) {
+      RequestConcurrentController::GetInstance().Release(req_num);
       return 0;
     }
   }
@@ -307,6 +387,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
         result.result_code = SearchResultCode::SEARCH_ERROR;
         response_results.AddResults(std::move(result));
       }
+      RequestConcurrentController::GetInstance().Release(req_num);
       return -3;
     }
 
@@ -389,6 +470,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
         gamma_query.condition->GetPerfTool().OutputPerf().str());
   }
 
+  RequestConcurrentController::GetInstance().Release(req_num);
   return ret;
 }
 
@@ -592,13 +674,14 @@ int GammaEngine::AddOrUpdate(Doc &doc) {
   if (vec_manager_->AddToStore(max_docid_, fields_vec) != 0) {
     return -4;
   }
+  ++max_docid_;
+
   if (not b_running_ and index_status_ == UNINDEXED) {
     if (max_docid_ >= indexing_size_) {
       LOG(INFO) << "Begin indexing.";
       this->BuildIndex();
     }
   }
-  ++max_docid_;
 #ifdef PERFORMANCE_TESTING
   double end = utils::getmillisecs();
   if (max_docid_ % 10000 == 0) {
@@ -861,13 +944,13 @@ int GammaEngine::Indexing() {
       usleep(5000 * 1000);  // sleep 5000ms
       continue;
     }
+    index_status_ = IndexStatus::INDEXED;
     int add_ret = vec_manager_->AddRTVecsToIndex();
     if (add_ret != 0) {
       has_error = true;
       LOG(ERROR) << "Add real time vectors to index error!";
       continue;
     }
-    index_status_ = IndexStatus::INDEXED;
     usleep(1000 * 1000);  // sleep 5000ms
   }
   running_cv_.notify_one();
@@ -891,13 +974,8 @@ int GammaEngine::BuildFieldIndex() {
 
 #pragma omp parallel for
     for (int i = 0; i < field_num; ++i) {
-      for (int j = indexed_field_num_; j < lastest_num; ++j) {
-        // field_range_index_->Add(j, i);
-        ;
-      }
     }
 
-    indexed_field_num_ = lastest_num;
     usleep(5000 * 1000);  // sleep 5000ms
   }
   running_field_cv_.notify_one();
@@ -914,9 +992,9 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
   long vec_mem_bytes = 0, index_mem_bytes = 0;
   vec_manager_->GetTotalMemBytes(index_mem_bytes, vec_mem_bytes);
 
-  long dense_b = 0, sparse_b = 0, total_mem_b = 0;
+  long total_mem_b = 0;
 #ifndef BUILD_GPU
-
+  long dense_b = 0, sparse_b = 0;
   if (field_range_index_) {
     total_mem_b += field_range_index_->MemorySize(dense_b, sparse_b);
   }
@@ -926,7 +1004,7 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
   // LOG(INFO) << "Field range memory [" << total_mem_kb << "]kb, ["
   //           << total_mem_mb << "]MB, dense [" << dense_b / 1024 / 1024
   //           << "]MB sparse [" << sparse_b / 1024 / 1024
-  //           << "]MB, indexed_field_num_ [" << indexed_field_num_ << "]";
+  //           << "]MB";
 #endif  // BUILD_GPU
 
   engine_status.SetTableMem(table_mem_bytes);
@@ -936,6 +1014,7 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
   engine_status.SetBitmapMem(bitmap_bytes_size_);
   engine_status.SetDocNum(GetDocsNum());
   engine_status.SetMaxDocID(max_docid_ - 1);
+  engine_status.SetMinIndexedNum(vec_manager_->MinIndexedNum());
 }
 
 int GammaEngine::Dump() {
@@ -1063,6 +1142,26 @@ int GammaEngine::Load() {
                const std::pair<std::time_t, string> &b) {
               return a.first < b.first;
             });
+  if (folders_tm.size() > 0) {
+    string dump_done_file =
+        folders_tm[folders_tm.size() - 1].second + "/dump.done";
+    utils::FileIO fio(dump_done_file);
+    if (fio.Open("r")) {
+      LOG(ERROR) << "Cannot read from file " << dump_done_file;
+      return -1;
+    }
+    long fsize = utils::get_file_size(dump_done_file);
+    char *buf = new char[fsize];
+    fio.Read(buf, 1, fsize);
+    string buf_str(buf, fsize);
+    std::vector<string> lines = utils::split(buf_str, "\n");
+    assert(lines.size() == 2);
+    std::vector<string> items = utils::split(lines[1], " ");
+    assert(items.size() == 2);
+    max_docid_ = (int)std::strtol(items[1].c_str(), nullptr, 10) + 1;
+    LOG(INFO) << "read doc num=" << max_docid_ << " from " << dump_done_file;
+    delete[] buf;
+  }
 
   int ret = 0;
   std::vector<string> dirs;
@@ -1234,8 +1333,7 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
 
     for (size_t i = 0; i < fields_size; ++i) {
       std::string &name = vec_fields[i];
-      const auto index = vec_manager_->GetVectorIndex(name);
-      if (index == nullptr) {
+      if (!vec_manager_->Contains(name)) {
         table_fields.push_back(name);
       } else {
         vec_fields_ids.emplace_back(std::make_pair(name, docid));
@@ -1277,14 +1375,10 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
   }
 
   std::vector<struct Field> &fields = doc.TableFields();
-  result_item.names.resize(fields.size());
-  result_item.values.resize(fields.size());
 
-  int i = 0;
   for (struct Field &field : fields) {
-    result_item.names[i] = std::move(field.name);
-    result_item.values[i] = std::move(field.value);
-    ++i;
+    result_item.names.emplace_back(std::move(field.name));
+    result_item.values.emplace_back(std::move(field.value));
   }
 
   cJSON *extra_json = cJSON_CreateObject();

@@ -92,7 +92,6 @@ class GammaIVFPQGPUIndex : public RetrievalModel {
 
   int CreateSearchThread();
 
-  int indexed_vec_count_;
   size_t nlist_;
   size_t M_;
   size_t nbits_per_idx_;
