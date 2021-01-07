@@ -15,7 +15,7 @@
 
 enum class VectorValueType : std::uint8_t { FLOAT = 0, BINARY = 1, INT8 = 2 };
 
-enum class DistanceComputeType : std::uint8_t { INNER_PRODUCT = 0, L2 };
+enum class DistanceComputeType : std::uint8_t { INNER_PRODUCT = 0, L2, Cosine };
 
 // Performance tool, record performance info
 class PerfTool {

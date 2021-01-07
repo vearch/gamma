@@ -316,7 +316,7 @@ int GammaIndexHNSWLIB::Search(RetrievalContext *retrieval_context, int n,
   for (int i = 0; i < n; ++i) {
     int j = 0;
 
-    auto result = searchKnn((const void *)(x + i * d), k, fstdistfunc,
+    auto result = searchKnn((const void *)(xq + i * d), k, fstdistfunc,
                             retrieval_params->EfSearch(), retrieval_context);
 
     if (retrieval_params->GetDistanceComputeType() ==
