@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <random>
 
 #include "cJSON.h"
 
@@ -48,6 +49,8 @@ std::vector<std::string> split(const std::string &p_str,
                                const char *p_separator);
 
 int count_lines(const char *filename);
+
+void GenRandom(std::mt19937 &rng, unsigned *addr, unsigned size, unsigned N);
 
 double elapsed();
 

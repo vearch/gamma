@@ -37,11 +37,11 @@ if(APPLE)
     set(CMAKE_CXX_COMPILER "/usr/local/opt/llvm/bin/clang++")
     include_directories("/usr/local/include"
                         "/usr/local/opt/llvm/include" 
-                        "/usr/local/Cellar/openssl@1.1/1.1.1d/include"
+                        "/usr/local/Cellar/openssl@1.1/1.1.1h/include"
                         "/usr/local/opt/openblas/include")
     link_directories("/usr/local/lib"
                      "/usr/local/opt/llvm/lib"
-                     "/usr/local/Cellar/openssl@1.1/1.1.1d/lib/"
+                     "/usr/local/Cellar/openssl@1.1/1.1.1h/lib/"
                      "/usr/local/opt/openblas/lib")
 endif(APPLE)
 
