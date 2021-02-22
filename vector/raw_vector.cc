@@ -174,6 +174,8 @@ RawVector::RawVector(VectorMetaInfo *meta_info, const string &root_path,
       docids_bitmap_(docids_bitmap) {
   data_size_ = meta_info_->DataSize();
   vio_ = nullptr;
+  str_mem_ptr_ = nullptr;
+  vid_mgr_ = nullptr;
 }
 
 RawVector::~RawVector() {

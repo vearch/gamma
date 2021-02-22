@@ -94,6 +94,7 @@ REGISTER_MODEL(IVFFLAT, GammaIndexIVFFlat);
 GammaIndexIVFFlat::GammaIndexIVFFlat() {
   indexed_vec_count_ = 0;
   updated_num_ = 0;
+  rt_invert_index_ptr_ = nullptr;
 #ifdef PERFORMANCE_TESTING
   add_count_ = 0;
 #endif
