@@ -298,7 +298,6 @@ int GammaIVFPQGPUIndex::Init(const std::string &model_parameters) {
   metric_type_ = ivfpq_param.metric_type;
 
   b_exited_ = false;
-  use_standard_resource_ = true;
 
   gpu_index_ = nullptr;
   cpu_index_ = new GammaIVFPQIndex();
@@ -363,23 +362,11 @@ faiss::Index *GammaIVFPQGPUIndex::CreateGPUIndex() {
   }
 
   if (resources_.size() == 0) {
-    if (not use_standard_resource_) {
-      GammaMemManager manager;
-      tmp_mem_num_ = manager.Init(ngpus);
-      LOG(INFO) << "Resource num [" << tmp_mem_num_ << "]";
-    }
-
     for (int i : devs) {
-      if (use_standard_resource_) {
-        auto res = new faiss::gpu::StandardGpuResources;
-        res->initializeForDevice(i);
-        res->setTempMemory((size_t)1536 * 1024 * 1024);  // 1.5 GiB
-        resources_.push_back(res);
-      } else {
-        auto res = new faiss::gpu::GammaGpuResources;
-        res->initializeForDevice(i);
-        resources_.push_back(res);
-      }
+      auto res = new faiss::gpu::StandardGpuResources;
+      res->getResources()->initializeForDevice(i);
+      res->setTempMemory((size_t)1536 * 1024 * 1024);  // 1.5 GiB
+      resources_.push_back(res);
     }
   }
 
@@ -510,7 +497,7 @@ int GammaIVFPQGPUIndex::AddRTVecsToIndex() {
 
   // warning: it's not recommended to access indexed_count_ and updated_vids_ in
   // sub-class
-  this->indexed_count_ = cpu_index_->indexed_vec_count_; 
+  this->indexed_count_ = cpu_index_->indexed_vec_count_;
   std::vector<int64_t> vids;
   int vid;
   while (this->updated_vids_.try_dequeue(vid)) {
@@ -559,7 +546,6 @@ int GammaIVFPQGPUIndex::Load(const string &index_dir) {
 }
 
 int GammaIVFPQGPUIndex::GPUThread() {
-  GammaMemManager manager;
   std::thread::id tid = std::this_thread::get_id();
   float *xx = new float[kMaxBatch * d_ * kMaxReqNum];
   size_t max_recallnum = (size_t)faiss::gpu::getMaxKSelection();
@@ -637,10 +623,6 @@ int GammaIVFPQGPUIndex::GPUThread() {
       items[0]->batch_size = size;
       items[0]->Notify();
     }
-  }
-
-  if (not use_standard_resource_) {
-    manager.ReturnMem(tid);
   }
 
   delete[] xx;

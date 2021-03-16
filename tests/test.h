@@ -49,7 +49,7 @@ struct Options {
     nprobe = 10;
     doc_id = 0;
     d = 512;
-    filter = true;
+    filter = false;
     print_doc = true;
     search_thread_num = 1;
     max_doc_size = 10000 * 200;
