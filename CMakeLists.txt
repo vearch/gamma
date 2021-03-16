@@ -6,12 +6,15 @@ cmake_minimum_required(VERSION 3.0)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
-find_package(FAISS REQUIRED)
-
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
 option(TABLE_STR_INT64 "table string int64 address" off)
+
+exec_program(
+    "sh"
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    ARGS "build.sh" ${BUILD_WITH_GPU})
 
 #ENV VARs
 set(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
@@ -64,14 +67,6 @@ ELSE (DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
 ENDIF (DEFINED ENV{ZFP_HOME})
 
-IF (DEFINED ENV{ZSTD_HOME})
-	#MESSAGE(STATUS "ZSTD FINDED! ")
-	#SET(ZSTD_INCLUDE_DIR "$ZSTD_HOME/lib")
-	#link_directories("$ZSTD_HOME/lib")
-	ADD_DEFINITIONS(-DWITH_ZSTD)
-	FIND_PACKAGE(ZSTD REQUIRED)
-ENDIF (DEFINED ENV{ZSTD_HOME})
-
 if(TABLE_STR_INT64)
     MESSAGE(STATUS "TABLE_STR_INT64 is on")
     ADD_DEFINITIONS(-DTABLE_STR_INT64)
@@ -95,19 +90,21 @@ include_directories(
     ${GAMMA_REALTIME}
     ${GAMMA_C_API}
     ${GAMMA_IO}
-    ${FAISS_INCLUDE_DIR}
+    ${THIRDPARTY}/faiss/include
     ${RocksDB_INCLUDE_DIR}
     ${FLATBUFFERS_OUT}/c
     ${ZFP_INCLUDE_DIR}
-    ${ZSTD_INCLUDE_DIR}
+)
+
+link_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/faiss/lib
 )
 
 #LINK LIBRARY
 set(LIBRARIES
-    ${FAISS_LIB}
+    -lfaiss
     ${RocksDB_LIB}
     ${ZFP_LIB}
-    ${ZSTD_LIB}
     -lcrypto
     -lzstd
     -lopenblas
@@ -200,11 +197,18 @@ if(BUILD_WITH_GPU)
     ${FAISS_GPU_CUH}
     ${FAISS_GPU_CU}
     ${LIB_SRCS})
+
+    target_link_libraries(gamma 
+    ${LIBRARIES}
+    -lcublas 
+    /usr/local/cuda/lib64/libcudart.so
+    )
+
 else(BUILD_WITH_GPU)
     add_library(gamma SHARED ${LIB_SRCS})
+    target_link_libraries(gamma ${LIBRARIES})
 endif(BUILD_WITH_GPU)
 
-target_link_libraries(gamma ${LIBRARIES})
 
 set_target_properties(gamma PROPERTIES VERSION 0.1 SOVERSION 0.1)
 
