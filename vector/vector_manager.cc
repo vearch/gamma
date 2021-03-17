@@ -201,8 +201,9 @@ int VectorManager::Update(int docid, std::vector<Field> &fields) {
       continue;
     }
     RawVector *raw_vector = it->second;
+    size_t element_size = raw_vector->MetaInfo()->DataType() == VectorValueType::BINARY ? sizeof(char) : sizeof(float);
     if ((size_t)raw_vector->MetaInfo()->Dimension() !=
-        fields[i].value.size() / sizeof(float)) {
+        fields[i].value.size() / element_size) {
       LOG(ERROR) << "invalid field value len=" << fields[i].value.size()
                  << ", dimension=" << raw_vector->MetaInfo()->Dimension();
       return -1;
