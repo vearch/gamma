@@ -196,7 +196,7 @@ int SearchThread(void *engine, size_t num) {
   size_t idx = 0;
   double time = 0;
   int failed_count = 0;
-  int req_num = 2;
+  int req_num = 1;
   string error;
   while (idx < num) {
     double start = utils::getmillisecs();
@@ -305,7 +305,7 @@ int SearchThread(void *engine, size_t num) {
         std::vector<struct tig_gamma::ResultItem> &result_items =
             result.result_items;
         if (result_items.size() <= 0) {
-	  LOG(ERROR) << "search no result, id=" << ii; 
+	        LOG(ERROR) << "search no result, id=" << ii; 
           continue;
         }
         msg += string("total [") + std::to_string(result.total) + "], ";
@@ -575,8 +575,8 @@ int Add() {
 }
 
 int BuildEngineIndex() {
-  UpdateThread(opt.engine);
-  BuildIndex(opt.engine);
+  // UpdateThread(opt.engine);
+  // BuildIndex(opt.engine);
   int n_index_status = -1;
   do {
     char *status = nullptr;

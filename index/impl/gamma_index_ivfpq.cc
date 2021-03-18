@@ -666,7 +666,9 @@ bool GammaIVFPQIndex::Add(int n, const uint8_t *vec) {
     assert(key < (long)nlist);
     if (key < 0) {
       n_ignore++;
-      continue;
+      LOG(WARNING) << "ivfpq add invalid key=" << key
+                   << ", vid=" << vid;
+      key = vid % nlist;
     }
 
     // long id = (long)(indexed_vec_count_++);
