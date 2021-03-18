@@ -238,8 +238,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
   template <bool has_deletions, bool collect_metrics = false>
   std::priority_queue<std::pair<dist_t, tableint>,
                       std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-  searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef,
-                    DISTFUNC<float> fstdistfunc,
+  searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef, int efSearch,
+                    int do_efSearch_check, DISTFUNC<float> fstdistfunc,
                     const RetrievalContext *retrieval_context) {
     VisitedList *vl = visited_list_pool_->getFreeVisitedList();
     vl_type *visited_array = vl->mass;
@@ -253,7 +253,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         std::vector<std::pair<dist_t, tableint>>,
                         CompareByFirst>
         candidate_set;
-
+	int nstep = 0;
     dist_t lowerBound;
     if (!has_deletions || !isMarkedDeleted(ep_id)) {
       dist_t dist =
@@ -330,6 +330,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
               lowerBound = top_candidates.top().first;
           }
         }
+      }
+      nstep++;
+      if (do_efSearch_check && nstep > efSearch) {
+        break;
       }
     }
 
@@ -1090,7 +1094,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
   std::priority_queue<std::pair<dist_t, labeltype>> searchKnn(
       const void *query_data, size_t k, DISTFUNC<float> fstdistfunc,
-      size_t efSearch, const RetrievalContext *retrieval_context) {
+      size_t efSearch, int do_efSearch_check, const RetrievalContext *retrieval_context) {
     std::priority_queue<std::pair<dist_t, labeltype>> result;
     if (cur_element_count == 0) return result;
 
@@ -1133,13 +1137,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     if (has_deletions_) {
       pthread_rwlock_rdlock(&shared_mutex_);
       top_candidates = searchBaseLayerST<true, true>(
-          currObj, query_data, std::max(efSearch, k), fstdistfunc,
+          currObj, query_data, std::max(efSearch, k), efSearch, do_efSearch_check, fstdistfunc,
           retrieval_context);
       pthread_rwlock_unlock(&shared_mutex_);
     } else {
       pthread_rwlock_rdlock(&shared_mutex_);
       top_candidates = searchBaseLayerST<false, true>(
-          currObj, query_data, std::max(efSearch, k), fstdistfunc,
+          currObj, query_data, std::max(efSearch, k), efSearch, do_efSearch_check, fstdistfunc,
           retrieval_context);
       pthread_rwlock_unlock(&shared_mutex_);
     }
