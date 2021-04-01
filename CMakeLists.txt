@@ -2,14 +2,13 @@
 #    GAMMA ENGINE 
 #--------------------------------------------
 project(gamma_engine C CXX)
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.17)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
-option(TABLE_STR_INT64 "table string int64 address" off)
 
 exec_program(
     "sh"
@@ -28,7 +27,10 @@ set(GAMMA_SEARCH ${CMAKE_CURRENT_SOURCE_DIR}/search)
 set(GAMMA_INDEX ${CMAKE_CURRENT_SOURCE_DIR}/index)
 set(GAMMA_INDEX_IMPL ${CMAKE_CURRENT_SOURCE_DIR}/index/impl)
 set(GAMMA_INDEX_IMPL_HNSWLIB ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/hnswlib)
+set(GAMMA_INDEX_IMPL_SSG ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/ssg)
 set(GAMMA_VECTOR ${CMAKE_CURRENT_SOURCE_DIR}/vector)
+set(STORAGE ${CMAKE_CURRENT_SOURCE_DIR}/storage)
+set(STORAGE_COMPRESS ${CMAKE_CURRENT_SOURCE_DIR}/storage/compress)
 set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
 set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
 set(GAMMA_C_API ${CMAKE_CURRENT_SOURCE_DIR}/c_api)
@@ -67,11 +69,6 @@ ELSE (DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
 ENDIF (DEFINED ENV{ZFP_HOME})
 
-if(TABLE_STR_INT64)
-    MESSAGE(STATUS "TABLE_STR_INT64 is on")
-    ADD_DEFINITIONS(-DTABLE_STR_INT64)
-endif(TABLE_STR_INT64)
-
 #INCLUDE DIR
 include_directories(
     ${THIRDPARTY}
@@ -86,7 +83,10 @@ include_directories(
     ${GAMMA_INDEX}
     ${GAMMA_INDEX_IMPL}
     ${GAMMA_INDEX_IMPL_HNSWLIB}
+    ${GAMMA_INDEX_IMPL_SSG}
     ${GAMMA_VECTOR}
+    ${STORAGE}
+    ${STORAGE_COMPRESS}
     ${GAMMA_REALTIME}
     ${GAMMA_C_API}
     ${GAMMA_IO}
@@ -108,6 +108,7 @@ set(LIBRARIES
     -lcrypto
     -lzstd
     -lopenblas
+    -ltbb
 )
 
 #ADDITIONAL SOURCE DIR
@@ -119,8 +120,11 @@ aux_source_directory(${UTIL} DIR_SRCS)
 aux_source_directory(${COMMON} DIR_SRCS)
 aux_source_directory(${GAMMA_SEARCH} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX} DIR_SRCS)
+aux_source_directory(${STORAGE} DIR_SRCS)
+aux_source_directory(${STORAGE_COMPRESS} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX_IMPL} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX_IMPL_HNSWLIB} DIR_SRCS)
+aux_source_directory(${GAMMA_INDEX_IMPL_SSG} DIR_SRCS)
 aux_source_directory(${GAMMA_VECTOR} DIR_SRCS)
 aux_source_directory(${GAMMA_REALTIME} DIR_SRCS)
 aux_source_directory(${GAMMA_TABLE} DIR_SRCS)

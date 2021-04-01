@@ -27,88 +27,84 @@ MmapRawVector::MmapRawVector(VectorMetaInfo *meta_info, const string &root_path,
                              const StoreParams &store_params,
                              const char *docids_bitmap)
     : RawVector(meta_info, root_path, docids_bitmap, store_params) {
+  allow_use_zpf = false;
   vector_byte_size_ = meta_info_->DataSize() * meta_info->Dimension();
-  nsegment_ = 0;
-  segment_size_ = store_params.segment_size;
+  storage_mgr_ = nullptr;
 }
 
-MmapRawVector::~MmapRawVector() {
-  for (int i = 0; i < file_mappers_.size(); i++) {
-    CHECK_DELETE(file_mappers_[i]);
-  }
-}
-
-string MmapRawVector::NextSegmentFilePath() {
-  char buf[7];
-  snprintf(buf, 7, "%06d", nsegment_);
-  string vec_dir = root_path_ + "/" + meta_info_->Name();
-  string file_path = vec_dir + "/vector-" + buf;
-  return file_path;
-}
+MmapRawVector::~MmapRawVector() { CHECK_DELETE(storage_mgr_); }
 
 int MmapRawVector::InitStore() {
   std::string vec_dir = root_path_ + "/" + meta_info_->Name();
-  if (utils::make_dir(vec_dir.c_str())) {
-    LOG(ERROR) << "mkdir error, path=" << vec_dir;
-    return IO_ERR;
+  uint32_t var = 0;
+  --var;
+  uint32_t max_seg_size = var / vector_byte_size_;
+  if (max_seg_size < store_params_.segment_size) {
+    store_params_.segment_size = max_seg_size;
+    LOG(INFO) << "Because the vector length is too long, segment_size becomes "
+              << max_seg_size;
   }
-  file_mappers_.resize(kMaxSegments, nullptr);
-  int ret = Extend();
-  if (ret) return ret;
-
-  LOG(INFO) << "Init success! vector byte size=" << vector_byte_size_
-            << ", segment size=" << segment_size_;
-  return 0;
-}
-
-int MmapRawVector::Extend() {
-  VectorFileMapper *file_mapper = new VectorFileMapper(
-      NextSegmentFilePath(), segment_size_, vector_byte_size_);
-  int ret = file_mapper->Init();
+  StorageManagerOptions options;
+  options.segment_size = store_params_.segment_size;
+  options.fixed_value_bytes = vector_byte_size_;
+  storage_mgr_ = new StorageManager(vec_dir, BlockType::VectorBlockType, options);
+#ifdef WITH_ZFP
+  if(!store_params_.compress.IsEmpty()) {
+    if (meta_info_->DataType() != VectorValueType::FLOAT) {
+      LOG(ERROR) << "data type is not float, compress is unsupported";
+      return PARAM_ERR;
+    }
+    int res = storage_mgr_->UseCompress(CompressType::Zfp, meta_info_->Dimension());
+    if(res == 0) {
+      LOG(INFO) << "Storage_manager use zfp compress vector";
+    } else {
+      LOG(INFO) << "ZFP initialization failed, not use zfp";
+    }
+  }else {
+    LOG(INFO) << "store_params_.compress.IsEmpty() is true, not use zfp";
+  }
+#endif
+  int ret = storage_mgr_->Init(store_params_.cache_size);
   if (ret) {
-    LOG(ERROR) << "extend file mapper error, ret=" << ret;
+    LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;
   }
-  file_mappers_[nsegment_++] = file_mapper;
-  return 0;
-}
 
-int MmapRawVector::AddToStore(uint8_t *v, int len) {
-  if (file_mappers_[nsegment_ - 1]->IsFull() && Extend()) {
-    LOG(ERROR) << "extend error";
-    return INTERNAL_ERR;
-  }
-  return file_mappers_[nsegment_ - 1]->Add(v, len);
+  LOG(INFO) << "init mmap raw vector success! vector byte size="
+            << vector_byte_size_ << ", path=" << vec_dir;
+  return 0;
 }
 
 int MmapRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
                                    std::vector<int> &lens) {
-  if (start + n > meta_info_->Size()) return PARAM_ERR;
-  while (n) {
-    int offset = start % segment_size_;
-    vecs.Add(file_mappers_[start / segment_size_]->GetVector(offset), false);
-    int len = segment_size_ - offset;
-    if (len > n) len = n;
-    lens.push_back(len);
-    start += len;
-    n -= len;
-  }
+  int ret = storage_mgr_->GetHeaders(start, n, vecs.ptr_, lens);
+  vecs.deletable_.resize(vecs.ptr_.size(), true);
+  return ret;
+}
+
+int MmapRawVector::AddToStore(uint8_t *v, int len) { return storage_mgr_->Add(v, len); }
+
+int MmapRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
+  return storage_mgr_->Update(vid, v, len);
+}
+
+int MmapRawVector::AlterCacheSize(uint32_t cache_size) {
+  if(storage_mgr_ == nullptr) return -1;
+  storage_mgr_->AlterCacheSize(cache_size, 0);
   return 0;
 }
 
-int MmapRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
-  if (vid >= (long)meta_info_->Size() || vid < 0 || len != vector_byte_size_) {
-    return PARAM_ERR;
-  }
-  return file_mappers_[vid / segment_size_]->Update(vid % segment_size_,  v, len);
-};
+int MmapRawVector::GetCacheSize(uint32_t &cache_size) {
+  if(storage_mgr_ == nullptr) return -1;
+  uint32_t str_cache_size = 0;
+  storage_mgr_->GetCacheSize(cache_size, str_cache_size);
+  return 0;
+}
 
 int MmapRawVector::GetVector(long vid, const uint8_t *&vec,
                              bool &deletable) const {
-  if (vid >= meta_info_->Size() || vid < 0) return -1;
-  vec = file_mappers_[vid / segment_size_]->GetVector(vid % segment_size_);
-  deletable = false;
-  return 0;
+  deletable = true;
+  return storage_mgr_->Get(vid, vec);
 }
 
 }  // namespace tig_gamma

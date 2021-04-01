@@ -101,9 +101,15 @@ class GammaEngine {
 
   char **BatchDocsStr() { return batch_docs_.data(); }
 
+  int GetConfig(Config &config);
+
+  int SetConfig(Config &config);
+
  private:
   GammaEngine(const std::string &index_root_path);
+
   int CreateTableFromLocal(std::string &table_name);
+
   int Indexing();
 
  private:
@@ -123,7 +129,7 @@ class GammaEngine {
 
   std::atomic<int> delete_num_;
 
-  bool b_running_;
+  int b_running_; // 0 not run, not 0 running
   bool b_field_running_;
 
   std::condition_variable running_cv_;

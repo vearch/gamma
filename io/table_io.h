@@ -1,6 +1,3 @@
-#ifndef TABLE_IO_H_
-#define TABLE_IO_H_
-
 #pragma once
 
 #include <string>
@@ -27,5 +24,3 @@ class TableIO : public AsyncFlusher {
 };
 
 }  // namespace tig_gamma
-
-#endif

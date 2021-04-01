@@ -12,6 +12,7 @@
 #include <map>
 #include <string>
 
+#include "api_data/gamma_config.h"
 #include "gamma_common_data.h"
 #include "log.h"
 #include "raw_vector.h"
@@ -67,6 +68,10 @@ class VectorManager {
   }
 
   int MinIndexedNum();
+
+  int AlterCacheSize(struct CacheInfo &cache_info);
+
+  int GetAllCacheSize(Config &conf);
 
  private:
   void Close();  // release all resource

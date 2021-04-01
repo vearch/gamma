@@ -11,6 +11,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <tbb/concurrent_queue.h>
 
 #include "concurrentqueue/blockingconcurrentqueue.h"
 #include "range_query_result.h"
@@ -63,7 +64,7 @@ class FieldOperate {
 };
 
 typedef moodycamel::BlockingConcurrentQueue<ResourceToRecovery *> ResourceQueue;
-typedef moodycamel::BlockingConcurrentQueue<FieldOperate *> FieldOperateQueue;
+typedef tbb::concurrent_bounded_queue<FieldOperate *> FieldOperateQueue;
 
 class FieldRangeIndex;
 class MultiFieldsRangeIndex {

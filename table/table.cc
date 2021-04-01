@@ -23,8 +23,6 @@ using std::vector;
 namespace tig_gamma {
 namespace table {
 
-const static string kTableDumpedNum = "profile_dumped_num";
-
 Table::Table(const string &root_path, bool b_compress) {
   item_length_ = 0;
   field_num_ = 0;
@@ -33,57 +31,25 @@ Table::Table(const string &root_path, bool b_compress) {
   root_path_ = root_path + "/table";
   seg_num_ = 0;
   b_compress_ = b_compress;
-  compressed_num_ = 0;
-
-  // TODO : there is a failure.
-  // if (!item_to_docid_.reserve(max_doc_size)) {
-  //   LOG(ERROR) << "item_to_docid reserve failed, max_doc_size [" <<
-  //   max_doc_size
-  //              << "]";
-  // }
 
   table_created_ = false;
-  last_docid_ = 0;
+  last_docid_ = -1;
   table_params_ = nullptr;
   LOG(INFO) << "Table created success!";
 }
 
 Table::~Table() {
-#ifdef USE_BTREE
-  if (cache_mgr_) {
-    bt_mgrclose(cache_mgr_);
-    cache_mgr_ = nullptr;
-  }
-  if (main_mgr_) {
-    bt_mgrclose(main_mgr_);
-    main_mgr_ = nullptr;
-  }
-#endif
-
-  for (int i = 0; i < seg_num_; ++i) {
-    delete main_file_[i];
-  }
   CHECK_DELETE(table_params_);
   LOG(INFO) << "Table deleted.";
 }
 
 int Table::Load(int &num) {
-  std::string file_name =
-      root_path_ + "/" + std::to_string(seg_num_) + ".profile";
-  int doc_num = 0;
-  while (utils::file_exist(file_name)) {
-    main_file_[seg_num_] = new TableData(item_length_);
-    main_file_[seg_num_]->Load(seg_num_, root_path_);
-    doc_num += main_file_[seg_num_]->Size();
-    ++seg_num_;
-    if (doc_num >= num) {
-      doc_num = num;
-      break;
-    }
-    file_name = root_path_ + "/" + std::to_string(seg_num_) + ".profile";
-  }
+  int doc_num = storage_mgr_->Size();
+  storage_mgr_->Truncate(num);
+  LOG(INFO) << "Load doc_num [" << doc_num << "] truncate to [" << num << "]";
+  doc_num = num;
 
-  const string str_id = "_id";
+  const std::string str_id = "_id";
   const auto &iter = attr_idx_map_.find(str_id);
   if (iter == attr_idx_map_.end()) {
     LOG(ERROR) << "cannot find field [" << str_id << "]";
@@ -91,27 +57,27 @@ int Table::Load(int &num) {
   }
 
   int idx = iter->second;
-#pragma omp parallel for
-  for (int i = 0; i < doc_num; ++i) {
-    if (id_type_ == 0) {
+  if (id_type_ == 0) {
+    for (int i = 0; i < doc_num; ++i) {
       std::string key;
-      DecompressStr decompress_str;
-      GetFieldString(i, idx, key, decompress_str);
+      GetFieldRawValue(i, idx, key);
       int64_t k = utils::StringToInt64(key);
       item_to_docid_.insert(k, i);
-    } else {
+    }
+  } else {
+    for (int i = 0; i < doc_num; ++i) {
       long key = -1;
-      GetField<long>(i, idx, key);
+      std::string key_str;
+      GetFieldRawValue(i, idx, key_str);
+      memcpy(&key, key_str.c_str(), sizeof(key));
       item_to_docid_.insert(key, i);
     }
   }
 
   LOG(INFO) << "Table load successed! doc num=" << doc_num;
-  last_docid_ = doc_num;
+  last_docid_ = doc_num - 1;
   return 0;
 }
-
-int Table::Sync() { return 0; }
 
 int Table::CreateTable(TableInfo &table, TableParams &table_params) {
   if (table_created_) {
@@ -145,34 +111,27 @@ int Table::CreateTable(TableInfo &table, TableParams &table_params) {
     mkdir(root_path_.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   }
 
-#ifdef USE_BTREE
-  uint mainleafxtra = 0;
-  uint maxleaves = 1000000;
-  uint poolsize = 500;
-  uint leafxtra = 0;
-  uint mainpool = 500;
-  uint mainbits = 16;
-  uint bits = 16;
-
-  string cache_file = root_path_ + string("/cache_") + ".dis";
-  string main_file = root_path_ + string("/main_") + ".dis";
-
-  remove(cache_file.c_str());
-  remove(main_file.c_str());
-
-  cache_mgr_ =
-      bt_mgr(const_cast<char *>(cache_file.c_str()), bits, leafxtra, poolsize);
-  cache_mgr_->maxleaves = maxleaves;
-  main_mgr_ = bt_mgr(const_cast<char *>(main_file.c_str()), mainbits,
-                     mainleafxtra, mainpool);
-  main_mgr_->maxleaves = maxleaves;
-#endif
-
   table_params_ = new TableParams("table");
   table_created_ = true;
   LOG(INFO) << "Create table " << name_
             << " success! item length=" << item_length_
             << ", field num=" << (int)field_num_;
+
+  StorageManagerOptions options;
+  options.segment_size = 102400;
+  options.fixed_value_bytes = item_length_;
+  storage_mgr_ = 
+      new StorageManager(root_path_, BlockType::TableBlockType, options);
+  int cache_size = 512;                         // unit : M
+  int str_cache_size = 512;
+  int ret = storage_mgr_->Init(cache_size, str_cache_size);
+  if (ret) {
+    LOG(ERROR) << "init gamma db error, ret=" << ret;
+    return ret;
+  }
+
+  LOG(INFO) << "init storageManager success! vector byte size="
+            << options.fixed_value_bytes << ", path=" << root_path_;
   return 0;
 }
 
@@ -187,44 +146,10 @@ int Table::FTypeSize(DataType fType) {
   } else if (fType == DataType::DOUBLE) {
     length = sizeof(double);
   } else if (fType == DataType::STRING) {
-    length = sizeof(str_offset_t) + sizeof(str_len_t);
+    // block_id, in_block_pos, str_len
+    length = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(str_len_t);
   }
   return length;
-}
-
-void Table::SetFieldValue(int docid, const std::string &field, int field_id,
-                          const char *value, str_len_t len) {
-  size_t offset = idx_attr_offset_[field_id];
-  DataType attr = attrs_[field_id];
-
-  if (attr != DataType::STRING) {
-    int type_size = FTypeSize(attr);
-
-    int seg_pos;
-    size_t in_seg_pos;
-    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos, false);
-    if (ret != 0) {
-      return;
-    }
-    offset += in_seg_pos * item_length_;
-    TableData *seg_file = main_file_[seg_pos];
-    seg_file->Write(value, offset, type_size);
-  } else {
-    size_t ofst = sizeof(str_offset_t);
-    int seg_pos;
-    size_t in_seg_pos;
-    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos, false);
-    if (ret != 0) {
-      return;
-    }
-    offset += in_seg_pos * item_length_;
-    TableData *seg_file = main_file_[seg_pos];
-    str_offset_t str_offset = seg_file->StrOffset();
-    seg_file->Write((char *)&str_offset, offset, sizeof(str_offset));
-    seg_file->Write((char *)&len, offset + ofst, sizeof(len));
-
-    seg_file->WriteStr(value, sizeof(char) * len);
-  }
 }
 
 int Table::AddField(const string &name, DataType ftype, bool is_index) {
@@ -237,6 +162,7 @@ int Table::AddField(const string &name, DataType ftype, bool is_index) {
     id_type_ = ftype == DataType::STRING ? 0 : 1;
   }
   if (ftype == DataType::STRING) {
+    str_field_id_.insert(std::make_pair(field_num_, string_field_num_));
     ++string_field_num_;
   }
   idx_attr_offset_.push_back(item_length_);
@@ -251,16 +177,6 @@ int Table::AddField(const string &name, DataType ftype, bool is_index) {
 }
 
 int Table::GetDocIDByKey(std::string &key, int &docid) {
-#ifdef USE_BTREE
-  BtDb *bt = bt_open(cache_mgr_, main_mgr_);
-  int ret = bt_findkey(bt, reinterpret_cast<unsigned char *>(&key), sizeof(key),
-                       (unsigned char *)&docid, sizeof(int));
-  bt_close(bt);
-
-  if (ret >= 0) {
-    return 0;
-  }
-#else
   if (id_type_ == 0) {
     int64_t k = utils::StringToInt64(key);
     if (item_to_docid_.find(k, docid)) {
@@ -274,8 +190,6 @@ int Table::GetDocIDByKey(std::string &key, int &docid) {
       return 0;
     }
   }
-
-#endif
   return -1;
 }
 
@@ -291,17 +205,6 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
     return -3;
   }
 
-#ifdef USE_BTREE
-  BtDb *bt = bt_open(cache_mgr_, main_mgr_);
-
-  BTERR bterr = bt_insertkey(
-      bt->main, reinterpret_cast<unsigned char *>(&key.data()), sizeof(key), 0,
-      static_cast<void *>(&docid), sizeof(int), Unique);
-  if (bterr) {
-    LOG(ERROR) << "Error " << bt->mgr->err;
-  }
-  bt_close(bt);
-#else
   if (id_type_ == 0) {
     int64_t k = utils::StringToInt64(key);
     item_to_docid_.insert(k, docid);
@@ -311,24 +214,36 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
 
     item_to_docid_.insert(key_long, docid);
   }
-#endif
+
+  uint8_t doc_value[item_length_];
 
   for (size_t i = 0; i < fields.size(); ++i) {
     const auto &field_value = fields[i];
-    const string &name = field_value.name;
+    const std::string &name = field_value.name;
+    size_t offset = idx_attr_offset_[i];
 
-    SetFieldValue(docid, name, i, field_value.value.c_str(),
-                  field_value.value.size());
+    DataType attr = attrs_[i];
+
+    if (attr != DataType::STRING) {
+      int type_size = FTypeSize(attr);
+      memcpy(doc_value + offset, field_value.value.c_str(), type_size);
+    } else {
+      size_t ofst = sizeof(str_offset_t);
+      str_len_t len = field_value.value.size();
+      int str_field_id = str_field_id_[attr_idx_map_[name]];
+      uint32_t block_id, in_block_pos;
+      str_offset_t str_offset = storage_mgr_->AddString(
+          field_value.value.c_str(), len, block_id, in_block_pos);
+
+      memcpy(doc_value + offset, &block_id, sizeof(block_id));
+      memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
+             sizeof(in_block_pos));
+      memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos), &len,
+             sizeof(len));
+    }
   }
 
-  TableData *seg_file = main_file_[docid / DOCNUM_PER_SEGMENT];
-  seg_file->SetSize(seg_file->Size() + 1);
-  // if (PutToDB(docid)) {
-  //   LOG(ERROR) << "Put to rocksdb error, docid [" << docid << "]";
-  //   return -2;
-  // }
-
-  Compress();
+  storage_mgr_->Add((const uint8_t *)doc_value, item_length_);
 
   if (docid % 10000 == 0) {
     if (id_type_ == 0) {
@@ -377,13 +292,34 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
     int id = docid + i;
     Doc &doc = doc_vec[start_id + i];
     std::vector<Field> &fields = doc.TableFields();
-    for (size_t j = 0; j < attr_idx_map_.size(); ++j) {
+    uint8_t doc_value[item_length_];
+
+    for (size_t j = 0; j < fields.size(); ++j) {
       const auto &field_value = fields[j];
       const string &name = field_value.name;
+      size_t offset = idx_attr_offset_[j];
 
-      SetFieldValue(id, name, j, field_value.value.c_str(),
-                    field_value.value.size());
+      DataType attr = attrs_[j];
+
+      if (attr != DataType::STRING) {
+        int type_size = FTypeSize(attr);
+        memcpy(doc_value + offset, field_value.value.c_str(), type_size);
+      } else {
+        size_t ofst = sizeof(str_offset_t);
+        str_len_t len = field_value.value.size();
+        uint32_t block_id, in_block_pos;
+        str_offset_t str_offset = storage_mgr_->AddString(
+            field_value.value.c_str(), len, block_id, in_block_pos);
+
+        memcpy(doc_value + offset, &block_id, sizeof(block_id));
+        memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
+               sizeof(in_block_pos));
+        memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos),
+               &len, sizeof(len));
+      }
     }
+
+    storage_mgr_->Add((const uint8_t *)doc_value, item_length_);
     if (id % 10000 == 0) {
       std::string &key = doc_vec[i].Key();
       if (id_type_ == 0) {
@@ -394,16 +330,9 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
         LOG(INFO) << "Add item _id [" << key_long << "], num [" << id << "]";
       }
     }
-    TableData *seg_file = main_file_[id / DOCNUM_PER_SEGMENT];
-    seg_file->SetSize(seg_file->Size() + 1);
   }
 
-  // if (BatchPutToDB(docid, batch_size)) {
-  //   LOG(ERROR) << "put to rocksdb error, docid=" << docid;
-  //   return -2;
-  // }
-
-  Compress();
+  // Compress();
 #ifdef PERFORMANCE_TESTING
   double end = utils::getmillisecs();
   if (docid % 10000 == 0) {
@@ -417,6 +346,13 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
 int Table::Update(const std::vector<Field> &fields, int docid) {
   if (fields.size() == 0) return 0;
 
+  const uint8_t *ori_doc_value;
+  storage_mgr_->Get(docid, ori_doc_value);
+
+  uint8_t doc_value[item_length_];
+
+  memcpy(doc_value, ori_doc_value, item_length_);
+
   for (size_t i = 0; i < fields.size(); ++i) {
     const struct Field &field_value = fields[i];
     const string &name = field_value.name;
@@ -427,51 +363,28 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
     }
 
     int field_id = it->second;
+    int offset = idx_attr_offset_[field_id];
 
     if (field_value.datatype == DataType::STRING) {
       int offset = idx_attr_offset_[field_id];
 
-      int seg_pos;
-      size_t in_seg_pos;
-      int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos, false);
-      if (ret != 0) {
-        return ret;
-      }
-      offset += in_seg_pos * item_length_;
-      TableData *seg_file = main_file_[seg_pos];
-      char *base = seg_file->Base();
-
-      str_offset_t str_offset = 0;
-      memcpy(&str_offset, base + offset, sizeof(str_offset));
-      str_len_t len;
-      memcpy(&len, base + offset + sizeof(str_offset), sizeof(len));
-
-      size_t value_len = field_value.value.size();
-      if (len >= value_len) {
-        seg_file->Write((char *)&value_len, offset + sizeof(str_offset),
-                        sizeof(len));
-        seg_file->WriteStr(field_value.value.data(), str_offset, value_len);
-      } else {
-        len = value_len;
-        int ofst = sizeof(str_offset);
-        str_offset = seg_file->StrOffset();
-        seg_file->Write((char *)&str_offset, offset, sizeof(str_offset));
-        seg_file->Write((char *)&len, offset + ofst, sizeof(len));
-        seg_file->WriteStr(field_value.value.data(), sizeof(char) * len);
-      }
+      str_len_t len = field_value.value.size();
+      uint32_t block_id, in_block_pos;
+      str_offset_t res = storage_mgr_->UpdateString(docid, field_value.value.c_str(),
+                                                    len, block_id, in_block_pos);
+      memcpy(doc_value + offset, &block_id, sizeof(block_id));
+      memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
+              sizeof(in_block_pos));
+      memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos),
+              &len, sizeof(len));
     } else {
-      SetFieldValue(docid, name, field_id, field_value.value.data(),
-                    field_value.value.size());
+      memcpy(doc_value + offset, field_value.value.data(),
+             field_value.value.size());
     }
   }
 
-  // if (PutToDB(docid)) {
-  //   LOG(ERROR) << "update to rocksdb error, docid=" << docid;
-  //   return -2;
-  // }
-
-  Compress();
-
+  storage_mgr_->Update(docid, doc_value, item_length_);
+  delete[] ori_doc_value;
   return 0;
 }
 
@@ -488,225 +401,118 @@ int Table::Delete(std::string &key) {
   return 0;
 }
 
-int Table::GetRawDoc(int docid, vector<char> &raw_doc) {
-  int len = item_length_;
-  raw_doc.resize(len, 0);
-  int seg_pos;
-  size_t in_seg_pos;
-  int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
-  if (ret != 0) {
-    return ret;
-  }
-  size_t offset = in_seg_pos * item_length_;
-  TableData *seg_file = main_file_[seg_pos];
-  char *base = seg_file->Base();
-  memcpy((void *)raw_doc.data(), base + offset, item_length_);
-  DecompressStr decompress_str;
-
-  for (int i = 0; i < (int)idx_attr_offset_.size(); i++) {
-    if (attrs_[i] != DataType::STRING) continue;
-
-    char *field = base + offset + idx_attr_offset_[i];
-    str_len_t str_len = 0;
-    memcpy((void *)&str_len, field + sizeof(str_offset_t), sizeof(str_len));
-    if (str_len == 0) continue;
-
-    raw_doc.resize(len + str_len, 0);
-    str_offset_t str_offset = 0;
-    memcpy((void *)&str_offset, field, sizeof(str_offset));
-    std::string str;
-    int ret = seg_file->GetStr(str_offset, str_len, str, decompress_str);
-    if (ret != 0) {
-      LOG(ERROR) << "Get str error [" << docid << "] len [" << (int)str_len
-                 << "]";
-    }
-    memcpy((void *)(raw_doc.data() + len), str.c_str(), str_len);
-    len += str_len;
-  }
-  return 0;
-}
-
-int Table::GetSegPos(IN int32_t docid, IN int32_t field_id, OUT int &seg_pos,
-                     OUT size_t &in_seg_pos, bool bRead) {
-  seg_pos = docid / DOCNUM_PER_SEGMENT;
-  if (seg_pos >= seg_num_) {
-    if (bRead) {
-      LOG(ERROR) << "Pos [" << seg_pos << "] out of bound [" << seg_num_ << "]";
-      return -1;
-    }
-    int ret = Extend();
-    if (ret != 0) {
-      LOG(ERROR) << "docid [" << docid << "], main_file [" << seg_pos
-                 << "] is NULL";
-      return -1;
-    }
-  }
-  in_seg_pos = docid % DOCNUM_PER_SEGMENT;
-  return 0;
-}
-
-int Table::Extend() {
-  main_file_[seg_num_] = new TableData(item_length_);
-  main_file_[seg_num_]->Init(seg_num_, root_path_, string_field_num_);
-  ++seg_num_;
-  return 0;
-}
-
-void Table::Compress() {
-  if (b_compress_) {
-    if (seg_num_ < 2) return;
-
-    for (int i = compressed_num_; i < seg_num_ - 1; ++i) {
-      main_file_[i]->Compress();
-    }
-
-    compressed_num_ = seg_num_ - 1;
-  }
-}
-
 long Table::GetMemoryBytes() {
   long total_mem_bytes = 0;
-  for (int i = 0; i < seg_num_; ++i) {
-    total_mem_bytes += main_file_[i]->GetMemoryBytes();
-  }
+  // for (int i = 0; i < seg_num_; ++i) {
+  //   total_mem_bytes += main_file_[i]->GetMemoryBytes();
+  // }
   return total_mem_bytes;
 }
 
 int Table::GetDocInfo(std::string &id, Doc &doc,
+                      std::vector<std::string> &fields,
                       DecompressStr &decompress_str) {
   int doc_id = 0;
   int ret = GetDocIDByKey(id, doc_id);
   if (ret < 0) {
     return ret;
   }
-  return GetDocInfo(doc_id, doc, decompress_str);
+  return GetDocInfo(doc_id, doc, fields, decompress_str);
 }
 
 int Table::GetDocInfo(const int docid, Doc &doc,
+                      std::vector<std::string> &fields,
                       DecompressStr &decompress_str) {
   if (docid > last_docid_) {
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
   }
-  int i = 0;
+  const uint8_t *doc_value;
+  storage_mgr_->Get(docid, doc_value);
   std::vector<struct Field> &table_fields = doc.TableFields();
-  table_fields.resize(attr_type_map_.size());
 
-  for (const auto &it : attr_type_map_) {
-    const string &attr = it.first;
-    GetFieldInfo(docid, attr, table_fields[i], decompress_str);
-    ++i;
+  if (fields.size() == 0) {
+    int i = 0;
+    table_fields.resize(attr_type_map_.size());
+
+    for (const auto &it : attr_idx_map_) {
+      DataType type = attr_type_map_[it.first];
+      std::string source;
+      table_fields[i].name = it.first;
+      table_fields[i].source = source;
+      table_fields[i].datatype = type;
+      GetFieldRawValue(docid, it.second, table_fields[i].value, doc_value);
+      ++i;
+    }
+  } else {
+    table_fields.resize(fields.size());
+    int i = 0;
+    for (std::string &f : fields) {
+      const auto &iter = attr_idx_map_.find(f);
+      if (iter == attr_idx_map_.end()) {
+        LOG(ERROR) << "Cannot find field [" << f << "]";
+      }
+      int field_idx = iter->second;
+      DataType type = attr_type_map_[f];
+      std::string source;
+      table_fields[i].name = f;
+      table_fields[i].source = source;
+      table_fields[i].datatype = type;
+      GetFieldRawValue(docid, field_idx, table_fields[i].value, doc_value);
+      ++i;
+    }
   }
+  delete[] doc_value;
   return 0;
 }
 
-void Table::GetFieldInfo(const int docid, const string &field_name,
-                         struct Field &field, DecompressStr &decompress_str) {
-  const auto &it = attr_type_map_.find(field_name);
-  if (it == attr_type_map_.end()) {
-    LOG(ERROR) << "Cannot find field [" << field_name << "]";
-    return;
-  }
-
-  DataType type = it->second;
-
-  std::string source;
-  field.name = field_name;
-  field.source = source;
-  field.datatype = type;
-
-  if (type == DataType::STRING) {
-    GetFieldString(docid, field_name, field.value, decompress_str);
-  } else {
-    int value_len = FTypeSize(type);
-
-    std::string str_value;
-    if (type == DataType::INT) {
-      int value = 0;
-      GetField<int>(docid, field_name, value);
-      str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    } else if (type == DataType::LONG) {
-      long value = 0;
-      GetField<long>(docid, field_name, value);
-      str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    } else if (type == DataType::FLOAT) {
-      float value = 0;
-      GetField<float>(docid, field_name, value);
-      str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    } else if (type == DataType::DOUBLE) {
-      double value = 0;
-      GetField<double>(docid, field_name, value);
-      str_value = std::string(reinterpret_cast<char *>(&value), value_len);
-    }
-    field.value = std::move(str_value);
-  }
-}
-
-int Table::GetFieldString(int docid, const std::string &field,
-                          std::string &value, DecompressStr &decompress_str) {
-  const auto &iter = attr_idx_map_.find(field);
+int Table::GetFieldRawValue(int docid, const std::string &field_name,
+                            std::string &value, const uint8_t *doc_v) {
+  const auto iter = attr_idx_map_.find(field_name);
   if (iter == attr_idx_map_.end()) {
-    LOG(ERROR) << "docid " << docid << " field " << field;
+    LOG(ERROR) << "Cannot find field [" << field_name << "]";
     return -1;
   }
-  int idx = iter->second;
-  return GetFieldString(docid, idx, value, decompress_str);
+  GetFieldRawValue(docid, iter->second, value, doc_v);
 }
 
-int Table::GetFieldString(int docid, int field_id, std::string &value,
-                          DecompressStr &decompress_str) {
-  size_t offset = idx_attr_offset_[field_id];
-  str_offset_t str_offset = 0;
-
-  int seg_pos;
-  size_t in_seg_pos;
-  int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
-  if (ret != 0) {
-    return ret;
-  }
-  offset += in_seg_pos * item_length_;
-  TableData *seg_file = main_file_[seg_pos];
-  if (seg_pos == decompress_str.SegID()) {
-    decompress_str.SetHit(true);
-  } else {
-    decompress_str.SetHit(false);
-  }
-  decompress_str.SetSegID(seg_pos);
-
-  char *base = seg_file->Base();
-
-  memcpy(&str_offset, base + offset, sizeof(str_offset));
-
-  str_len_t len;
-  memcpy(&len, base + offset + sizeof(str_offset), sizeof(len));
-  ret = seg_file->GetStr(str_offset, len, value, decompress_str);
-  if (ret != 0) {
-    decompress_str.SetHit(false);
-  }
-  return ret;
-}
-
-int Table::GetFieldRawValue(int docid, int field_id, std::string &value) {
+int Table::GetFieldRawValue(int docid, int field_id, std::string &value,
+                            const uint8_t *doc_v) {
   if ((docid < 0) or (field_id < 0 || field_id >= field_num_)) return -1;
 
-  DataType data_type = attrs_[field_id];
-  if (data_type != DataType::STRING) {
-    size_t offset = idx_attr_offset_[field_id];
-    int data_len = FTypeSize(data_type);
-    int seg_pos;
-    size_t in_seg_pos;
-    int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
-    if (ret != 0) {
-      return ret;
-    }
-    offset += in_seg_pos * item_length_;
-    TableData *seg_file = main_file_[seg_pos];
-    char *base = seg_file->Base();
-    value = std::string(base + offset, data_len);
-  } else {
-    DecompressStr decompress_str;
-    GetFieldString(docid, field_id, value, decompress_str);
+  const uint8_t *doc_value = doc_v;
+  bool free = false;
+  if (doc_value == nullptr) {
+    free = true;
+    storage_mgr_->Get(docid, doc_value);
   }
+
+  DataType data_type = attrs_[field_id];
+  size_t offset = idx_attr_offset_[field_id];
+
+  if (data_type == DataType::STRING) {
+    uint32_t block_id = 0;
+    memcpy(&block_id, doc_value + offset, sizeof(block_id));
+
+    uint32_t in_block_pos = 0;
+    memcpy(&in_block_pos, doc_value + offset + sizeof(block_id),
+           sizeof(in_block_pos));
+
+    str_len_t len;
+    memcpy(&len, doc_value + offset + sizeof(block_id) + sizeof(in_block_pos),
+           sizeof(len));
+    std::string str;
+    storage_mgr_->GetString(docid, str, block_id, in_block_pos, len);
+    value = std::move(str);
+  } else {
+    int value_len = FTypeSize(data_type);
+    value = std::string((const char *)(doc_value + offset), value_len);
+  }
+
+  if (free) {
+    delete[] doc_value;
+  }
+
   return 0;
 }
 
@@ -739,33 +545,13 @@ int Table::GetAttrIdx(const std::string &field) const {
   return (iter != attr_idx_map_.end()) ? iter->second : -1;
 }
 
-int Table::AddRawDoc(int docid, const char *raw_doc, int doc_size) {
-  int seg_pos;
-  size_t in_seg_pos;
-  int ret = GetSegPos(docid, 0, seg_pos, in_seg_pos);
-  if (ret != 0) {
-    return ret;
-  }
-  size_t offset = in_seg_pos * item_length_;
-  TableData *seg_file = main_file_[seg_pos];
-  char *base = seg_file->Base();
-  uint64_t str_offset = seg_file->StrOffset();
+bool Table::AlterCacheSize(uint32_t cache_size,
+                           uint32_t str_cache_size) {
+  return storage_mgr_->AlterCacheSize(cache_size, str_cache_size);
+}
 
-  memcpy((void *)(base + offset), raw_doc, item_length_);
-  raw_doc += item_length_;
-  seg_file->WriteStr(raw_doc, doc_size - item_length_);
-
-  for (size_t field_id = 0; field_id < idx_attr_offset_.size(); ++field_id) {
-    if (attrs_[field_id] != DataType::STRING) continue;
-
-    int field_offset = idx_attr_offset_[field_id];
-    char *field = base + offset + field_offset;  // TODO base is read only
-    memcpy((void *)field, (void *)&str_offset, sizeof(str_offset));
-    str_len_t field_len = 0;
-    memcpy((void *)&field_len, (field + sizeof(str_offset)), sizeof(field_len));
-    str_offset += field_len;
-  }
-  return 0;
+void Table::GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size) {
+  storage_mgr_->GetCacheSize(cache_size, str_cache_size);
 }
 
 }  // namespace table

@@ -28,7 +28,6 @@ static const int kInitSize = 1000 * 1000;
 
 class RawVectorIO;
 struct StoreParams : DumpConfig {
-  std::string store_type;
   long cache_size;  // bytes
   int segment_size;
   utils::JsonParser compress;
@@ -40,7 +39,6 @@ struct StoreParams : DumpConfig {
 
   StoreParams(const StoreParams &other) {
     name = other.name;
-    store_type = other.store_type;
     cache_size = other.cache_size;
     segment_size = other.segment_size;
     compress = other.compress;
@@ -53,7 +51,6 @@ struct StoreParams : DumpConfig {
   std::string ToJsonStr() {
     std::stringstream ss;
     ss << "{";
-    ss << "\"store_type\":" << store_type << ",";
     ss << "\"cache_size\":" << cache_size << ",";
     ss << "\"segment_size\":" << segment_size << ",";
     ss << "\"compress\":" << compress.ToStr();
@@ -62,7 +59,6 @@ struct StoreParams : DumpConfig {
   }
 
   int ToJson(utils::JsonParser &jp) {
-    jp.PutString("store_type", store_type);
     jp.PutDouble("cache_size", cache_size);
     jp.PutInt("segment_size", segment_size);
     jp.PutObject("compress", compress);
@@ -161,6 +157,10 @@ class RawVector : public VectorReader {
 
   virtual int UpdateToStore(int vid, uint8_t *v, int len) = 0;
 
+  virtual int GetCacheSize(uint32_t &cache_size) { return -1; };
+
+  virtual int AlterCacheSize(uint32_t cache_size) { return -1; }
+
   RawVectorIO *GetIO() { return vio_; }
 
   void SetIO(RawVectorIO *vio) { vio_ = vio; }
@@ -200,8 +200,9 @@ class RawVector : public VectorReader {
   bool has_source_;
   std::string desc_;  // description of this raw vector
   StoreParams store_params_;
+  bool allow_use_zpf;
 #ifdef WITH_ZFP
-  ZFPCompressor zfp_compressor_;
+  ZFPCompressor *zfp_compressor_;
 #endif
   const char *docids_bitmap_;
   VIDMgr *vid_mgr_;

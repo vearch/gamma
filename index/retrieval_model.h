@@ -8,8 +8,10 @@
 #pragma once
 
 #include <vector>
+#include <tbb/concurrent_queue.h>
 
-#include "concurrentqueue/concurrentqueue.h"
+
+// #include "concurrentqueue/concurrentqueue.h"
 #include "reflector.h"
 #include "utils.h"
 
@@ -178,7 +180,6 @@ class ScopeVectors {
 
   size_t Size() { return ptr_.size(); }
 
- private:
   std::vector<const uint8_t *> ptr_;
   std::vector<bool> deletable_;
 };
@@ -292,7 +293,7 @@ class RetrievalModel {
   virtual int Load(const std::string &dir) = 0;
 
   VectorReader *vector_;
-  moodycamel::ConcurrentQueue<int> updated_vids_;
+  tbb::concurrent_bounded_queue<int> updated_vids_;
   // warining: indexed_count_ is only used by framework, sub-class cann't use it
   int indexed_count_;
 };

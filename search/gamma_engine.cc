@@ -178,9 +178,9 @@ GammaEngine::GammaEngine(const string &index_root_path)
   vec_manager_ = nullptr;
   index_status_ = IndexStatus::UNINDEXED;
   delete_num_ = 0;
-  b_running_ = false;
+  b_running_ = 0;
   b_field_running_ = false;
-  dump_docid_ = 0;
+  dump_docid_ = -1;
   bitmap_bytes_size_ = 0;
   field_range_index_ = nullptr;
   created_table_ = false;
@@ -193,7 +193,7 @@ GammaEngine::GammaEngine(const string &index_root_path)
 
 GammaEngine::~GammaEngine() {
   if (b_running_) {
-    b_running_ = false;
+    b_running_ = 0;
     std::mutex running_mutex;
     std::unique_lock<std::mutex> lk(running_mutex);
     running_cv_.wait(lk);
@@ -892,7 +892,8 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
   vec_manager_->VectorNames(index_names);
 
   table::DecompressStr decompress_str;
-  table_->GetDocInfo(docid, doc, decompress_str);
+  std::vector<string> table_fields;
+  table_->GetDocInfo(docid, doc, table_fields, decompress_str);
 
   std::vector<std::pair<std::string, int>> vec_fields_ids;
   for (size_t i = 0; i < index_names.size(); ++i) {
@@ -914,14 +915,14 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
 }
 
 int GammaEngine::BuildIndex() {
-  if (b_running_) {
+  int running = __sync_fetch_and_add(&b_running_, 1);
+  if (running) {
     if (vec_manager_->Indexing() != 0) {
       LOG(ERROR) << "Create index failed!";
       return -1;
     }
     return 0;
   }
-  b_running_ = true;
 
   auto func_indexing = std::bind(&GammaEngine::Indexing, this);
   std::thread t(func_indexing);
@@ -932,7 +933,7 @@ int GammaEngine::BuildIndex() {
 int GammaEngine::Indexing() {
   if (vec_manager_->Indexing() != 0) {
     LOG(ERROR) << "Create index failed!";
-    b_running_ = false;
+    b_running_ = 0;
     return -1;
   }
 
@@ -1343,21 +1344,7 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
     std::vector<string> vec;
     int ret = vec_manager_->GetVector(vec_fields_ids, vec, true);
 
-    int table_fields_num = 0;
-
-    if (table_fields.size() == 0) {
-      table_fields_num = table_->FieldsNum();
-
-      table_->GetDocInfo(docid, doc, decompress_str);
-    } else {
-      table_fields_num = table_fields.size();
-
-      for (int i = 0; i < table_fields_num; ++i) {
-        struct tig_gamma::Field field;
-        table_->GetFieldInfo(docid, table_fields[i], field, decompress_str);
-        doc.AddField(std::move(field));
-      }
-    }
+    table_->GetDocInfo(docid, doc, table_fields, decompress_str);
 
     if (ret == 0 && vec.size() == vec_fields_ids.size()) {
       for (size_t i = 0; i < vec_fields_ids.size(); ++i) {
@@ -1371,7 +1358,8 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
       ;
     }
   } else {
-    table_->GetDocInfo(docid, doc, decompress_str);
+    std::vector<string> table_fields;
+    table_->GetDocInfo(docid, doc, table_fields, decompress_str);
   }
 
   std::vector<struct Field> &fields = doc.TableFields();
@@ -1404,6 +1392,39 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
   free(extra_data);
   cJSON_Delete(extra_json);
 
+  return 0;
+}
+
+int GammaEngine::GetConfig(Config &conf) {
+  conf.ClearCacheInfos();
+  vec_manager_->GetAllCacheSize(conf);
+  uint32_t table_cache_size = 0;
+  uint32_t str_cache_size = 0;
+  table_->GetCacheSize(table_cache_size, str_cache_size);
+  if (table_cache_size > 0) {
+    conf.AddCacheInfo("table", (int)table_cache_size);
+  }
+  if (str_cache_size > 0) {
+    conf.AddCacheInfo("string", (int)str_cache_size);
+  }
+  return 0;
+}
+
+int GammaEngine::SetConfig(Config &conf) {
+  uint32_t table_cache_size = 0;
+  uint32_t str_cache_size = 0;
+  for (auto &c : conf.CacheInfos()) {
+    if (c.field_name == "table" && c.cache_size > 0) {
+      table_cache_size = (uint32_t)c.cache_size;
+    }
+    else if (c.field_name == "string" && c.cache_size > 0) {
+      str_cache_size = (uint32_t)c.cache_size;
+    } else {
+      vec_manager_->AlterCacheSize(c); 
+    }
+  }
+  table_->AlterCacheSize(table_cache_size, str_cache_size);
+  GetConfig(conf);
   return 0;
 }
 
