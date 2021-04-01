@@ -930,6 +930,9 @@ MultiFieldsRangeIndex::MultiFieldsRangeIndex(std::string &path,
 
 MultiFieldsRangeIndex::~MultiFieldsRangeIndex() {
   b_running_ = false;
+  while (field_operate_q_->size() > 0) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
   for (size_t i = 0; i < fields_.size(); i++) {
     if (fields_[i]) {
       delete fields_[i];
@@ -971,8 +974,10 @@ void MultiFieldsRangeIndex::FieldOperateWorker() {
   bool ret = false;
   while (b_running_ || ret) {
     FieldOperate *field_op = nullptr;
-    ret = field_operate_q_->wait_dequeue_timed(field_op, 1000);
+    ret = field_operate_q_->try_pop(field_op);
+
     if (not ret) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
       continue;
     }
 
@@ -999,12 +1004,7 @@ int MultiFieldsRangeIndex::Add(int docid, int field) {
   }
   FieldOperate *field_op = new FieldOperate(FieldOperate::ADD, docid, field);
 
-  bool ret = field_operate_q_->enqueue(field_op);
-
-  if (not ret) {
-    LOG(ERROR) << "Add failed!";
-    return -1;
-  }
+  field_operate_q_->push(field_op);
 
   return 0;
 }
@@ -1017,12 +1017,7 @@ int MultiFieldsRangeIndex::Delete(int docid, int field) {
   FieldOperate *field_op = new FieldOperate(FieldOperate::DELETE, docid, field);
   table_->GetFieldRawValue(docid, field, field_op->value);
 
-  bool ret = field_operate_q_->enqueue(field_op);
-
-  if (not ret) {
-    LOG(ERROR) << "Delete failed!";
-    return -1;
-  }
+  field_operate_q_->push(field_op);
 
   return 0;
 }
@@ -1059,11 +1054,11 @@ int MultiFieldsRangeIndex::Search(const std::vector<FilterInfo> &origin_filters,
 
   for (const auto &filter : origin_filters) {
     if (filter.field < 0) {
-      return PARAM_ERR;
+      return -1;
     }
     FieldRangeIndex *index = fields_[filter.field];
     if (index == nullptr) {
-      return PARAM_ERR;
+      return -1;
     }
     if (not index->IsNumeric() && (filter.is_union == FilterOperator::And)) {
       // type is string and operator is "and", split this filter

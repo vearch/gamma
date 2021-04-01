@@ -676,7 +676,11 @@ int ParseFilters(GammaSearchCondition *condition,
 template <class T>
 bool IsInRange(Table *table, RangeFilter &range, long docid) {
   T value = 0;
-  table->GetField<T>(docid, range.field, value);
+  std::string field_value;
+  int field_id = table->GetAttrIdx(range.field); 
+  table->GetFieldRawValue(docid, field_id, field_value);
+  memcpy(&value, field_value.c_str(), sizeof(value));
+
   T lower_value, upper_value;
   memcpy(&lower_value, range.lower_value.c_str(), range.lower_value.size());
   memcpy(&upper_value, range.upper_value.c_str(), range.upper_value.size());
@@ -718,11 +722,10 @@ bool FilteredByTermFilter(GammaSearchCondition *condition,
     auto term = condition->term_filters[i];
 
     std::string field_value;
-    table::DecompressStr decompress_str;
-    int len = condition->table->GetFieldString(docid, term.field, field_value,
-                                               decompress_str);
+    int field_id = condition->table->GetAttrIdx(term.field); 
+    condition->table->GetFieldRawValue(docid, field_id, field_value);
     vector<string> field_items;
-    if (len >= 0) field_items = utils::split(field_value, kDelim);
+    if (field_value.size() >= 0) field_items = utils::split(field_value, kDelim);
 
     bool all_in_field_items;
     if (term.is_union == static_cast<int>(FilterOperator::Or))

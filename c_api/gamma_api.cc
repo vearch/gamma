@@ -211,3 +211,19 @@ int DelDocByQuery(void *engine, const char *request_str, int len) {
       static_cast<tig_gamma::GammaEngine *>(engine)->DelDocByQuery(request);
   return ret;
 }
+
+int SetConfig(void *engine, const char *config_str, int len) {
+  tig_gamma::Config config;
+  config.Deserialize(config_str, len);
+  int ret =
+      static_cast<tig_gamma::GammaEngine *>(engine)->SetConfig(config);
+  return ret;
+}
+
+int GetConfig(void *engine, char **config_str, int *len) {
+  tig_gamma::Config config;
+  int res = 
+      static_cast<tig_gamma::GammaEngine *>(engine)->GetConfig(config);
+  if (res == 0) { res = config.Serialize(config_str, len); }
+  return res;
+}

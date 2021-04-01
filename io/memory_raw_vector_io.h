@@ -1,8 +1,5 @@
 #ifdef WITH_ROCKSDB
 
-#ifndef MEMORY_RAW_VECTOR_IO_H_
-#define MEMORY_RAW_VECTOR_IO_H_
-
 #pragma once
 
 #include <string>
@@ -31,7 +28,5 @@ struct MemoryRawVectorIO : public RawVectorIO, public AsyncFlusher {
 };
 
 }  // namespace tig_gamma
-
-#endif
 
 #endif // WITH_ROCKSDB

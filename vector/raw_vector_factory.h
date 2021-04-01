@@ -42,19 +42,13 @@ class RawVectorFactory {
       case VectorStorageType::MemoryOnly:
         raw_vector = new MemoryRawVector(meta_info, root_path, store_params,
                                          docids_bitmap);
-        store_params.store_type = "rocksdb";
 #ifdef WITH_ROCKSDB
         vio = new MemoryRawVectorIO((MemoryRawVector *)raw_vector);
 #endif
         break;
       case VectorStorageType::Mmap:
-        if (!store_params.compress.IsEmpty()) {
-          LOG(ERROR) << "mmap unsupport compress";
-          return nullptr;
-        }
         raw_vector = new MmapRawVector(meta_info, root_path, store_params,
                                        docids_bitmap);
-        store_params.store_type = "file";
         vio = new MmapRawVectorIO((MmapRawVector *)raw_vector);
         break;
 #ifdef WITH_ROCKSDB

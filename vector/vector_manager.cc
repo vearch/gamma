@@ -92,6 +92,8 @@ int VectorManager::CreateVectorTable(TableInfo &table,
         LOG(WARNING) << "NO support for store type " << store_type_str;
         return -1;
       }
+    } else {
+      store_type_str = "Mmap";
     }
 
     std::string &store_param = vector_info.store_param;
@@ -131,6 +133,8 @@ int VectorManager::CreateVectorTable(TableInfo &table,
       LOG(ERROR) << "create raw vector error";
       return -1;
     }
+    LOG(INFO) << "create raw vector success, vec_name[" << vec_name
+               << "] store_type[" << store_type_str << "]";
     bool has_source = vector_info.has_source;
     bool multi_vids = vec_dups[vec_name] > 1 ? true : false;
     int ret = vec->Init(has_source, multi_vids);
@@ -216,7 +220,7 @@ int VectorManager::Update(int docid, std::vector<Field> &fields) {
     for (string &retrieval_type : retrieval_types_) {
       auto it = vector_indexes_.find(IndexName(name, retrieval_type));
       if (it != vector_indexes_.end()) {
-        it->second->updated_vids_.enqueue(vid);
+        it->second->updated_vids_.push(vid);
       }
     }
     if (raw_vector->GetIO()) {
@@ -322,7 +326,7 @@ int VectorManager::AddRTVecsToIndex() {
     }
     std::vector<int64_t> vids;
     int vid;
-    while (retrieval_model->updated_vids_.try_dequeue(vid)) {
+    while (retrieval_model->updated_vids_.try_pop(vid)) {
       if (bitmap::test(raw_vec->Bitmap(), raw_vec->VidMgr()->VID2DocID(vid)))
         continue;
       vids.push_back(vid);
@@ -748,4 +752,35 @@ int VectorManager::MinIndexedNum() {
   }
   return min;
 }
+
+int VectorManager::AlterCacheSize(struct CacheInfo &cache_info) {
+  auto ite = raw_vectors_.find(cache_info.field_name);
+  if (ite != raw_vectors_.end()) {
+    RawVector *raw_vec = ite->second;
+    uint32_t cache_size = (uint32_t)cache_info.cache_size;
+    int res = raw_vec->AlterCacheSize(cache_size);
+    if (res == 0) {
+      LOG(INFO) << "vector field[" << cache_info.field_name
+                << "] AlterCacheSize success!";
+    } else {
+      LOG(INFO) << "vector field[" << cache_info.field_name
+                << "] AlterCacheSize failure!";
+    }
+  } else {
+    LOG(INFO) << "field_name[" << cache_info.field_name << "] error.";
+  }
+  return 0;
+}
+
+int VectorManager::GetAllCacheSize(Config &conf) {
+  auto ite = raw_vectors_.begin();
+  for (ite; ite != raw_vectors_.end(); ++ite) {
+    RawVector *raw_vec = ite->second;
+    uint32_t cache_size = 0;
+    if (0 != raw_vec->GetCacheSize(cache_size)) continue;
+    conf.AddCacheInfo(ite->first, (int)cache_size);
+  }
+  return 0;
+}
+
 }  // namespace tig_gamma

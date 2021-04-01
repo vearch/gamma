@@ -3,8 +3,6 @@
 #include "io_common.h"
 
 namespace tig_gamma {
-using std::string;
-using std::vector;
 
 int TableIO::Init() {
   // do nothing
@@ -12,8 +10,8 @@ int TableIO::Init() {
 }
 
 int TableIO::Dump(int start_docid, int end_docid) {
-  int ret = table->Sync();
-  return ret;
+  // int ret = table->Sync();
+  return 0;
 }
 
 int TableIO::Load(int &doc_num) {

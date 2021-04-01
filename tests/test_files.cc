@@ -20,6 +20,7 @@
 #include "c_api/api_data/gamma_request.h"
 #include "c_api/api_data/gamma_response.h"
 #include "c_api/api_data/gamma_table.h"
+#include "c_api/api_data/gamma_config.h"
 #include "test.h"
 #include "utils.h"
 
@@ -401,55 +402,110 @@ int GetVector(void *engine) {
 }
 
 void UpdateThread(void *engine) {
-  int doc_id = 0;
-  tig_gamma::Doc doc;
-
-  for (size_t j = 0; j < opt.fields_vec.size(); ++j) {
-    tig_gamma::DataType data_type = opt.fields_type[j];
-    std::string &name = opt.fields_vec[j];
-
+  auto DocAddField = [&](tig_gamma::Doc &doc, std::string name,
+                         std::string source, std::string val,
+                         tig_gamma::DataType data_type) {
     tig_gamma::Field field;
     field.name = name;
-    field.source = "abc";
+    field.source = source;
     field.datatype = data_type;
-
-    std::string &data =
-        opt.profiles[(uint64_t)doc_id * opt.fields_vec.size() + j];
-    if (opt.fields_type[j] == tig_gamma::DataType::INT) {
-      char *value_str = static_cast<char *>(malloc(sizeof(int)));
-      int len = sizeof(int);
-      int v = atoi("88");
-      memcpy(value_str, &v, len);
-      field.value = std::string(value_str, len);
-      free(value_str);
-    } else if (opt.fields_type[j] == tig_gamma::DataType::LONG) {
-      char *value_str = static_cast<char *>(malloc(sizeof(long)));
-      int len = sizeof(long);
-      long v = atol(data.c_str());
-      memcpy(value_str, &v, len);
-      field.value = std::string(value_str, len);
-      free(value_str);
-    } else {
-      field.value = data;
-    }
+    field.value = val;
     doc.AddField(field);
+  };
+
+  auto DocInfoToString = [&](tig_gamma::Doc &doc, std::string &res_str) {
+    auto fields = doc.TableFields();
+    std::stringstream ss;
+    for (auto &f : fields) {
+      if (f.datatype == tig_gamma::DataType::INT) {
+        int val = *(int*)(f.value.c_str());
+        ss << val << ", ";
+      } else {
+        auto val = f.value;
+        ss << val << ", ";
+      }
+    }
+    res_str = ss.str();
+  };
+
+  for (int i = 0; i < opt.add_doc_num; i+=1000) {
+    int doc_id = i;
+    std::string _id;
+    tig_gamma::Doc doc;
+    int size = opt.fields_vec.size();
+
+    for (size_t j = 0; j < opt.fields_vec.size(); ++j) {
+      tig_gamma::DataType data_type = opt.fields_type[j];
+      std::string &name = opt.fields_vec[j];
+      std::string &data =
+          opt.profiles[(uint64_t)doc_id * opt.fields_vec.size() + j];
+      if (name == "_id") {
+        _id = data;
+      }
+      std::string value;
+      if (opt.fields_type[j] == tig_gamma::DataType::INT) {
+        char *value_str = static_cast<char *>(malloc(sizeof(int)));
+        int v = atoi("88");
+        memcpy(value_str, &v, sizeof(int));
+        value = std::string(value_str, sizeof(int));
+        free(value_str);
+      } else if (opt.fields_type[j] == tig_gamma::DataType::LONG) {
+        char *value_str = static_cast<char *>(malloc(sizeof(long)));
+        long v = atol(data.c_str());
+        memcpy(value_str, &v, sizeof(long));
+        value = std::string(value_str, sizeof(long));
+        free(value_str);
+      } else {
+        if (name != "_id") {
+          value = "00000";
+        } else {
+          value = data;
+        }
+      }
+      DocAddField(doc, name, "abc", value, data_type);
+    }
+    {
+      float val = 0;
+      std::string data((char*)&val, sizeof(val));
+      DocAddField(doc, "float", "abc", data,
+                  tig_gamma::DataType::FLOAT);
+      data = std::string((char *)(opt.feature + (uint64_t)doc_id * opt.d),
+                              opt.d * sizeof(float));
+      DocAddField(doc, opt.vector_name, "abc", data,
+                  tig_gamma::DataType::VECTOR);
+    }
+
+    {
+      char *str_doc = nullptr;
+      int str_len = 0;
+      GetDocByID(engine, _id.c_str(), _id.size(), &str_doc, &str_len);
+      tig_gamma::Doc old_doc;
+      old_doc.SetEngine((tig_gamma::GammaEngine*)engine);
+      old_doc.Deserialize(str_doc, str_len);
+      std::string get_res;
+      DocInfoToString(old_doc, get_res);
+      LOG(INFO) << "old doc info:" << get_res;
+    }
+
+    char *doc_str = nullptr;
+    int len = 0;
+    doc.Serialize(&doc_str, &len);
+    AddOrUpdateDoc(engine, doc_str, len);
+
+    char *str_doc = nullptr;
+    int str_len = 0;
+    GetDocByID(engine, _id.c_str(), _id.size(), &str_doc, &str_len);
+    tig_gamma::Doc get_doc;
+    get_doc.SetEngine((tig_gamma::GammaEngine*)engine);
+    get_doc.Deserialize(str_doc, str_len);
+    std::string get_res;
+    std::string correct_res;
+    DocInfoToString(get_doc, get_res);
+    DocInfoToString(doc, correct_res);
+    LOG(INFO) << "get_res: " << get_res;
+    LOG(INFO) << "correct_res: " << correct_res;
+    free(str_doc);
   }
-
-  tig_gamma::Field field;
-  field.name = opt.vector_name;
-  field.source = "abc";
-  field.datatype = tig_gamma::DataType::VECTOR;
-  field.value = std::string(
-      reinterpret_cast<char *>(opt.feature + (uint64_t)doc_id * opt.d),
-      opt.d * sizeof(float));
-  doc.AddField(field);
-
-  char *doc_str = nullptr;
-  int len = 0;
-  doc.Serialize(&doc_str, &len);
-
-  UpdateDoc(engine, doc_str, len);
-  free(doc_str);
 }
 
 int InitEngine() {
@@ -526,6 +582,7 @@ int Create() {
   vector_info.dimension = opt.d;
   vector_info.model_id = opt.model_id;
   vector_info.store_type = opt.store_type;
+  // vector_info.store_param = "{\"cache_size\": 2048, \"compress\": {\"rate\":16}}";
   vector_info.store_param = "{\"cache_size\": 2048}";
   vector_info.has_source = false;
 
@@ -642,20 +699,38 @@ int Search() {
   double end = utils::getmillisecs();
   LOG(INFO) << "Search cost [" << end - start << "] ms";
   // add_thread.join();
+
   return 0;
 }
 
+int AlterCacheSizeTest() {
+  tig_gamma::Config conf;
+  conf.AddCacheInfo("table", 1024);
+  conf.AddCacheInfo("string", 2048);
+  conf.AddCacheInfo(opt.vector_name, 4096);
+  char *buf = nullptr;
+  int len = 0;
+  conf.Serialize(&buf, &len);
+  return SetConfig(opt.engine, buf, len);
+}
+
+int GetCacheSizeTest() {
+  tig_gamma::Config config;
+  char *buf = nullptr;
+  int len = 0;
+  GetConfig(opt.engine, &buf, &len);
+  config.Deserialize(buf, len);
+  for (auto &cache_info : config.CacheInfos()) {
+    LOG(INFO) << "TestGetCacheSize() field_name:" << cache_info.field_name
+              << ", cache_size:" << cache_info.cache_size;
+  }
+  delete[] buf;
+  return 0;
+}
+
+
 int DumpEngine() {
   int ret = Dump(opt.engine);
-
-  // ret = AddDocToEngine(opt.engine, opt.add_doc_num);
-
-  // std::this_thread::sleep_for(std::chrono::seconds(10));
-
-  // ret = Dump(opt.engine);
-
-  Close(opt.engine);
-  opt.engine = nullptr;
   return ret;
 }
 
@@ -676,11 +751,6 @@ int LoadEngine() {
   opt.engine = Init(config_str, config_len);
 
   ret = Load(opt.engine);
-  return ret;
-}
-
-int DumpAfterLoad() {
-  int ret = Dump(opt.engine);
   return ret;
 }
 
@@ -723,13 +793,18 @@ int main(int argc, char **argv) {
   test::BuildEngineIndex();
   // test::Add();
   test::Search();
+
+  test::GetCacheSizeTest();
+  test::AlterCacheSizeTest();
+  test::GetCacheSizeTest();
+
+  test::UpdateThread(test::opt.engine);
   if (not bLoad) {
     test::DumpEngine();
   }
   // test::LoadEngine();
   // test::BuildEngineIndex();
   // test::Search();
-  // test::DumpAfterLoad();
   test::CloseEngine();
 
   return 0;

@@ -12,8 +12,7 @@
 #include <thread>
 
 #include "raw_vector.h"
-#include "vector_buffer_queue.h"
-#include "vector_file_mapper.h"
+#include "storage_manager.h"
 
 namespace tig_gamma {
 
@@ -30,6 +29,10 @@ class MmapRawVector : public RawVector {
                       std::vector<int> &lens) override;
   int UpdateToStore(int vid, uint8_t *v, int len) override;
 
+  int AlterCacheSize(uint32_t cache_size) override;
+
+  int GetCacheSize(uint32_t &cache_size) override;
+
  protected:
   int GetVector(long vid, const uint8_t *&vec, bool &deletable) const override;
 
@@ -39,9 +42,7 @@ class MmapRawVector : public RawVector {
 
  private:
   friend MmapRawVectorIO;
-  std::vector<VectorFileMapper *> file_mappers_;
-  int nsegment_;
-  int segment_size_;
+  StorageManager *storage_mgr_;
 };
 
 }  // namespace tig_gamma

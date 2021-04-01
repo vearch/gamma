@@ -1,0 +1,13 @@
+release
+debug
+build
+gtest
+flatbuffers
+flatbuffers-1.11.0
+fbs-gen
+.vscode
+.idea
+GPATH
+GRTAGS
+GTAGS
+third_party/faiss

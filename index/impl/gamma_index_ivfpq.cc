@@ -1357,7 +1357,8 @@ int GammaIVFPQIndex::Load(const std::string &index_dir) {
     READ1(indexed_vec_count_);
     if (indexed_vec_count_ < 0 ||
         indexed_vec_count_ > vector_->MetaInfo()->size_) {
-      LOG(ERROR) << "invalid indexed count=" << indexed_vec_count_;
+      LOG(ERROR) << "invalid indexed count [" << indexed_vec_count_ 
+                 << "] vector size [" << vector_->MetaInfo()->size_ << "]";
       return INTERNAL_ERR;
     }
     // precomputed table not stored. It is cheaper to recompute it
