@@ -223,13 +223,13 @@ int GammaIndexBinaryIVF::Indexing() {
   if (lens.size() == 1) {
     train_vec = headers.Get(0);
   } else {
-    int raw_d = d;
+    int raw_d = raw_vec->MetaInfo()->Dimension();
     train_vec = new uint8_t[raw_d * num];
     del_vec.set(train_vec);
     size_t offset = 0;
     for (size_t i = 0; i < headers.Size(); ++i) {
       memcpy((void *)(train_vec + offset), (void *)headers.Get(i),
-             sizeof(float) * raw_d * lens[i]);
+             sizeof(char) * raw_d * lens[i]);
       offset += raw_d * lens[i];
     }
   }
