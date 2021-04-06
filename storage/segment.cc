@@ -59,15 +59,18 @@ inline size_t BCompressedOff() {
 
 }  // namespace
 
-Segment::Segment(const std::string &file_path, int max_size, int vec_byte_size,
-                 disk_io::AsyncWriter *disk_io, void *table_cache,
-                 void *str_cache)
+Segment::Segment(const std::string &file_path, uint32_t seg_id, int max_size,
+                 int vec_byte_size, uint32_t seg_block_capacity,
+                 disk_io::AsyncWriter *disk_io,
+                 void *table_cache, void *str_cache)
     : file_path_(file_path),
+      seg_id_(seg_id),
       max_size_(max_size),
       item_length_(vec_byte_size),
       disk_io_(disk_io),
       cache_(table_cache),
-      str_cache_(str_cache) {
+      str_cache_(str_cache),
+      seg_block_capacity_(seg_block_capacity) {
   base_fd_ = -1;
   str_fd_ = -1;
 
@@ -86,7 +89,6 @@ Segment::Segment(const std::string &file_path, int max_size, int vec_byte_size,
                      sizeof(str_capacity) + sizeof(str_size) +
                      sizeof(str_blocks_size) + sizeof(str_compressed_size) +
                      sizeof(b_compressed);
-  mapped_byte_size_ = (size_t)max_size * item_length_ + seg_header_size_;
 
   per_block_size_ = ((64 * 1024) / item_length_) * item_length_; // block~=64k
   buffered_size_ = 0;
@@ -131,6 +133,9 @@ void Segment::PersistentedSize() {
   uint32_t size = 0; 
   pread(base_fd_, &size, sizeof(size), sizeof(version_) + sizeof(capacity));
   cur_size_ = size;
+  if (cur_size_ == max_size_) {
+    blocks_->SegmentIsFull();
+  }
 }
 
 void Segment::SetSize(uint32_t size) {
@@ -232,11 +237,13 @@ int Segment::InitBlock(BlockType block_type, Compressor *compressor) {
   {
   case BlockType::TableBlockType:
     blocks_ =
-      new TableBlock(base_fd_, per_block_size_, item_length_, seg_header_size_);
+      new TableBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
+                     seg_id_, seg_block_capacity_);
     break;
   case BlockType::VectorBlockType:
     blocks_ =
-      new VectorBlock(base_fd_, per_block_size_, item_length_, seg_header_size_);
+      new VectorBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
+                      seg_id_, seg_block_capacity_);
     break;
   default:
     LOG(ERROR) << "BlockType is error";
@@ -244,14 +251,13 @@ int Segment::InitBlock(BlockType block_type, Compressor *compressor) {
   }
 
   blocks_->Init(cache_, compressor);
-  blocks_->LoadIndex(file_path_ + ".idx");
 
   str_blocks_ =
-      new StringBlock(str_fd_, 1024 * 1024, item_length_, seg_header_size_);
+      new StringBlock(str_fd_, 1024 * 1024, item_length_, seg_header_size_,
+                      seg_id_, seg_block_capacity_);
   str_blocks_->LoadIndex(file_path_ + "_str.idx");
   str_blocks_->InitStrBlock(str_cache_);
   if (BufferedSize() == max_size_) {
-    blocks_->CloseBlockPosFile();
     str_blocks_->CloseBlockPosFile();
   }
   return 0;
@@ -262,7 +268,6 @@ int Segment::Load(BlockType block_type, Compressor *compressor) {
   OpenFile();
   InitBlock(block_type, compressor);
 
-  uint64_t str_capacity = StrCapacity();
   PersistentedSize();
   return cur_size_;
 }
@@ -307,11 +312,18 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
   int start = id * item_length_;
   int n_bytes = n * item_length_;
   // TODO read from buffer queue
+  int count = 0;
   while (id >= (int)cur_size_) {
     PersistentedSize();
-    if (id < (int)cur_size_) break;
-    LOG(INFO) << "Data not brushed disk, wait 10ms.";
+    if (id < (int)cur_size_) {
+      if (count > 2) {
+        LOG(INFO) << "Wait " << count * 10 
+                  << "ms because the data is not being brushed to disk.";
+      }
+      break;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ++count;
   }
   blocks_->Read(value, n_bytes, start);
   return 0;
@@ -326,7 +338,6 @@ std::string Segment::GetString(uint32_t block_id, uint32_t in_block_pos,
 
 bool Segment::IsFull() {
   if (BufferedSize() == max_size_) {
-    blocks_->CloseBlockPosFile();
     str_blocks_->CloseBlockPosFile();
     return true;
   } else {

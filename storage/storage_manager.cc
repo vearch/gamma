@@ -97,13 +97,13 @@ int StorageManager::Init(int cache_size, int str_cache_size) {
     fun = &VectorBlock::ReadBlock;
   }
   cache_ =
-      new LRUCache<uint64_t, std::vector<uint8_t>, ReadFunParameter *>(
+      new LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *>(
           cache_max_size, fun);
   cache_->Init();
 
   if (str_cache_max_size > 0) {
     str_cache_ =
-        new LRUCache<uint64_t, std::vector<uint8_t>, ReadStrFunParameter *>(
+        new LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *>(
             str_cache_max_size, &StringBlock::ReadString);
     str_cache_->Init();
   }
@@ -131,8 +131,9 @@ int StorageManager::Init(int cache_size, int str_cache_size) {
 int StorageManager::Load() {
   // load existed segments
   while (utils::file_exist(NextSegmentFilePath())) {
-    Segment *segment = new Segment(NextSegmentFilePath(), options_.segment_size,
-                                   options_.fixed_value_bytes, disk_io_,
+    Segment *segment = new Segment(NextSegmentFilePath(), segments_.size(),
+                                   options_.segment_size, options_.fixed_value_bytes,
+                                   options_.seg_block_capacity, disk_io_,
                                    (void *)cache_, (void *)str_cache_);
     int ret = segment->Load(block_type_, compressor_);
     if (ret < 0) {
@@ -149,8 +150,10 @@ int StorageManager::Load() {
 }
 
 int StorageManager::Extend() {
-  Segment *segment = new Segment(NextSegmentFilePath(), options_.segment_size,
-                                 options_.fixed_value_bytes, disk_io_,
+  uint32_t seg_id = (uint32_t)segments_.size();
+  Segment *segment = new Segment(NextSegmentFilePath(), seg_id,
+                                 options_.segment_size, options_.fixed_value_bytes,
+                                 options_.seg_block_capacity, disk_io_,
                                  (void *)cache_, (void *)str_cache_);
   int ret = segment->Init(block_type_, compressor_);
   if (ret) {
@@ -204,9 +207,9 @@ int StorageManager::GetHeaders(int start, int n,
     int len = options_.segment_size - offset;
     if (len > n) len = n;
     lens.push_back(len);
-    Segment *Segment = segments_[start / options_.segment_size];
+    Segment *segment = segments_[start / options_.segment_size];
     uint8_t *value = new uint8_t[len * options_.fixed_value_bytes];
-    Segment->GetValues(value, offset, len);
+    segment->GetValues(value, offset, len);
     // std::stringstream ss;
     // for (int i = 0; i < 100; ++i) {
     //   float a;

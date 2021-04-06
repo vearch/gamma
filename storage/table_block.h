@@ -13,13 +13,10 @@ namespace tig_gamma {
 
 class TableBlock : public Block {
  public:
-  TableBlock(int fd, int max_size, int length, uint32_t header_size);
+  TableBlock(int fd, int max_size, int length, uint32_t header_size,
+             uint32_t seg_id, uint32_t seg_block_capacity);
 
-  void InitSubclass() {};
-
-  int GetReadFunParameter(ReadFunParameter &parameter);
-
-  static bool ReadBlock(uint64_t key, std::shared_ptr<std::vector<uint8_t>> &block,
+  static bool ReadBlock(uint32_t key, std::shared_ptr<std::vector<uint8_t>> &block,
                         ReadFunParameter *param);
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
@@ -29,7 +26,14 @@ class TableBlock : public Block {
 
   int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) override;
 
+ private:
+  void InitSubclass() {};
+
   int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) override;
+
+  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
+                          uint32_t off) override;
+ 
 };
 
 }  // namespace tig_gamma

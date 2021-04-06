@@ -32,7 +32,8 @@ enum class BlockType : uint8_t {TableBlockType = 0, StringBlockType, VectorBlock
 
 class Block {
  public:
-  Block(int fd, int per_block_size, int length, uint32_t header_size);
+  Block(int fd, int per_block_size, int length, uint32_t header_size,
+        uint32_t seg_id, uint32_t seg_block_capacity);
 
   virtual ~Block();
 
@@ -43,12 +44,11 @@ class Block {
 
   int Read(uint8_t *value, uint32_t len, uint32_t offset);
 
-  int LoadIndex(const std::string &file_path);
-
   int Update(const uint8_t *data, int n_bytes, uint32_t offset);
 
-  int CloseBlockPosFile();
-  // virtual const uint8_t *Get(int id) = 0;
+  void SegmentIsFull(); // Segment is full and all data is brushed to disk.
+  
+  int32_t GetCacheBlockId(uint32_t block_id);
 
  protected:
   // virtual int Compress() = 0;
@@ -60,15 +60,14 @@ class Block {
   virtual int WriteContent(const uint8_t *data, int len, uint32_t offset,
                            disk_io::AsyncWriter *disk_io) = 0;
 
-  virtual int GetReadFunParameter(ReadFunParameter &parameter) = 0;
+  virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
+                                  uint32_t off) = 0;
 
   virtual int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) = 0;
 
   virtual int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) = 0;
 
-  int AddBlockPos(uint32_t block_pos);
-
-  LRUCache<uint64_t, std::vector<uint8_t>, ReadFunParameter *> *lru_cache_;
+  LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *> *lru_cache_;
 
   int fd_;
 
@@ -80,12 +79,13 @@ class Block {
 
   int item_length_;
 
-  FILE *block_pos_fp_;
-  tbb::concurrent_vector<uint32_t> block_pos_;  // <block id, offset>
+  uint32_t seg_block_capacity_;
+
+  uint32_t seg_id_;
 
   uint32_t header_size_;
 
-  std::string block_pos_file_path_;
+  uint32_t last_bid_in_disk_;
 };
 
 }  // namespace tig_gamma

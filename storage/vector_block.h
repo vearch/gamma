@@ -24,13 +24,10 @@ namespace tig_gamma {
 
 class VectorBlock : public Block {
  public:
-  VectorBlock(int fd, int per_block_size, int length, uint32_t header_size);
+  VectorBlock(int fd, int per_block_size, int length, uint32_t header_size,
+              uint32_t seg_id, uint32_t seg_block_capacity);
 
-  void InitSubclass() override;
-
-  int GetReadFunParameter(ReadFunParameter &parameter) override;
-
-  static bool ReadBlock(uint64_t key, std::shared_ptr<std::vector<uint8_t>> &block,
+  static bool ReadBlock(uint32_t key, std::shared_ptr<std::vector<uint8_t>> &block,
                         ReadFunParameter *param);
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
@@ -38,8 +35,14 @@ class VectorBlock : public Block {
 
   int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) override;
 
-  int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) override;
  private:
+  void InitSubclass() override;
+
+  int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) override;
+
+  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
+                          uint32_t off) override;
+
   int vec_item_len_;
 };
 

@@ -20,8 +20,10 @@ const static int MAX_SEGMENT_NUM = 102400;     // max segment num
 
 class Segment {
  public:
-  Segment(const std::string &file_path, int max_size, int vec_byte_size,
-          disk_io::AsyncWriter *disk_io, void *table_cache, void *str_cache);
+  Segment(const std::string &file_path, uint32_t seg_id, int max_size,
+          int vec_byte_size, uint32_t seg_block_capacity,
+          disk_io::AsyncWriter *disk_io,
+          void *table_cache, void *str_cache);
 
   ~Segment();
 
@@ -85,8 +87,9 @@ class Segment {
   int InitBlock(BlockType block_type, Compressor *compressor);
 
  private:
+  uint32_t seg_id_;
   std::string file_path_;
-  size_t mapped_byte_size_;
+  uint32_t seg_block_capacity_;
 
   int max_size_;
   uint32_t cur_size_;

@@ -401,7 +401,31 @@ int GetVector(void *engine) {
   return 0;
 }
 
+void ReadScalarFile() {
+  size_t idx = 0;
+  std::ifstream fin;
+  fin.open(opt.profile_file.c_str());
+  std::string str;
+  while (idx < opt.add_doc_num) {
+    std::getline(fin, str);
+    if (str == "") break;
+    auto profile = std::move(utils::split(str, "\t"));
+    size_t i = 0;
+    for (const auto &p : profile) {
+      opt.profiles[idx * opt.fields_vec.size() + i] = p;
+      ++i;
+      if (i > opt.fields_vec.size() - 1) {
+        break;
+      }
+    }
+
+    ++idx;
+  }
+  fin.close();
+}
+
 void UpdateThread(void *engine) {
+  ReadScalarFile();
   auto DocAddField = [&](tig_gamma::Doc &doc, std::string name,
                          std::string source, std::string val,
                          tig_gamma::DataType data_type) {
@@ -499,11 +523,8 @@ void UpdateThread(void *engine) {
     get_doc.SetEngine((tig_gamma::GammaEngine*)engine);
     get_doc.Deserialize(str_doc, str_len);
     std::string get_res;
-    std::string correct_res;
     DocInfoToString(get_doc, get_res);
-    DocInfoToString(doc, correct_res);
     LOG(INFO) << "get_res: " << get_res;
-    LOG(INFO) << "correct_res: " << correct_res;
     free(str_doc);
   }
 }
@@ -582,8 +603,8 @@ int Create() {
   vector_info.dimension = opt.d;
   vector_info.model_id = opt.model_id;
   vector_info.store_type = opt.store_type;
-  // vector_info.store_param = "{\"cache_size\": 2048, \"compress\": {\"rate\":16}}";
-  vector_info.store_param = "{\"cache_size\": 2048}";
+  vector_info.store_param = "{\"cache_size\": 2048, \"compress\": {\"rate\":16}}";
+  // vector_info.store_param = "{\"cache_size\": 2048}";
   vector_info.has_source = false;
 
   table.AddVectorInfo(vector_info);
@@ -600,28 +621,7 @@ int Create() {
 }
 
 int Add() {
-  size_t idx = 0;
-
-  std::ifstream fin;
-  fin.open(opt.profile_file.c_str());
-  std::string str;
-  while (idx < opt.add_doc_num) {
-    std::getline(fin, str);
-    if (str == "") break;
-    auto profile = std::move(utils::split(str, "\t"));
-    size_t i = 0;
-    for (const auto &p : profile) {
-      opt.profiles[idx * opt.fields_vec.size() + i] = p;
-      ++i;
-      if (i > opt.fields_vec.size() - 1) {
-        break;
-      }
-    }
-
-    ++idx;
-  }
-  fin.close();
-
+  ReadScalarFile();
   int ret = 0;
   if (opt.add_type == 0) {
     ret = AddDocToEngine(opt.engine, opt.add_doc_num);

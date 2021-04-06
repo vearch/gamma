@@ -23,26 +23,31 @@ namespace tig_gamma {
 struct StorageManagerOptions {
   int segment_size;
   int fixed_value_bytes;
+  uint32_t seg_block_capacity;
 
   StorageManagerOptions() {
     segment_size = -1;
     fixed_value_bytes = -1;
+    seg_block_capacity = 0;
   }
 
   StorageManagerOptions(const StorageManagerOptions &options) {
     segment_size = options.segment_size;
     fixed_value_bytes = options.fixed_value_bytes;
+    seg_block_capacity = options.seg_block_capacity;
   }
 
   bool IsValid() {
-    if (segment_size == -1 || fixed_value_bytes == -1) return false;
+    if (segment_size == -1 || fixed_value_bytes == -1 ||
+        seg_block_capacity == 0) return false;
     return true;
   }
 
   std::string ToStr() {
     std::stringstream ss;
     ss << "{segment_size=" << segment_size
-       << ", fixed_value_bytes=" << fixed_value_bytes << "}";
+       << ", fixed_value_bytes=" << fixed_value_bytes
+       << ", seg_block_capacity=" << seg_block_capacity << "}";
     return ss.str();
   }
 };
@@ -98,8 +103,8 @@ class StorageManager {
   tbb::concurrent_vector<Segment *> segments_;
   disk_io::AsyncWriter *disk_io_;
   BlockType block_type_;
-  LRUCache<uint64_t, std::vector<uint8_t>, ReadFunParameter *> *cache_;
-  LRUCache<uint64_t, std::vector<uint8_t>, ReadStrFunParameter *> *str_cache_;
+  LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *> *cache_;
+  LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *> *str_cache_;
   Compressor *compressor_;
 };
 

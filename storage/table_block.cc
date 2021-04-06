@@ -14,14 +14,19 @@
 namespace tig_gamma {
 
 TableBlock::TableBlock(int fd, int per_block_size, int length,
-                       uint32_t header_size)
-    : Block(fd, per_block_size, length, header_size) {}
+                       uint32_t header_size, uint32_t seg_id,
+                       uint32_t seg_block_capacity)
+    : Block(fd, per_block_size, length, header_size, seg_id,
+            seg_block_capacity) {}
 
-int TableBlock::GetReadFunParameter(ReadFunParameter &parameter) {
-  parameter.offset += header_size_;
+int TableBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
+                                     uint32_t off) {
+  parameter.fd = fd_;
+  parameter.len = len;
+  parameter.offset = off + header_size_;
+  parameter.cmprsr = (void*)compressor_;
   return 0;
 }
-
 
 int TableBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
                              disk_io::AsyncWriter *disk_io) {
@@ -37,7 +42,7 @@ int TableBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
   return 0;
 }
 
-bool TableBlock::ReadBlock(uint64_t key,
+bool TableBlock::ReadBlock(uint32_t key,
                            std::shared_ptr<std::vector<uint8_t>> &block,
                            ReadFunParameter *param) {
   block = std::make_shared<std::vector<uint8_t>>(param->len);
