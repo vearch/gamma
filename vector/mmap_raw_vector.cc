@@ -39,14 +39,18 @@ int MmapRawVector::InitStore() {
   uint32_t var = 0;
   --var;
   uint32_t max_seg_size = var / vector_byte_size_;
+  uint32_t seg_block_capacity = 2000000;
   if (max_seg_size < store_params_.segment_size) {
     store_params_.segment_size = max_seg_size;
+    seg_block_capacity = 4000000000 / (1000000000 / max_seg_size + 1) - 1;
     LOG(INFO) << "Because the vector length is too long, segment_size becomes "
-              << max_seg_size;
+              << max_seg_size << " and seg_block_capacity becomes "
+              << seg_block_capacity;
   }
   StorageManagerOptions options;
   options.segment_size = store_params_.segment_size;
   options.fixed_value_bytes = vector_byte_size_;
+  options.seg_block_capacity = seg_block_capacity;
   storage_mgr_ = new StorageManager(vec_dir, BlockType::VectorBlockType, options);
 #ifdef WITH_ZFP
   if(!store_params_.compress.IsEmpty()) {

@@ -15,13 +15,17 @@ namespace tig_gamma {
 
 class StringBlock : public Block {
  public:
-  StringBlock(int fd, int max_size, int length, uint32_t header_size);
+  StringBlock(int fd, int max_size, int length, uint32_t header_size,
+              uint32_t seg_id, uint32_t seg_block_capacity_);
 
-  void InitSubclass() {};
+  ~StringBlock();
 
-  int GetReadFunParameter(ReadFunParameter &parameter) {};
+  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
+                          uint32_t off) { return 0; };
+  
+  int LoadIndex(const std::string &file_path);
 
-  int AddStrBlockPos(uint32_t block_pos);
+  int CloseBlockPosFile();
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
                    disk_io::AsyncWriter *disk_io);
@@ -38,15 +42,27 @@ class StringBlock : public Block {
   int Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
            std::string &str_out);
 
-  static bool ReadString(uint64_t key,
-                        std::shared_ptr<std::vector<uint8_t>> &block,
-                        ReadStrFunParameter *param);
+  static bool ReadString(uint32_t key,
+                         std::shared_ptr<std::vector<uint8_t>> &block,
+                         ReadStrFunParameter *param);
+
+ private:
+  void InitSubclass() {};
 
   int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) {
     return 0;
   };
- private:
-  LRUCache<uint64_t, std::vector<uint8_t>, ReadStrFunParameter *> *lru_cache_;
+
+  int AddBlockPos(uint32_t block_pos);
+
+  LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *> *lru_cache_;
+
+  std::string block_pos_file_path_;
+
+  FILE *block_pos_fp_;
+
+  tbb::concurrent_vector<uint32_t> block_pos_;  // <block id, offset>
+
 };
 
 }  // namespace tig_gamma

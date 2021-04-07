@@ -25,7 +25,7 @@ struct ReadFunParameter {
   int fd;
   uint32_t len;
   uint32_t offset;
-  void *cmprs;
+  void *cmprsr;
 };
 
 struct ReadStrFunParameter {
@@ -178,6 +178,7 @@ class LRUCache {
     if(max_overflow_ > 1000) {
       max_overflow_ = 1000;
     }
+    max_size_ -= max_overflow_;
     load_func_ = func;
     LOG(INFO) << "LruCache open! Max_size[" << max_size_ << "], max_overflow["
               << max_overflow_ << "]";
@@ -207,7 +208,7 @@ class LRUCache {
       ++hits_;
     else
       ++misses_;
-    if (hits_ % 1000000 == 0 && hits_ != last_show_log_) {
+    if (hits_ % 100000 == 0 && hits_ != last_show_log_) {
       LOG(INFO) << "LruCache cur_size[" << cur_size_ << "] cells_size["
                 << cells_.size() << "] hits[" << hits_ << "] set_hits["
                 << set_hits_ << "] misses[" << misses_ << "]";
@@ -290,17 +291,17 @@ class LRUCache {
   }
 
   void AlterMaxSize(size_t max_size) {
-    max_size_ = max_size;
     max_overflow_ = max_size / 20;
     if(max_overflow_ > 1000) {
       max_overflow_ = 1000;
     }
+    max_size_ = max_size - max_overflow_;
     LOG(INFO) << "LruCache Max_size[" << max_size_ << "], max_overflow["
               << max_overflow_ << "]";
   }
 
   size_t GetMaxSize() {
-    return max_size_;
+    return max_size_ + max_overflow_;
   }
 
   size_t Count() const { return cur_size_; }

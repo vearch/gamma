@@ -48,16 +48,10 @@ int AsyncWriter::WriterHandler() {
     struct WriterStruct *writer_structs[bulk_size];
 
     int size = 0;
-
-    while (size == 0 && running_) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      int times = 0;
-      while(not writer_q_->empty() && size < bulk_size && times < 100) {
-        struct WriterStruct *pop_val = nullptr;
-        bool ret = writer_q_->try_pop(pop_val);
-        if (ret) writer_structs[size++] = pop_val;
-        ++times;
-      }
+    while(not writer_q_->empty() && size < bulk_size) {
+      struct WriterStruct *pop_val = nullptr;
+      bool ret = writer_q_->try_pop(pop_val);
+      if (ret) writer_structs[size++] = pop_val;
     }
 
     if (size > 1) {
@@ -113,6 +107,8 @@ int AsyncWriter::WriterHandler() {
 
       delete[] data;
       delete writer_structs[0];
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     // if (size < bulk_size) {
     //   std::this_thread::sleep_for(std::chrono::milliseconds(10));

@@ -11,83 +11,33 @@
 
 namespace tig_gamma {
 
-Block::Block(int fd, int per_block_size, int length, uint32_t header_size)
+Block::Block(int fd, int per_block_size, int length, uint32_t header_size,
+             uint32_t seg_id, uint32_t seg_block_capacity)
     : fd_(fd),
       per_block_size_(per_block_size),
       item_length_(length),
-      header_size_(header_size) {
+      header_size_(header_size),
+      seg_block_capacity_(seg_block_capacity),
+      seg_id_(seg_id) {
   compressor_ = nullptr;
   size_ = 0;
-  block_pos_fp_ = nullptr;
+  last_bid_in_disk_ = 0;
 }
 
 Block::~Block() {
   lru_cache_ = nullptr;
   compressor_ = nullptr;
-  if (block_pos_fp_ != nullptr) {
-    fclose(block_pos_fp_);
-    block_pos_fp_ = nullptr;
-  }
 }
 
 void Block::Init(void *lru, Compressor *compressor) {
   lru_cache_ =
-      (LRUCache<uint64_t, std::vector<uint8_t>, ReadFunParameter *> *)lru;
+      (LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *> *)lru;
   compressor_ = compressor;
   InitSubclass();
 }
 
-int Block::LoadIndex(const std::string &file_path) {
-  FILE *file = fopen(file_path.c_str(), "rb");
-  if (file != nullptr) {
-    size_t read_num = 0;
-    do {
-      uint32_t pos;
-      read_num = fread(&pos, sizeof(pos), 1, file);
-      if (read_num == 0) {
-        break;
-      }
-      block_pos_.push_back(pos);
-    } while (read_num != 0);
-
-    fclose(file);
-  }
-
-  block_pos_fp_ = fopen(file_path.c_str(), "ab+");
-  if (block_pos_fp_ == nullptr) {
-    LOG(ERROR) << "open block pos file error, path=" << file_path;
-    return -1;
-  }
-  block_pos_file_path_ = file_path;
-  return 0;
-}
-
-int Block::AddBlockPos(uint32_t block_pos) {
-  block_pos_.push_back(block_pos);
-  bool is_close = false;
-  if (block_pos_fp_ == nullptr) {
-    block_pos_fp_ = fopen(block_pos_file_path_.c_str(), "ab+");
-    if (block_pos_fp_ == nullptr) {
-      LOG(ERROR) << "open block pos file error, path="
-                 << block_pos_file_path_;
-      return -1;
-    }
-    is_close = true;
-  }
-  fwrite(&block_pos, sizeof(block_pos), 1, block_pos_fp_);
-  fflush(block_pos_fp_);
-  if (is_close) {
-    CloseBlockPosFile();
-  }
-  return 0;
-}
-
 int Block::Write(const uint8_t *value, int n_bytes, uint32_t start,
                  disk_io::AsyncWriter *disk_io) {
-  if (size_ / per_block_size_ >= block_pos_.size()) {
-    AddBlockPos(start);
-    // compress prev
-  }
   size_ += n_bytes;
   WriteContent(value, n_bytes, start, disk_io);
   return 0;
@@ -106,34 +56,28 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
     if (len > per_block_size_) len = per_block_size_;
 
     uint32_t block_id = start / per_block_size_;
-    uint32_t block_pos = block_pos_[block_id];
+    // uint32_t block_pos = block_pos_[block_id];
+    uint32_t block_pos = block_id * per_block_size_;
     uint32_t block_offset = start % per_block_size_;
 
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
 
-    uint32_t cur_size = WritenSize(fd_);
-    uint32_t b = cur_size * item_length_ / per_block_size_;
-    // TODO needn't read last block's disk if it is not in last segment
-    if (b <= block_id) {
-      pread(fd_, value + read_num, len,
-            block_pos + header_size_ + block_offset);
+    if (last_bid_in_disk_ <= block_id) {
+      uint32_t cur_size = WritenSize(fd_); 
+      last_bid_in_disk_ = cur_size * item_length_ / per_block_size_;
+    }
+    if (last_bid_in_disk_ <= block_id) {
+      ReadContent(value + read_num, len, block_pos + block_offset);
     } else {
       std::shared_ptr<std::vector<uint8_t>> block;
-      uint64_t uni_block_id = block_id;
-      uni_block_id = uni_block_id << 32;
-      uni_block_id |= fd_;
-      bool res = lru_cache_->Get(uni_block_id, block);
+      uint32_t cache_bid = GetCacheBlockId(block_id);
+      bool res = lru_cache_->Get(cache_bid, block);
       if (not res) {
         ReadFunParameter parameter;
-        parameter.len = per_block_size_;
-        parameter.offset = block_pos;
-        parameter.fd = fd_;  // TODO remove
-        parameter.cmprs = (void*)compressor_;
-        GetReadFunParameter(parameter);
-        res = lru_cache_->SetOrGet(uni_block_id, block, &parameter);
+        GetReadFunParameter(parameter, per_block_size_, block_pos);
+        res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
       }
-
       if (not res) {
         LOG(ERROR) << "Read block fails from disk_file, block_id[" << block_id
                    << "]";
@@ -163,10 +107,8 @@ int Block::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
 
-    uint64_t uni_block_id = block_id;
-    uni_block_id = uni_block_id << 32;
-    uni_block_id |= fd_;
-    lru_cache_->Evict(uni_block_id);
+    uint32_t cache_block_id = seg_id_ * seg_block_capacity_ + block_id;
+    lru_cache_->Evict(cache_block_id);
 
     offset += len;
     n_bytes -= len;
@@ -174,14 +116,12 @@ int Block::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
   return res;
 }
 
+void Block::SegmentIsFull() {
+  ++last_bid_in_disk_;
+}
 
-int Block::CloseBlockPosFile() {
-  if (block_pos_fp_ != nullptr) {
-    fclose(block_pos_fp_);
-    block_pos_fp_ = nullptr;
-    return 0;
-  }
-  return -1;
+int32_t Block::GetCacheBlockId(uint32_t block_id) {
+  return seg_id_ * seg_block_capacity_ + block_id;
 }
 
 }  // namespace tig_gamma

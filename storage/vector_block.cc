@@ -12,8 +12,10 @@
 namespace tig_gamma {
 
 VectorBlock::VectorBlock(int fd, int per_block_size, int length,
-                       uint32_t header_size)
-    : Block(fd, per_block_size, length, header_size) {
+                         uint32_t header_size, uint32_t seg_id,
+                         uint32_t seg_block_capacity)
+    : Block(fd, per_block_size, length, header_size, seg_id,
+            seg_block_capacity) {
   vec_item_len_ = item_length_;
   LOG(INFO) << "VectorBlock construction!";
 }
@@ -29,7 +31,12 @@ void VectorBlock::InitSubclass() {
   }
 }
 
-int VectorBlock::GetReadFunParameter(ReadFunParameter &parameter) {
+int VectorBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
+                                     uint32_t off) {
+  parameter.fd = fd_;
+  parameter.len = len;
+  parameter.offset = off;
+  parameter.cmprsr = (void*)compressor_;
 #ifdef WITH_ZFP
   if (compressor_) {
     int raw_len = compressor_->GetRawLen();
@@ -41,11 +48,11 @@ int VectorBlock::GetReadFunParameter(ReadFunParameter &parameter) {
   return 0;
 }
 
-bool VectorBlock::ReadBlock(uint64_t key,
+bool VectorBlock::ReadBlock(uint32_t key,
                             std::shared_ptr<std::vector<uint8_t>> &block,
                             ReadFunParameter *param) {
 #ifdef WITH_ZFP
-  Compressor *compressor = (Compressor *)param->cmprs;
+  Compressor *compressor = (Compressor *)param->cmprsr;
   if (compressor) {
     char *cmprs_data = new char[param->len];
     int cmprs_len = compressor->GetCompressLen();
@@ -97,7 +104,6 @@ int VectorBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
 }
 
 int VectorBlock::ReadContent(uint8_t *value, uint32_t len, uint32_t offset) {
-
 #ifdef WITH_ZFP
   if (compressor_) {
     int raw_len = compressor_->GetRawLen();
