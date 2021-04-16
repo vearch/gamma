@@ -1187,10 +1187,12 @@ int MultiFieldsRangeIndex::Intersect(std::vector<RangeQueryResult> &results,
   // calculate the intersection with the shortest doc chain.
   {
     char *data = results[shortest_idx].Ref();
+    int min_doc_shortest = results[shortest_idx].MinAligned();
+    int offset = (min_doc - min_doc_shortest) / op_len;
 
     BM_OPERATE_TYPE *op_data_ori = (BM_OPERATE_TYPE *)data;
     for (int j = 0; j < (max_doc - min_doc + 1) / op_len; ++j) {
-      op_data_dst[j] = op_data_ori[j];
+      op_data_dst[j] = op_data_ori[j + offset];
     }
   }
 
