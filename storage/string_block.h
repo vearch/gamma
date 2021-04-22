@@ -42,20 +42,15 @@ class StringBlock : public Block {
   int Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
            std::string &str_out);
 
-  static bool ReadString(uint32_t key,
-                         std::shared_ptr<std::vector<uint8_t>> &block,
+  static bool ReadString(uint32_t key, char *block,
                          ReadStrFunParameter *param);
 
  private:
   void InitSubclass() {};
 
-  int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) {
-    return 0;
-  };
-
   int AddBlockPos(uint32_t block_pos);
 
-  LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *> *lru_cache_;
+  LRUCache<uint32_t, ReadStrFunParameter *> *str_lru_cache_;
 
   std::string block_pos_file_path_;
 

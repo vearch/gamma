@@ -27,7 +27,7 @@ class VectorBlock : public Block {
   VectorBlock(int fd, int per_block_size, int length, uint32_t header_size,
               uint32_t seg_id, uint32_t seg_block_capacity);
 
-  static bool ReadBlock(uint32_t key, std::shared_ptr<std::vector<uint8_t>> &block,
+  static bool ReadBlock(uint32_t key, char *block,
                         ReadFunParameter *param);
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
@@ -35,13 +35,17 @@ class VectorBlock : public Block {
 
   int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) override;
 
+  int Read(uint8_t *value, uint32_t len, uint32_t offset) override;
+
+  int Update(const uint8_t *data, int n_bytes, uint32_t offset) override;
+
  private:
   void InitSubclass() override;
 
-  int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) override;
-
   int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
                           uint32_t off) override;
+
+  int Compress(const uint8_t *data, int len, std::vector<char> &output);
 
   int vec_item_len_;
 };

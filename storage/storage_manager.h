@@ -57,7 +57,8 @@ class StorageManager {
   StorageManager(const std::string &root_path, BlockType block_type,
                  const StorageManagerOptions &options);
   ~StorageManager();
-  int Init(int cache_size, int str_cache_size = 0);
+  int Init(int cache_size, std::string cache_name,
+           int str_cache_size = 0, std::string str_cache_name = "");
 
   int Add(const uint8_t *value, int len);
 
@@ -89,6 +90,8 @@ class StorageManager {
 
   void GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size);
 
+  void CountByteSize(uint64_t &base_size, uint64_t &str_size);
+
  private:
   int Load();
 
@@ -99,12 +102,12 @@ class StorageManager {
  private:
   std::string root_path_;
   StorageManagerOptions options_;
-  size_t size_;
+  size_t size_;                                // The total number of doc.
   tbb::concurrent_vector<Segment *> segments_;
   disk_io::AsyncWriter *disk_io_;
   BlockType block_type_;
-  LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *> *cache_;
-  LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *> *str_cache_;
+  LRUCache<uint32_t, ReadFunParameter *> *cache_;
+  LRUCache<uint32_t, ReadStrFunParameter *> *str_cache_;
   Compressor *compressor_;
 };
 

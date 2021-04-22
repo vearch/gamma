@@ -28,8 +28,8 @@ StringBlock::~StringBlock() {
 }
 
 void StringBlock::InitStrBlock(void *lru) {
-  lru_cache_ =
-      (LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *> *)lru;
+  str_lru_cache_ =
+      (LRUCache<uint32_t, ReadStrFunParameter *> *)lru;
 }
 
 int StringBlock::LoadIndex(const std::string &file_path) {
@@ -83,13 +83,14 @@ int StringBlock::WriteString(const char *data, str_len_t len,
   }
   uint32_t cur_pos = block_pos_.back();
   in_block_pos = offset - cur_pos;
-  block_id = block_pos_.size() - 1;
-  if (in_block_pos + len > MAX_STR_BLOCK_SIZE) {
+  if (in_block_pos + len > per_block_size_) {
+    AddBlockPos(offset);
+    in_block_pos = 0;
     pwrite(fd_, data, len, offset);
-    AddBlockPos(offset + len);
   } else {
     pwrite(fd_, data, len, offset);
   }
+  block_id = block_pos_.size() - 1;
   return 0;
 }
 
@@ -98,51 +99,47 @@ int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
   // uint32_t off = block_pos_[block_id] + in_block_pos;
   // std::vector<char> str(len);
   // pread(fd_, str.data(), str.size(), off);
-  // str_out = std::move(std::string(str.data(), len));
+  // str_out = std::string(str.data(), len);
 
-  char *str = new char[len];
   uint32_t block_pos = block_pos_[block_id];
 
   uint32_t block_pos_size = block_pos_.size();
   // TODO needn't read last block's disk if it is not in last segment
   if (block_id + 1 >= block_pos_size) {
+    char *str = new char[len];
     pread(fd_, str, len, block_pos + in_block_pos);
+    str_out = std::string(str, len);
+    delete[] str;
   } else {
-    std::shared_ptr<std::vector<uint8_t>> block;
+    char *block = nullptr;
     uint32_t cache_bid = GetCacheBlockId(block_id);
-    bool res = lru_cache_->Get(cache_bid, block);
+    bool res = str_lru_cache_->Get(cache_bid, block);
     if (not res) {
       ReadStrFunParameter parameter;
       parameter.str_block = this;
       parameter.block_id = block_id;
       parameter.in_block_pos = in_block_pos;
       parameter.fd = fd_;  // TODO remove
-      res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
+      res = str_lru_cache_->SetOrGet(cache_bid, block, &parameter);
     }
 
     if (not res) {
       LOG(ERROR) << "Read block fails from disk_file, block_id[" << block_id
                  << "]";
-      delete[] str;
       return -1;
     }
-    memcpy(str, block->data() + in_block_pos, len);
+    str_out = std::string(block + in_block_pos, len);
   }
-
-  str_out = std::string(str, len);
-  delete[] str;
   return 0;
 }
 
-bool StringBlock::ReadString(uint32_t key,
-                             std::shared_ptr<std::vector<uint8_t>> &block,
+bool StringBlock::ReadString(uint32_t key, char *block,
                              ReadStrFunParameter *param) {
   StringBlock *str_block = reinterpret_cast<StringBlock *>(param->str_block);
   uint32_t len = str_block->block_pos_[param->block_id + 1] -
                  str_block->block_pos_[param->block_id];
-  block = std::make_shared<std::vector<uint8_t>>(len);
   uint32_t cur_pos = str_block->block_pos_[param->block_id];  // TODO check size
-  pread(param->fd, block->data(), len, cur_pos);
+  pread(param->fd, block, len, cur_pos);
   return true;
 }
 
