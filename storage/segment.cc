@@ -37,14 +37,14 @@ inline size_t StrCapacityOff() {
   return SizeOff() + sizeof(size);
 }
 
-inline size_t StrSizeOff() {
+inline size_t StrOffsetOff() {
   uint64_t str_capacity;
   return StrCapacityOff() + sizeof(str_capacity);
 }
 
 inline size_t StrBlocksSizeOff() {
   uint64_t str_capacity;
-  return StrSizeOff() + sizeof(str_capacity);
+  return StrOffsetOff() + sizeof(str_capacity);
 }
 
 inline size_t StrCompressedOff() {
@@ -74,24 +74,24 @@ Segment::Segment(const std::string &file_path, uint32_t seg_id, int max_size,
   base_fd_ = -1;
   str_fd_ = -1;
 
-  cur_size_ = 0;
-  capacity_ = 0;
   version_ = 0;
   uint32_t capacity;
-  uint32_t size;
-  uint64_t str_capacity;
-  str_offset_t str_size;
+  cur_size_ = 0;
+  str_capacity_ = 0;
+  str_offset_ = 0;
   uint32_t str_blocks_size;
   str_offset_t str_compressed_size;
   uint8_t b_compressed;
 
-  seg_header_size_ = sizeof(version_) + sizeof(capacity) + sizeof(size) +
-                     sizeof(str_capacity) + sizeof(str_size) +
+  seg_header_size_ = sizeof(version_) + sizeof(capacity) + sizeof(cur_size_) +
+                     sizeof(str_capacity_) + sizeof(str_offset_) +
                      sizeof(str_blocks_size) + sizeof(str_compressed_size) +
                      sizeof(b_compressed);
 
   per_block_size_ = ((64 * 1024) / item_length_) * item_length_; // block~=64k
   buffered_size_ = 0;
+  str_blocks_ = nullptr;
+  blocks_ = nullptr;
 }
 
 Segment::~Segment() {
@@ -138,7 +138,13 @@ void Segment::PersistentedSize() {
   }
 }
 
-void Segment::SetSize(uint32_t size) {
+uint32_t Segment::BaseOffset() {
+  uint32_t size;
+  pread(base_fd_, &size, sizeof(size), sizeof(version_) + sizeof(uint32_t));
+  return size * item_length_;
+}
+
+void Segment::SetBaseSize(uint32_t size) {
   uint32_t capacity;
   pwrite(base_fd_, &size, sizeof(size), sizeof(version_) + sizeof(capacity));
 }
@@ -165,14 +171,14 @@ void Segment::SetStrBlocksSize(uint32_t str_blocks_size) {
          StrBlocksSizeOff());
 }
 
-str_offset_t Segment::StrSize() {
-  str_offset_t str_size;
-  pread(base_fd_, &str_size, sizeof(str_size), StrSizeOff());
-  return str_size;
+str_offset_t Segment::StrOffset() {
+  str_offset_t str_offset;
+  pread(base_fd_, &str_offset, sizeof(str_offset), StrOffsetOff());
+  return str_offset;
 }
 
-void Segment::SetStrSize(str_offset_t str_size) {
-  pwrite(base_fd_, &str_size, sizeof(str_size), StrSizeOff());
+void Segment::SetStrOffset(str_offset_t str_size) {
+  pwrite(base_fd_, &str_size, sizeof(str_size), StrOffsetOff());
 }
 
 uint8_t Segment::BCompressed() {
@@ -198,36 +204,41 @@ void Segment::SetStrCompressedSize(str_offset_t str_compressed_size) {
 }
 
 int Segment::Init(BlockType block_type, Compressor *compressor) {
-  OpenFile();
+  OpenFile(block_type);
   if (ftruncate(base_fd_, seg_header_size_ + item_length_ * max_size_)) {
     close(base_fd_);
     LOG(ERROR) << "truncate file error:" << strerror(errno);
     return IO_ERR;
   }
 
-  uint64_t str_capacity = seg_header_size_ + max_size_ * 4;
-  SetStrCapacity(str_capacity);
-  SetStrSize(0);
-  int ret = ftruncate(str_fd_, StrCapacity());
-  if (ret != 0) {
-    return -1;
+  if (str_fd_ != -1) {
+    str_capacity_ = seg_header_size_ + max_size_ * 4;
+    str_offset_ = 0;
+    int ret = ftruncate(str_fd_, str_capacity_);
+    if (ret != 0) {
+      return -1;
+    }
   }
-  InitBlock(block_type, compressor);
+  SetStrCapacity(str_capacity_);
+  SetStrOffset(str_offset_);
 
+  InitBlock(block_type, compressor);
   return 0;
 }
 
-int Segment::OpenFile() {
+int Segment::OpenFile(BlockType block_type) {
   base_fd_ = open(file_path_.c_str(), O_RDWR | O_CREAT, 0666);
   if (-1 == base_fd_) {
     LOG(ERROR) << "open vector file error, path=" << file_path_;
     return IO_ERR;
   }
 
-  str_fd_ = open((file_path_ + "_str").c_str(), O_RDWR | O_CREAT, 0666);
-  if (-1 == str_fd_) {
-    LOG(ERROR) << "open vector file error, path=" << (file_path_ + "_str");
-    return -1;
+  if (block_type == BlockType::TableBlockType) {
+    str_fd_ = open((file_path_ + "_str").c_str(), O_RDWR | O_CREAT, 0666);
+    if (-1 == str_fd_) {
+      LOG(ERROR) << "open vector file error, path=" << (file_path_ + "_str");
+      return -1;
+    }
   }
   return 0;
 }
@@ -239,6 +250,9 @@ int Segment::InitBlock(BlockType block_type, Compressor *compressor) {
     blocks_ =
       new TableBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
                      seg_id_, seg_block_capacity_);
+    str_blocks_ =
+      new StringBlock(str_fd_, per_block_size_, item_length_, seg_header_size_,
+                      seg_id_, seg_block_capacity_);
     break;
   case BlockType::VectorBlockType:
     blocks_ =
@@ -252,23 +266,24 @@ int Segment::InitBlock(BlockType block_type, Compressor *compressor) {
 
   blocks_->Init(cache_, compressor);
 
-  str_blocks_ =
-      new StringBlock(str_fd_, 1024 * 1024, item_length_, seg_header_size_,
-                      seg_id_, seg_block_capacity_);
-  str_blocks_->LoadIndex(file_path_ + "_str.idx");
-  str_blocks_->InitStrBlock(str_cache_);
-  if (BufferedSize() == max_size_) {
-    str_blocks_->CloseBlockPosFile();
+  if (str_blocks_) {
+    str_blocks_->LoadIndex(file_path_ + "_str.idx");
+    str_blocks_->InitStrBlock(str_cache_);
+    if (BufferedSize() == max_size_) {
+      str_blocks_->CloseBlockPosFile();
+    }
   }
   return 0;
 }
 
 // TODO: Load compressor
 int Segment::Load(BlockType block_type, Compressor *compressor) {
-  OpenFile();
+  OpenFile(block_type);
   InitBlock(block_type, compressor);
-
+  str_capacity_ = StrCapacity();
+  str_offset_ = StrOffset();
   PersistentedSize();
+  buffered_size_ = cur_size_;
   return cur_size_;
 }
 
@@ -281,27 +296,27 @@ int Segment::Add(const uint8_t *data, int len) {
 
 str_offset_t Segment::AddString(const char *str, int len, uint32_t &block_id,
                                 uint32_t &in_block_pos) {
-  str_offset_t str_size = StrSize();
-  uint64_t str_capacity = StrCapacity();
-  if (str_size + len >= str_capacity) {
-    uint64_t extend_capacity = str_capacity << 1;
-    while (str_size + len >= extend_capacity) {
+  if (str_offset_ + len >= str_capacity_) {
+    uint64_t extend_capacity = str_capacity_ << 1;
+    while (str_offset_ + len >= extend_capacity) {
       extend_capacity = extend_capacity << 1;
     }
 
     int ret = 0;
-    SetStrCapacity(extend_capacity);
+    str_capacity_ = extend_capacity;
+    SetStrCapacity(str_capacity_);
 
-    ret = ftruncate(str_fd_, StrCapacity());
+    ret = ftruncate(str_fd_, str_capacity_);
     if (ret != 0) {
       return -1;
     }
   }
 
-  str_blocks_->WriteString(str, len, str_size, block_id, in_block_pos);
+  str_blocks_->WriteString(str, len, str_offset_, block_id, in_block_pos);
 
-  SetStrSize(str_size + len);
-  return str_size;
+  str_offset_ += len;
+  SetStrOffset(str_offset_);
+  return str_offset_;
 }
 
 int Segment::GetValue(uint8_t *value, int id) {
@@ -324,6 +339,11 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     ++count;
+    if (count > 10) {
+      LOG(ERROR) << "Because the wait timeout, segment[" << seg_id_
+                 << "] GetValue(" << id << ") failed.";
+      return -1;
+    }
   }
   blocks_->Read(value, n_bytes, start);
   return 0;
@@ -338,7 +358,7 @@ std::string Segment::GetString(uint32_t block_id, uint32_t in_block_pos,
 
 bool Segment::IsFull() {
   if (BufferedSize() == max_size_) {
-    str_blocks_->CloseBlockPosFile();
+    if (str_blocks_) str_blocks_->CloseBlockPosFile();
     return true;
   } else {
     return false;

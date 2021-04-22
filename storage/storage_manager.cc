@@ -57,18 +57,16 @@ int StorageManager::UseCompress(CompressType type, int d, double rate) {
 
 bool StorageManager::AlterCacheSize(uint32_t cache_size,
                                     uint32_t str_cache_size) {
-  if (cache_size > 0) {
+  if (cache_size > 0) {                                      //cache_size unit: M
     if (cache_ != nullptr) {
-      uint32_t cache_max_size = (cache_size * 1024) / 64;   //cache_max unit: M
-      cache_->AlterMaxSize((size_t)cache_max_size);
+      cache_->AlterCacheSize((size_t)cache_size);
     } else {
       LOG(WARNING) << "Alter cache_ failure, cache_ is nullptr.";
     }
   }
   if (str_cache_size > 0) {
     if (str_cache_ != nullptr) {
-      uint32_t cache_max_size = (str_cache_size * 1024) / 64; //cache_max unit: M
-      str_cache_->AlterMaxSize((size_t)cache_max_size);
+      str_cache_->AlterCacheSize((size_t)str_cache_size);
     } else {
       LOG(WARNING) << "Alter str_cache_ failure, str_cache_ is nullptr.";
     }
@@ -87,24 +85,25 @@ void StorageManager::GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size
   }
 }
 
-int StorageManager::Init(int cache_size, int str_cache_size) {
-  int cache_max_size = (cache_size * 1024) / 64;   //cache_max unit: M
-  int str_cache_max_size = (str_cache_size * 1024) / 64;
+int StorageManager::Init(int cache_size, std::string cache_name,
+                         int str_cache_size, std::string str_cache_name) {
   LOG(INFO) << "lrucache cache_size[" << cache_size 
             << "M], string lrucache cache_size[" << str_cache_size << "M]";
   auto fun = &TableBlock::ReadBlock;
   if (block_type_ == BlockType::VectorBlockType) {
     fun = &VectorBlock::ReadBlock;
   }
+  uint32_t per_block_size = ((64 * 1024) / options_.fixed_value_bytes) *
+                            options_.fixed_value_bytes; // block~=64k
   cache_ =
-      new LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *>(
-          cache_max_size, fun);
+      new LRUCache<uint32_t, ReadFunParameter *>(
+          cache_name, cache_size, per_block_size, fun);
   cache_->Init();
 
-  if (str_cache_max_size > 0) {
+  if (str_cache_size > 0) {
     str_cache_ =
-        new LRUCache<uint32_t, std::vector<uint8_t>, ReadStrFunParameter *>(
-            str_cache_max_size, &StringBlock::ReadString);
+        new LRUCache<uint32_t, ReadStrFunParameter *>(
+            str_cache_name, str_cache_size, per_block_size, &StringBlock::ReadString);
     str_cache_->Init();
   }
 
@@ -240,9 +239,16 @@ str_offset_t StorageManager::UpdateString(int id, const char *value, int len,
     return PARAM_ERR;
   }
   int seg_id = id / options_.segment_size;
+  int count= 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "Get() ,seg_id:" << seg_id << " segments_.size():" << segments_.size();
+    LOG(INFO) << "Get(),seg_id:" << seg_id << " >= segments_.size():" << segments_.size();
+    ++count;
+    if (count > 10) {
+      LOG(ERROR) << "Because the wait timeout, StorageManager[" << str_cache_->GetName()
+                 << "] UpdateString(" << id << ") failed.";
+      return -1;
+    }
   }
   Segment *segment = segments_[seg_id];
   str_offset_t ret = segment->AddString(value, len, block_id, in_block_pos);
@@ -256,16 +262,23 @@ int StorageManager::Get(long id, const uint8_t *&value) {
   }
 
   int seg_id = id / options_.segment_size;
+  int count = 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "Get() ,seg_id:" << seg_id << " segments_.size():" << segments_.size();
+    LOG(INFO) << "Get(),seg_id:" << seg_id << " >= segments_.size():" << segments_.size();
+    ++count;
+    if (count > 10) {
+      LOG(ERROR) << "Because the wait timeout, StorageManager[" << cache_->GetName()
+                 << "] Get(" << id << ") failed.";
+      return -1;
+    }
   }
   Segment *segment = segments_[seg_id];
 
   uint8_t *value2 = new uint8_t[options_.fixed_value_bytes];
-  segment->GetValue(value2, id % options_.segment_size);
+  int ret = segment->GetValue(value2, id % options_.segment_size);
   value = value2;
-  return 0;
+  return ret;
 }
 
 int StorageManager::GetString(long id, std::string &value, uint32_t block_id,
@@ -276,9 +289,16 @@ int StorageManager::GetString(long id, std::string &value, uint32_t block_id,
   }
   // TODO wait while seg_id >= segments_.size()
   int seg_id = id / options_.segment_size;
+  int count = 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "GetString(), seg_id:" << seg_id << " segments_.size():" << segments_.size();
+    LOG(INFO) << "GetString(), seg_id:" << seg_id << " >= segments_.size():" << segments_.size();
+    ++count;
+    if (count > 10) {
+      LOG(ERROR) << "Because the wait timeout, StorageManager[" << cache_->GetName()
+                 << "] GetString(" << id << ") failed.";
+      return -1;
+    }
   }
 
   value = segments_[seg_id]->GetString(block_id, in_block_pos, len);
@@ -302,7 +322,7 @@ int StorageManager::Truncate(size_t size) {
   }
   segments_.resize(seg_num);
   if (offset > 0) {
-    segments_.back()->SetCurrIdx((int)offset);
+    segments_.back()->SetBaseSize((uint32_t)offset);
   }
   size_ = size;
 
@@ -313,6 +333,19 @@ int StorageManager::Truncate(size_t size) {
             << ", current segment num=" << segments_.size()
             << ", last offset=" << offset;
   return 0;
+}
+
+void StorageManager::CountByteSize(uint64_t &base_size, uint64_t &str_size) {
+  base_size = 0;
+  str_size = 0;
+  int n = segments_.size();
+  for (int i = 0; i < n; ++i) {
+    Segment *seg = segments_[i];
+    uint32_t base_off = seg->BaseOffset();
+    str_offset_t str_off = seg->StrOffset();
+    base_size += base_off;
+    str_size += str_off;
+  }
 }
 
 }  // namespace tig_gamma

@@ -16,7 +16,7 @@ class TableBlock : public Block {
   TableBlock(int fd, int max_size, int length, uint32_t header_size,
              uint32_t seg_id, uint32_t seg_block_capacity);
 
-  static bool ReadBlock(uint32_t key, std::shared_ptr<std::vector<uint8_t>> &block,
+  static bool ReadBlock(uint32_t key, char *block,
                         ReadFunParameter *param);
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
@@ -28,8 +28,6 @@ class TableBlock : public Block {
 
  private:
   void InitSubclass() {};
-
-  int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) override;
 
   int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
                           uint32_t off) override;

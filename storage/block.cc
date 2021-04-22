@@ -20,8 +20,13 @@ Block::Block(int fd, int per_block_size, int length, uint32_t header_size,
       seg_block_capacity_(seg_block_capacity),
       seg_id_(seg_id) {
   compressor_ = nullptr;
-  size_ = 0;
+  // size_ = 0;
   last_bid_in_disk_ = 0;
+  lru_cache_ = nullptr;
+  LOG(INFO) << "Block info, seg_id[" << seg_id << "] per_block_size["
+            << per_block_size_ << "] item_length[" <<item_length_ 
+            << "] header_size[" << header_size_ << "] seg_block_capacity[" 
+            << seg_block_capacity_ << "]";
 }
 
 Block::~Block() {
@@ -31,25 +36,26 @@ Block::~Block() {
 
 void Block::Init(void *lru, Compressor *compressor) {
   lru_cache_ =
-      (LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *> *)lru;
+      (LRUCache<uint32_t, ReadFunParameter *> *)lru;
   compressor_ = compressor;
   InitSubclass();
 }
 
 int Block::Write(const uint8_t *value, int n_bytes, uint32_t start,
                  disk_io::AsyncWriter *disk_io) {
-  size_ += n_bytes;
+  // size_ += n_bytes;
   WriteContent(value, n_bytes, start, disk_io);
   return 0;
 }
 
-static uint32_t WritenSize(int fd) {
+uint32_t Block::WritenSize(int fd) {
   uint32_t size;
   pread(fd, &size, sizeof(size), sizeof(uint8_t) + sizeof(uint32_t));
   return size;
 }
 
 int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
+  // ReadContent(value, n_bytes, start);
   int read_num = 0;
   while (n_bytes) {
     int len = n_bytes;
@@ -70,12 +76,14 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
     if (last_bid_in_disk_ <= block_id) {
       ReadContent(value + read_num, len, block_pos + block_offset);
     } else {
-      std::shared_ptr<std::vector<uint8_t>> block;
+      // std::shared_ptr<std::vector<uint8_t>> block;
+      char *block = nullptr;
       uint32_t cache_bid = GetCacheBlockId(block_id);
       bool res = lru_cache_->Get(cache_bid, block);
       if (not res) {
         ReadFunParameter parameter;
         GetReadFunParameter(parameter, per_block_size_, block_pos);
+
         res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
       }
       if (not res) {
@@ -83,7 +91,7 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
                    << "]";
         return -1;
       }
-      memcpy(value + read_num, block->data() + block_offset, len);
+      memcpy(value + read_num, block + block_offset, len);
     }
 
     start += len;
@@ -94,8 +102,7 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
 }
 
 int Block::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
-  int res = SubclassUpdate(data, n_bytes, offset);
-  if (res != 0) return res;
+  pwrite(fd_, data, n_bytes, header_size_ + offset);
 
   while (n_bytes) {
     int len = n_bytes;
@@ -113,7 +120,7 @@ int Block::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
     offset += len;
     n_bytes -= len;
   }
-  return res;
+  return 0;
 }
 
 void Block::SegmentIsFull() {

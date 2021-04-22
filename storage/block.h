@@ -42,9 +42,11 @@ class Block {
   int Write(const uint8_t *data, int len, uint32_t offset,
             disk_io::AsyncWriter *disk_io);
 
-  int Read(uint8_t *value, uint32_t len, uint32_t offset);
+  static uint32_t WritenSize(int fd);
 
-  int Update(const uint8_t *data, int n_bytes, uint32_t offset);
+  virtual int Read(uint8_t *value, uint32_t len, uint32_t offset);
+
+  virtual int Update(const uint8_t *data, int n_bytes, uint32_t offset);
 
   void SegmentIsFull(); // Segment is full and all data is brushed to disk.
   
@@ -65,9 +67,7 @@ class Block {
 
   virtual int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) = 0;
 
-  virtual int SubclassUpdate(const uint8_t *data, int len, uint32_t offset) = 0;
-
-  LRUCache<uint32_t, std::vector<uint8_t>, ReadFunParameter *> *lru_cache_;
+  LRUCache<uint32_t, ReadFunParameter *> *lru_cache_;
 
   int fd_;
 
@@ -75,7 +75,7 @@ class Block {
 
   uint32_t per_block_size_;
 
-  uint32_t size_;
+//   uint32_t size_;
 
   int item_length_;
 

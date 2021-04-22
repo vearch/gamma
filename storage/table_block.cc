@@ -24,7 +24,6 @@ int TableBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
   parameter.fd = fd_;
   parameter.len = len;
   parameter.offset = off + header_size_;
-  parameter.cmprsr = (void*)compressor_;
   return 0;
 }
 
@@ -42,21 +41,14 @@ int TableBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
   return 0;
 }
 
-bool TableBlock::ReadBlock(uint32_t key,
-                           std::shared_ptr<std::vector<uint8_t>> &block,
+bool TableBlock::ReadBlock(uint32_t key, char *block,
                            ReadFunParameter *param) {
-  block = std::make_shared<std::vector<uint8_t>>(param->len);
-  pread(param->fd, block->data(), param->len, param->offset);
+  pread(param->fd, block, param->len, param->offset);
   return true;
 }
 
 int TableBlock::ReadContent(uint8_t *value, uint32_t len, uint32_t offset) {
   pread(fd_, value, len, header_size_ + offset);
-  return 0;
-}
-
-int TableBlock::SubclassUpdate(const uint8_t *data, int len, uint32_t offset) {
-  pwrite(fd_, data, len, header_size_ + offset);
   return 0;
 }
 

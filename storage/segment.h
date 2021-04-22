@@ -45,9 +45,13 @@ class Segment {
 
   bool IsFull();
 
-  void SetCurrIdx(int curr_idx) { SetSize(curr_idx); }
-
   int Update(int id, uint8_t *vec, int len);
+
+  uint32_t BaseOffset();
+  
+  void SetBaseSize(uint32_t size);
+
+  str_offset_t StrOffset();
 
  private:
   uint8_t Version();
@@ -57,8 +61,6 @@ class Segment {
   uint32_t BufferedSize();
 
   void PersistentedSize();
-
-  void SetSize(uint32_t size);
 
   uint64_t StrCapacity();
 
@@ -70,9 +72,7 @@ class Segment {
 
   void SetBlocksStrSize(uint32_t str_blocks_size);
 
-  str_offset_t StrSize();
-
-  void SetStrSize(str_offset_t str_size);
+  void SetStrOffset(str_offset_t str_size);
 
   uint8_t BCompressed();
 
@@ -82,7 +82,7 @@ class Segment {
 
   void SetStrCompressedSize(str_offset_t str_compressed_size);
 
-  int OpenFile();
+  int OpenFile(BlockType block_type);
 
   int InitBlock(BlockType block_type, Compressor *compressor);
 
@@ -91,12 +91,13 @@ class Segment {
   std::string file_path_;
   uint32_t seg_block_capacity_;
 
-  int max_size_;
-  uint32_t cur_size_;
+  int max_size_;                // a segment max docs num
+  uint32_t cur_size_;           // For this segment, the number of docs written to disk.
 
-  uint32_t buffered_size_;
+  uint32_t buffered_size_;      // For this segment, the number of docs is written. 
 
-  uint32_t capacity_;
+  str_offset_t str_offset_;     // offset of string      
+  uint64_t str_capacity_;       // capacity of string file
 
   uint64_t seg_header_size_;
   uint8_t version_;
