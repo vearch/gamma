@@ -43,13 +43,13 @@ inline size_t StrOffsetOff() {
 }
 
 inline size_t StrBlocksSizeOff() {
-  uint64_t str_capacity;
-  return StrOffsetOff() + sizeof(str_capacity);
+  str_offset_t str_offset;
+  return StrOffsetOff() + sizeof(str_offset);
 }
 
 inline size_t StrCompressedOff() {
-  str_offset_t str_size;
-  return StrBlocksSizeOff() + sizeof(str_size);
+  uint32_t str_blocks_size;
+  return StrBlocksSizeOff() + sizeof(str_blocks_size);
 }
 
 inline size_t BCompressedOff() {
