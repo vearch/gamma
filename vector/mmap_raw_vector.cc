@@ -34,7 +34,7 @@ MmapRawVector::MmapRawVector(VectorMetaInfo *meta_info, const string &root_path,
 
 MmapRawVector::~MmapRawVector() { CHECK_DELETE(storage_mgr_); }
 
-int MmapRawVector::InitStore() {
+int MmapRawVector::InitStore(std::string &vec_name) {
   std::string vec_dir = root_path_ + "/" + meta_info_->Name();
   uint32_t var = 0;
   --var;
@@ -68,7 +68,7 @@ int MmapRawVector::InitStore() {
     LOG(INFO) << "store_params_.compress.IsEmpty() is true, not use zfp";
   }
 #endif
-  int ret = storage_mgr_->Init(store_params_.cache_size);
+  int ret = storage_mgr_->Init(store_params_.cache_size, vec_name);
   if (ret) {
     LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;

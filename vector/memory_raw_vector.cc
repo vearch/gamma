@@ -37,7 +37,7 @@ MemoryRawVector::~MemoryRawVector() {
   CHECK_DELETE_ARRAY(segments_);
 }
 
-int MemoryRawVector::InitStore() {
+int MemoryRawVector::InitStore(std::string &vec_name) {
   // const std::string &name = meta_info_->Name();
   // string db_path = this->root_path_ + "/" + name;
   // if (rdb_.Open(db_path)) {

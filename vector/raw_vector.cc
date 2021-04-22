@@ -190,7 +190,7 @@ RawVector::~RawVector() {
 #endif
 }
 
-int RawVector::Init(bool has_source, bool multi_vids) {
+int RawVector::Init(std::string vec_name, bool has_source, bool multi_vids) {
   desc_ += "raw vector=" + meta_info_->Name() + ", ";
   if (has_source || multi_vids) {
     LOG(ERROR) << "source and multi-vids is unsupported now";
@@ -226,7 +226,7 @@ int RawVector::Init(bool has_source, bool multi_vids) {
   }
 #endif
 
-  if (InitStore()) return -2;
+  if (InitStore(vec_name)) return -2;
 
   LOG(INFO) << "raw vector init success! name=" << meta_info_->Name()
             << ", has source=" << has_source << ", multi_vids=" << multi_vids

@@ -35,11 +35,16 @@ Table::Table(const string &root_path, bool b_compress) {
   table_created_ = false;
   last_docid_ = -1;
   table_params_ = nullptr;
+  storage_mgr_ = nullptr;
   LOG(INFO) << "Table created success!";
 }
 
 Table::~Table() {
   CHECK_DELETE(table_params_);
+  if (storage_mgr_) {
+    delete storage_mgr_;
+    storage_mgr_ = nullptr;
+  }
   LOG(INFO) << "Table deleted.";
 }
 
@@ -125,7 +130,8 @@ int Table::CreateTable(TableInfo &table, TableParams &table_params) {
       new StorageManager(root_path_, BlockType::TableBlockType, options);
   int cache_size = 512;                         // unit : M
   int str_cache_size = 512;
-  int ret = storage_mgr_->Init(cache_size, str_cache_size);
+  int ret = storage_mgr_->Init(cache_size, name_ + "_table",
+                               str_cache_size, name_ + "_string");
   if (ret) {
     LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;
