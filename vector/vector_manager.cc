@@ -298,16 +298,16 @@ int VectorManager::AddRTVecsToIndex() {
         } else {
           int raw_d = raw_vec->MetaInfo()->Dimension();
           if (raw_vec->MetaInfo()->DataType() == VectorValueType::BINARY) {
-            raw_d /= 8;
             add_vec = new uint8_t[raw_d * count_per_index];
           } else {
             add_vec = new uint8_t[raw_d * count_per_index * sizeof(float)];
           }
           del_vec.set(add_vec);
           size_t offset = 0;
+          size_t element_size = raw_vec->MetaInfo()->DataType() == VectorValueType::BINARY ? sizeof(char) : sizeof(float);
           for (size_t i = 0; i < vector_head.Size(); ++i) {
             memcpy((void *)(add_vec + offset), (void *)vector_head.Get(i),
-                   sizeof(float) * raw_d * lens[i]);
+                   element_size * raw_d * lens[i]);
 
             if (raw_vec->MetaInfo()->DataType() == VectorValueType::BINARY) {
               offset += raw_d * lens[i];
