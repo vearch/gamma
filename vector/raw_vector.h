@@ -77,7 +77,7 @@ class RawVector : public VectorReader {
    *
    * @return 0 if successed
    */
-  int Init(bool has_source, bool multi_vids);
+  int Init(std::string vec_name, bool has_source, bool multi_vids);
 
   /** get the header of vectors, so it can access vecotors through the
    * header if dimension is known
@@ -184,7 +184,7 @@ class RawVector : public VectorReader {
 
   // virtual int LoadVectors(int vec_num) { return 0; }
 
-  virtual int InitStore() = 0;
+  virtual int InitStore(std::string &vec_name) = 0;
 
   int Compress(uint8_t *v, ScopeVector &svec);
   int Decompress(uint8_t *cmpr_v, int n, uint8_t *&vec, bool &deletable) const;

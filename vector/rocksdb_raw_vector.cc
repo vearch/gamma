@@ -35,7 +35,7 @@ RocksDBRawVector::~RocksDBRawVector() {
   }
 }
 
-int RocksDBRawVector::InitStore() {
+int RocksDBRawVector::InitStore(std::string &vec_name) {
   block_cache_size_ = (size_t)store_params_.cache_size * 1024 * 1024;
 
   std::shared_ptr<Cache> cache = NewLRUCache(block_cache_size_);

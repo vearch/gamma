@@ -24,7 +24,7 @@ class MemoryRawVector : public RawVector {
 
   ~MemoryRawVector();
 
-  int InitStore() override;
+  int InitStore(std::string &vec_name) override;
 
   int AddToStore(uint8_t *v, int len) override;
 
