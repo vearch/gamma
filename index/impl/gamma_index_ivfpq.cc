@@ -890,7 +890,7 @@ void compute_dis(int k, const float *xi, float *simi, idx_t *idxi,
       }
       if (i >= k) break;
     }
-  };
+  }
 }
 
 }  // namespace

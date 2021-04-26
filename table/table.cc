@@ -57,7 +57,7 @@ int Table::Load(int &num) {
   const std::string str_id = "_id";
   const auto &iter = attr_idx_map_.find(str_id);
   if (iter == attr_idx_map_.end()) {
-    LOG(ERROR) << "cannot find field [" << str_id << "]";
+    LOG(ERROR) << "Cannot find field [" << str_id << "]";
     return -1;
   }
 
@@ -79,9 +79,16 @@ int Table::Load(int &num) {
     }
   }
 
-  LOG(INFO) << "Table load successed! doc num=" << doc_num;
+  LOG(INFO) << "Table load successed! doc num [" << doc_num << "]";
   last_docid_ = doc_num - 1;
   return 0;
+}
+
+int Table::Sync() {
+  int ret = storage_mgr_->Sync();
+  LOG(INFO) << "Table [" << name_ << "] sync, doc num[" << storage_mgr_->Size()
+            << "]";
+  return ret;
 }
 
 int Table::CreateTable(TableInfo &table, TableParams &table_params) {
@@ -126,12 +133,12 @@ int Table::CreateTable(TableInfo &table, TableParams &table_params) {
   options.segment_size = 102400;
   options.fixed_value_bytes = item_length_;
   options.seg_block_capacity = 400000;
-  storage_mgr_ = 
+  storage_mgr_ =
       new StorageManager(root_path_, BlockType::TableBlockType, options);
-  int cache_size = 512;                         // unit : M
+  int cache_size = 512;  // unit : M
   int str_cache_size = 512;
-  int ret = storage_mgr_->Init(cache_size, name_ + "_table",
-                               str_cache_size, name_ + "_string");
+  int ret = storage_mgr_->Init(cache_size, name_ + "_table", str_cache_size,
+                               name_ + "_string");
   if (ret) {
     LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;
@@ -377,13 +384,13 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
 
       str_len_t len = field_value.value.size();
       uint32_t block_id, in_block_pos;
-      str_offset_t res = storage_mgr_->UpdateString(docid, field_value.value.c_str(),
-                                                    len, block_id, in_block_pos);
+      str_offset_t res = storage_mgr_->UpdateString(
+          docid, field_value.value.c_str(), len, block_id, in_block_pos);
       memcpy(doc_value + offset, &block_id, sizeof(block_id));
       memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
-              sizeof(in_block_pos));
-      memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos),
-              &len, sizeof(len));
+             sizeof(in_block_pos));
+      memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos), &len,
+             sizeof(len));
     } else {
       memcpy(doc_value + offset, field_value.value.data(),
              field_value.value.size());
@@ -552,8 +559,7 @@ int Table::GetAttrIdx(const std::string &field) const {
   return (iter != attr_idx_map_.end()) ? iter->second : -1;
 }
 
-bool Table::AlterCacheSize(uint32_t cache_size,
-                           uint32_t str_cache_size) {
+bool Table::AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size) {
   return storage_mgr_->AlterCacheSize(cache_size, str_cache_size);
 }
 

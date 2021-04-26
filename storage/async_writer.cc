@@ -24,6 +24,7 @@ AsyncWriter::AsyncWriter() {
 AsyncWriter::~AsyncWriter() {
   running_ = false;
   handler_thread_.join();
+  Sync();
   delete writer_q_;
   writer_q_ = nullptr;
 }
@@ -140,6 +141,13 @@ int AsyncWriter::SyncWrite(struct WriterStruct *writer_struct) {
 
   delete data;
   delete writer_struct;
+  return 0;
+}
+
+int AsyncWriter::Sync() {
+  while (writer_q_->size()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
   return 0;
 }
 

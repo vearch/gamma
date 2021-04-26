@@ -20,7 +20,6 @@
 #include "async_flush.h"
 #include "field_range_index.h"
 #include "table.h"
-#include "table_io.h"
 #include "vector_manager.h"
 
 namespace tig_gamma {
@@ -148,7 +147,6 @@ class GammaEngine {
 
   enum IndexStatus index_status_;
 
-  int dump_docid_;  // next dump docid
   int bitmap_bytes_size_;
   const std::string date_time_format_;
   std::string last_dump_dir_;  // it should be delete after next dump
@@ -157,13 +155,14 @@ class GammaEngine {
 
   bool b_loading_;
 
+  bool is_dirty_;
+
   std::vector<char *> batch_docs_;
 
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;
 #endif
 
-  TableIO *table_io_;
   AsyncFlushExecutor *af_exector_;
 };
 

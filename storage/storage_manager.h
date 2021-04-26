@@ -92,6 +92,8 @@ class StorageManager {
 
   void CountByteSize(uint64_t &base_size, uint64_t &str_size);
 
+  int Sync();
+
  private:
   int Load();
 

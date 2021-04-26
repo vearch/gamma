@@ -112,7 +112,7 @@ class Table {
 
   int Load(int &doc_num);
 
-  // int Sync();
+  int Sync();
 
   int FieldsNum() { return attrs_.size(); }
 

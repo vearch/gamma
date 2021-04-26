@@ -1,4 +1,5 @@
 #include "mmap_raw_vector_io.h"
+
 #include "error_code.h"
 #include "io_common.h"
 
@@ -7,7 +8,10 @@ namespace tig_gamma {
 int MmapRawVectorIO::Init() { return 0; }
 
 int MmapRawVectorIO::Dump(int start_vid, int end_vid) {
-  return 0;
+  int ret = raw_vector->storage_mgr_->Sync();
+  LOG(INFO) << "MmapRawVector sync, doc num["
+            << raw_vector->storage_mgr_->Size() << "]";
+  return ret;
 }
 
 int MmapRawVectorIO::Load(int vec_num) {

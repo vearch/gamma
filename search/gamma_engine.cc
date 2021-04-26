@@ -33,7 +33,6 @@
 #include "log.h"
 #include "omp.h"
 #include "raw_vector_io.h"
-#include "table_io.h"
 #include "utils.h"
 
 using std::string;
@@ -180,7 +179,7 @@ GammaEngine::GammaEngine(const string &index_root_path)
   delete_num_ = 0;
   b_running_ = 0;
   b_field_running_ = false;
-  dump_docid_ = -1;
+  is_dirty_ = false;
   bitmap_bytes_size_ = 0;
   field_range_index_ = nullptr;
   created_table_ = false;
@@ -210,7 +209,6 @@ GammaEngine::~GammaEngine() {
     af_exector_->Stop();
     CHECK_DELETE(af_exector_);
   }
-  CHECK_DELETE(table_io_);
 
   if (vec_manager_) {
     delete vec_manager_;
@@ -573,12 +571,6 @@ int GammaEngine::CreateTable(TableInfo &table) {
   }
 
   af_exector_ = new AsyncFlushExecutor();
-  table_io_ = new TableIO(table_);
-  int ret = table_io_->Init();
-  if (ret) {
-    return ret;
-  }
-  af_exector_->Add(static_cast<AsyncFlusher *>(table_io_));
 
   if (!meta_jp) {
     utils::JsonParser dump_meta_;
@@ -664,6 +656,7 @@ int GammaEngine::AddOrUpdate(Doc &doc) {
       LOG(ERROR) << "update error, key=" << key << ", docid=" << docid;
       return -3;
     }
+    is_dirty_ = true;
     return 0;
   }
 #ifdef PERFORMANCE_TESTING
@@ -672,6 +665,7 @@ int GammaEngine::AddOrUpdate(Doc &doc) {
 
   // add vectors by VectorManager
   if (vec_manager_->AddToStore(max_docid_, fields_vec) != 0) {
+    LOG(ERROR) << "Add to store error max_docid [" << max_docid_ << "]";
     return -4;
   }
   ++max_docid_;
@@ -689,6 +683,7 @@ int GammaEngine::AddOrUpdate(Doc &doc) {
               << end - end_table << "]ms";
   }
 #endif
+  is_dirty_ = true;
   return 0;
 }
 
@@ -768,6 +763,7 @@ int GammaEngine::AddOrUpdateDocs(Docs &docs, BatchResult &result) {
     LOG(INFO) << "Add total cost [" << end - start << "]ms";
   }
 #endif
+  is_dirty_ = true;
   return 0;
 }
 
@@ -804,6 +800,7 @@ int GammaEngine::Update(int doc_id, std::vector<struct Field> &fields_table,
 #ifdef DEBUG
   LOG(INFO) << "update success! key=" << key;
 #endif
+  is_dirty_ = true;
   return 0;
 }
 
@@ -820,6 +817,7 @@ int GammaEngine::Delete(std::string &key) {
   table_->Delete(key);
 
   vec_manager_->Delete(docid);
+  is_dirty_ = true;
 
   return ret;
 }
@@ -868,6 +866,7 @@ int GammaEngine::DelDocByQuery(Request &request) {
     bitmap::set(docids_bitmap_, docid);
   }
 #endif  // BUILD_GPU
+  is_dirty_ = true;
   return 0;
 }
 
@@ -947,10 +946,12 @@ int GammaEngine::Indexing() {
     }
     index_status_ = IndexStatus::INDEXED;
     int add_ret = vec_manager_->AddRTVecsToIndex();
-    if (add_ret != 0) {
+    if (add_ret < 0) {
       has_error = true;
       LOG(ERROR) << "Add real time vectors to index error!";
       continue;
+    } else if (add_ret > 0) {
+      is_dirty_ = true;
     }
     usleep(1000 * 1000);  // sleep 5000ms
   }
@@ -1019,66 +1020,66 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
 }
 
 int GammaEngine::Dump() {
-  int max_docid = max_docid_ - 1;
-  if (max_docid <= dump_docid_) {
-    LOG(INFO) << "No fresh doc, cannot dump.";
-    return 0;
-  }
-
-  std::time_t t = std::time(nullptr);
-  char tm_str[100];
-  std::strftime(tm_str, sizeof(tm_str), date_time_format_.c_str(),
-                std::localtime(&t));
-
-  string path = dump_path_ + "/" + tm_str;
-  if (!utils::isFolderExist(path.c_str())) {
-    mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-  }
-
-  int ret = table_io_->Dump(0, max_docid + 1);
+  int ret = table_->Sync();
   if (ret != 0) {
     LOG(ERROR) << "dump table error, ret=" << ret;
     return -1;
   }
-  ret = vec_manager_->Dump(path, 0, max_docid);
-  if (ret != 0) {
-    LOG(ERROR) << "dump vector error, ret=" << ret;
-    return -1;
-  }
 
-  const string bp_name = path + "/" + "bitmap";
-  FILE *fp_output = fopen(bp_name.c_str(), "wb");
-  if (fp_output == nullptr) {
-    LOG(ERROR) << "Cannot write file " << bp_name;
-    return -1;
-  }
+  if (is_dirty_) {
+    int max_docid = max_docid_ - 1;
+    std::time_t t = std::time(nullptr);
+    char tm_str[100];
+    std::strftime(tm_str, sizeof(tm_str), date_time_format_.c_str(),
+                  std::localtime(&t));
 
-  if ((size_t)bitmap_bytes_size_ != fwrite((void *)(docids_bitmap_),
-                                           sizeof(char), bitmap_bytes_size_,
-                                           fp_output)) {
-    LOG(ERROR) << "write bitmap error";
-    return -2;
-  }
-  fclose(fp_output);
+    string path = dump_path_ + "/" + tm_str;
+    if (!utils::isFolderExist(path.c_str())) {
+      mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+    }
 
-  const string dump_done_file = path + "/dump.done";
-  std::ofstream f_done;
-  f_done.open(dump_done_file);
-  if (!f_done.is_open()) {
-    LOG(ERROR) << "Cannot create file " << dump_done_file;
-    return -1;
-  }
-  f_done << "start_docid " << 0 << std::endl;
-  f_done << "end_docid " << max_docid << std::endl;
-  f_done.close();
+    ret = vec_manager_->Dump(path, 0, max_docid);
+    if (ret != 0) {
+      LOG(ERROR) << "dump vector error, ret=" << ret;
+      return -1;
+    }
 
-  if (last_dump_dir_ != "" && utils::remove_dir(last_dump_dir_.c_str())) {
-    LOG(ERROR) << "remove last dump directory error, path=" << last_dump_dir_;
+    const string bm_name = path + "/" + "bitmap";
+    FILE *fp_output = fopen(bm_name.c_str(), "wb");
+    if (fp_output == nullptr) {
+      LOG(ERROR) << "Cannot write file " << bm_name;
+      return -1;
+    }
+
+    size_t bitmap_write_size = fwrite((void *)(docids_bitmap_), sizeof(char),
+                                      bitmap_bytes_size_, fp_output);
+    if ((size_t)bitmap_bytes_size_ != bitmap_write_size) {
+      LOG(ERROR) << "write bitmap error";
+      fclose(fp_output);
+      return -2;
+    }
+
+    fclose(fp_output);
+
+    const string dump_done_file = path + "/dump.done";
+    std::ofstream f_done;
+    f_done.open(dump_done_file);
+    if (!f_done.is_open()) {
+      LOG(ERROR) << "Cannot create file " << dump_done_file;
+      return -1;
+    }
+    f_done << "start_docid " << 0 << std::endl;
+    f_done << "end_docid " << max_docid << std::endl;
+    f_done.close();
+
+    if (last_dump_dir_ != "" && utils::remove_dir(last_dump_dir_.c_str())) {
+      LOG(ERROR) << "remove last dump directory error, path=" << last_dump_dir_;
+    }
+    LOG(INFO) << "Dumped to [" << path
+              << "], last dump directory(removed)=" << last_dump_dir_;
+    last_dump_dir_ = path;
+    is_dirty_ = false;
   }
-  dump_docid_ = max_docid + 1;
-  LOG(INFO) << "Dumped to [" << path << "], next dump docid [" << dump_docid_
-            << "], last dump directory(removed)=" << last_dump_dir_;
-  last_dump_dir_ = path;
   return 0;
 }
 
@@ -1166,7 +1167,7 @@ int GammaEngine::Load() {
 
   int ret = 0;
   std::vector<string> dirs;
-  ret = table_io_->Load(max_docid_);
+  ret = table_->Load(max_docid_);
   if (ret != 0) {
     LOG(ERROR) << "load profile error, ret=" << ret;
     return ret;
@@ -1224,7 +1225,6 @@ int GammaEngine::Load() {
     }
   }
 
-  dump_docid_ = max_docid_;
   last_dump_dir_ = last_dir;
   af_exector_->Start();
   LOG(INFO) << "load engine success! max docid=" << max_docid_
@@ -1416,11 +1416,10 @@ int GammaEngine::SetConfig(Config &conf) {
   for (auto &c : conf.CacheInfos()) {
     if (c.field_name == "table" && c.cache_size > 0) {
       table_cache_size = (uint32_t)c.cache_size;
-    }
-    else if (c.field_name == "string" && c.cache_size > 0) {
+    } else if (c.field_name == "string" && c.cache_size > 0) {
       str_cache_size = (uint32_t)c.cache_size;
     } else {
-      vec_manager_->AlterCacheSize(c); 
+      vec_manager_->AlterCacheSize(c);
     }
   }
   table_->AlterCacheSize(table_cache_size, str_cache_size);
