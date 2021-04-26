@@ -134,7 +134,7 @@ int VectorManager::CreateVectorTable(TableInfo &table,
       return -1;
     }
     LOG(INFO) << "create raw vector success, vec_name[" << vec_name
-               << "] store_type[" << store_type_str << "]";
+              << "] store_type[" << store_type_str << "]";
     bool has_source = vector_info.has_source;
     bool multi_vids = vec_dups[vec_name] > 1 ? true : false;
     int ret = vec->Init(vec_name, has_source, multi_vids);
@@ -205,7 +205,10 @@ int VectorManager::Update(int docid, std::vector<Field> &fields) {
       continue;
     }
     RawVector *raw_vector = it->second;
-    size_t element_size = raw_vector->MetaInfo()->DataType() == VectorValueType::BINARY ? sizeof(char) : sizeof(float);
+    size_t element_size =
+        raw_vector->MetaInfo()->DataType() == VectorValueType::BINARY
+            ? sizeof(char)
+            : sizeof(float);
     if ((size_t)raw_vector->MetaInfo()->Dimension() !=
         fields[i].value.size() / element_size) {
       LOG(ERROR) << "invalid field value len=" << fields[i].value.size()
@@ -304,7 +307,10 @@ int VectorManager::AddRTVecsToIndex() {
           }
           del_vec.set(add_vec);
           size_t offset = 0;
-          size_t element_size = raw_vec->MetaInfo()->DataType() == VectorValueType::BINARY ? sizeof(char) : sizeof(float);
+          size_t element_size =
+              raw_vec->MetaInfo()->DataType() == VectorValueType::BINARY
+                  ? sizeof(char)
+                  : sizeof(float);
           for (size_t i = 0; i < vector_head.Size(); ++i) {
             memcpy((void *)(add_vec + offset), (void *)vector_head.Get(i),
                    element_size * raw_d * lens[i]);
@@ -322,6 +328,9 @@ int VectorManager::AddRTVecsToIndex() {
         } else {
           retrieval_model->indexed_count_ += count_per_index;
         }
+      }
+      if (ret == 0) {
+        ret = total_stored_vecs - indexed_vec_count;
       }
     }
     std::vector<int64_t> vids;

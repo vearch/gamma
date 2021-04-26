@@ -10,8 +10,8 @@
 #include "error_code.h"
 #include "log.h"
 #include "table_block.h"
-#include "vector_block.h"
 #include "utils.h"
+#include "vector_block.h"
 
 namespace tig_gamma {
 
@@ -44,20 +44,20 @@ std::string StorageManager::NextSegmentFilePath() {
 }
 
 int StorageManager::UseCompress(CompressType type, int d, double rate) {
-  if(type == CompressType::Zfp) {
+  if (type == CompressType::Zfp) {
 #ifdef WITH_ZFP
-    if(d > 0) {
+    if (d > 0) {
       compressor_ = new CompressorZFP(type);
       compressor_->Init(d);
     }
 #endif
   }
-  return (compressor_? 0 : -1);
+  return (compressor_ ? 0 : -1);
 }
 
 bool StorageManager::AlterCacheSize(uint32_t cache_size,
                                     uint32_t str_cache_size) {
-  if (cache_size > 0) {                                      //cache_size unit: M
+  if (cache_size > 0) {  // cache_size unit: M
     if (cache_ != nullptr) {
       cache_->AlterCacheSize((size_t)cache_size);
     } else {
@@ -74,7 +74,8 @@ bool StorageManager::AlterCacheSize(uint32_t cache_size,
   return true;
 }
 
-void StorageManager::GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size) {
+void StorageManager::GetCacheSize(uint32_t &cache_size,
+                                  uint32_t &str_cache_size) {
   if (cache_ != nullptr) {
     size_t max_size = cache_->GetMaxSize();
     cache_size = (uint32_t)(max_size * 64 / 1024);
@@ -87,23 +88,22 @@ void StorageManager::GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size
 
 int StorageManager::Init(int cache_size, std::string cache_name,
                          int str_cache_size, std::string str_cache_name) {
-  LOG(INFO) << "lrucache cache_size[" << cache_size 
+  LOG(INFO) << "lrucache cache_size[" << cache_size
             << "M], string lrucache cache_size[" << str_cache_size << "M]";
   auto fun = &TableBlock::ReadBlock;
   if (block_type_ == BlockType::VectorBlockType) {
     fun = &VectorBlock::ReadBlock;
   }
   uint32_t per_block_size = ((64 * 1024) / options_.fixed_value_bytes) *
-                            options_.fixed_value_bytes; // block~=64k
-  cache_ =
-      new LRUCache<uint32_t, ReadFunParameter *>(
-          cache_name, cache_size, per_block_size, fun);
+                            options_.fixed_value_bytes;  // block~=64k
+  cache_ = new LRUCache<uint32_t, ReadFunParameter *>(cache_name, cache_size,
+                                                      per_block_size, fun);
   cache_->Init();
 
   if (str_cache_size > 0) {
-    str_cache_ =
-        new LRUCache<uint32_t, ReadStrFunParameter *>(
-            str_cache_name, str_cache_size, per_block_size, &StringBlock::ReadString);
+    str_cache_ = new LRUCache<uint32_t, ReadStrFunParameter *>(
+        str_cache_name, str_cache_size, per_block_size,
+        &StringBlock::ReadString);
     str_cache_->Init();
   }
 
@@ -130,10 +130,10 @@ int StorageManager::Init(int cache_size, std::string cache_name,
 int StorageManager::Load() {
   // load existed segments
   while (utils::file_exist(NextSegmentFilePath())) {
-    Segment *segment = new Segment(NextSegmentFilePath(), segments_.size(),
-                                   options_.segment_size, options_.fixed_value_bytes,
-                                   options_.seg_block_capacity, disk_io_,
-                                   (void *)cache_, (void *)str_cache_);
+    Segment *segment = new Segment(
+        NextSegmentFilePath(), segments_.size(), options_.segment_size,
+        options_.fixed_value_bytes, options_.seg_block_capacity, disk_io_,
+        (void *)cache_, (void *)str_cache_);
     int ret = segment->Load(block_type_, compressor_);
     if (ret < 0) {
       LOG(ERROR) << "extend file segment error, ret=" << ret;
@@ -150,10 +150,10 @@ int StorageManager::Load() {
 
 int StorageManager::Extend() {
   uint32_t seg_id = (uint32_t)segments_.size();
-  Segment *segment = new Segment(NextSegmentFilePath(), seg_id,
-                                 options_.segment_size, options_.fixed_value_bytes,
-                                 options_.seg_block_capacity, disk_io_,
-                                 (void *)cache_, (void *)str_cache_);
+  Segment *segment =
+      new Segment(NextSegmentFilePath(), seg_id, options_.segment_size,
+                  options_.fixed_value_bytes, options_.seg_block_capacity,
+                  disk_io_, (void *)cache_, (void *)str_cache_);
   int ret = segment->Init(block_type_, compressor_);
   if (ret) {
     LOG(ERROR) << "extend file segment error, ret=" << ret;
@@ -233,20 +233,23 @@ int StorageManager::Update(int id, uint8_t *v, int len) {
 }
 
 str_offset_t StorageManager::UpdateString(int id, const char *value, int len,
-                                 uint32_t &block_id, uint32_t &in_block_pos) {
+                                          uint32_t &block_id,
+                                          uint32_t &in_block_pos) {
   if ((size_t)id >= size_ || id < 0) {
     LOG(ERROR) << "id [" << id << "] size_ [" << size_ << "]";
     return PARAM_ERR;
   }
   int seg_id = id / options_.segment_size;
-  int count= 0;
+  int count = 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "Get(),seg_id:" << seg_id << " >= segments_.size():" << segments_.size();
+    LOG(INFO) << "Get(),seg_id:" << seg_id
+              << " >= segments_.size():" << segments_.size();
     ++count;
     if (count > 10) {
-      LOG(ERROR) << "Because the wait timeout, StorageManager[" << str_cache_->GetName()
-                 << "] UpdateString(" << id << ") failed.";
+      LOG(ERROR) << "Because the wait timeout, StorageManager["
+                 << str_cache_->GetName() << "] UpdateString(" << id
+                 << ") failed.";
       return -1;
     }
   }
@@ -265,11 +268,12 @@ int StorageManager::Get(long id, const uint8_t *&value) {
   int count = 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "Get(),seg_id:" << seg_id << " >= segments_.size():" << segments_.size();
+    LOG(INFO) << "Get(),seg_id:" << seg_id
+              << " >= segments_.size():" << segments_.size();
     ++count;
     if (count > 10) {
-      LOG(ERROR) << "Because the wait timeout, StorageManager[" << cache_->GetName()
-                 << "] Get(" << id << ") failed.";
+      LOG(ERROR) << "Because the wait timeout, StorageManager["
+                 << cache_->GetName() << "] Get(" << id << ") failed.";
       return -1;
     }
   }
@@ -292,17 +296,18 @@ int StorageManager::GetString(long id, std::string &value, uint32_t block_id,
   int count = 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "GetString(), seg_id:" << seg_id << " >= segments_.size():" << segments_.size();
+    LOG(INFO) << "GetString(), seg_id:" << seg_id
+              << " >= segments_.size():" << segments_.size();
     ++count;
     if (count > 10) {
-      LOG(ERROR) << "Because the wait timeout, StorageManager[" << cache_->GetName()
-                 << "] GetString(" << id << ") failed.";
+      LOG(ERROR) << "Because the wait timeout, StorageManager["
+                 << cache_->GetName() << "] GetString(" << id << ") failed.";
       return -1;
     }
   }
 
   value = segments_[seg_id]->GetString(block_id, in_block_pos, len);
-  return 0; 
+  return 0;
 }
 
 int StorageManager::Truncate(size_t size) {
@@ -315,11 +320,14 @@ int StorageManager::Truncate(size_t size) {
                << ", trucate size=" << size;
     return PARAM_ERR;
   }
-  
-  for (int i = (int)segments_.size() - 1; i >= (int)seg_num; --i) {
-    delete segments_[i];
-    segments_[i] = nullptr;
+
+  if (segments_.size() > seg_num) {
+    for (size_t i = seg_num; i < segments_.size(); ++i) {
+      delete segments_[i];
+      segments_[i] = nullptr;
+    }
   }
+
   segments_.resize(seg_num);
   if (offset > 0) {
     segments_.back()->SetBaseSize((uint32_t)offset);
@@ -347,5 +355,7 @@ void StorageManager::CountByteSize(uint64_t &base_size, uint64_t &str_size) {
     str_size += str_off;
   }
 }
+
+int StorageManager::Sync() { return disk_io_->Sync(); }
 
 }  // namespace tig_gamma

@@ -33,6 +33,8 @@ class AsyncWriter {
 
   int SyncWrite(struct WriterStruct *writer_struct);
 
+  int Sync();
+
   void Set(uint32_t header_size, int item_length) {
     header_size_ = header_size;
     item_length_ = item_length;
