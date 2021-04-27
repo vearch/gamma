@@ -265,9 +265,8 @@ bool RealTimeMemData::AddKeys(size_t list_no, size_t n, std::vector<long> &keys,
          (void *)(keys_codes.data()), sizeof(uint8_t) * keys_codes.size());
 
   for (size_t i = 0; i < keys.size(); i++) {
-    if ((size_t)keys[i] >= cur_invert_ptr_->nids_) {
+    while ((size_t)keys[i] >= cur_invert_ptr_->nids_) {
       cur_invert_ptr_->ExtendIDs();
-      assert((size_t)keys[i] < cur_invert_ptr_->nids_);
     }
     cur_invert_ptr_->vid_bucket_no_pos_[keys[i]] = list_no << 32 | retrive_pos;
     retrive_pos++;

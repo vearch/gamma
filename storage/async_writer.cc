@@ -22,9 +22,9 @@ AsyncWriter::AsyncWriter() {
 }
 
 AsyncWriter::~AsyncWriter() {
+  Sync();
   running_ = false;
   handler_thread_.join();
-  Sync();
   delete writer_q_;
   writer_q_ = nullptr;
 }
