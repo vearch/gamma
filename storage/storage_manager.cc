@@ -268,13 +268,11 @@ int StorageManager::Get(long id, const uint8_t *&value) {
   int count = 0;
   while (seg_id >= segments_.size()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "Get(),seg_id:" << seg_id
-              << " >= segments_.size():" << segments_.size();
     ++count;
     if (count > 10) {
-      LOG(ERROR) << "Because the wait timeout, StorageManager["
-                 << cache_->GetName() << "] Get(" << id << ") failed.";
-      return -1;
+      LOG(WARNING) << "Waited " << count * 10
+                   << "ms. Get(), seg_id: " << seg_id
+                   << " >= segments_.size(): " << segments_.size();
     }
   }
   Segment *segment = segments_[seg_id];
