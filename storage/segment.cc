@@ -340,9 +340,10 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     ++count;
     if (count > 10) {
-      LOG(ERROR) << "Because the wait timeout, segment[" << seg_id_
-                 << "] GetValue(" << id << ") failed.";
-      return -1;
+      LOG(WARNING) << "Waited " << count * 10
+                << "ms because the data is not being brushed to disk."
+                << " segment[" << seg_id_
+                << "], GetValue(" << id << ", " << n << ")";
     }
   }
   blocks_->Read(value, n_bytes, start);
