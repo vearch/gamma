@@ -328,9 +328,9 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
   int n_bytes = n * item_length_;
   // TODO read from buffer queue
   int count = 0;
-  while (id >= (int)cur_size_) {
+  while (id + n > (int)cur_size_) {
     PersistentedSize();
-    if (id < (int)cur_size_) {
+    if (id + n <= (int)cur_size_) {
       if (count > 2) {
         LOG(INFO) << "Wait " << count * 10 
                   << "ms because the data is not being brushed to disk.";
