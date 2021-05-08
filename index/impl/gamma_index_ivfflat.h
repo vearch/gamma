@@ -123,7 +123,7 @@ struct GammaIndexIVFFlat : faiss::IndexIVFFlat, public RetrievalModel {
                           const float *coarse_dis, float *distances,
                           idx_t *labels, int nprobe, bool store_pairs) const;
 
-  int Init(const std::string &model_parameters) override;
+  int Init(const std::string &model_parameters, int indexing_size) override;
   RetrievalParameters *Parse(const std::string &parameters) override;
   int Indexing() override;
   bool Add(int n, const uint8_t *vec) override;

@@ -79,10 +79,14 @@ void StorageManager::GetCacheSize(uint32_t &cache_size,
   if (cache_ != nullptr) {
     size_t max_size = cache_->GetMaxSize();
     cache_size = (uint32_t)(max_size * 64 / 1024);
+  } else {
+    cache_size = 0;
   }
   if (str_cache_ != nullptr) {
     size_t max_size = str_cache_->GetMaxSize();
     str_cache_size = (uint32_t)(max_size * 64 / 1024);
+  } else {
+    str_cache_size = 0;
   }
 }
 
@@ -96,10 +100,11 @@ int StorageManager::Init(int cache_size, std::string cache_name,
   }
   uint32_t per_block_size = ((64 * 1024) / options_.fixed_value_bytes) *
                             options_.fixed_value_bytes;  // block~=64k
-  cache_ = new LRUCache<uint32_t, ReadFunParameter *>(cache_name, cache_size,
-                                                      per_block_size, fun);
-  cache_->Init();
-
+  if (cache_size > 0) {
+    cache_ = new LRUCache<uint32_t, ReadFunParameter *>(cache_name, cache_size,
+                                                        per_block_size, fun);
+    cache_->Init();
+  }
   if (str_cache_size > 0) {
     str_cache_ = new LRUCache<uint32_t, ReadStrFunParameter *>(
         str_cache_name, str_cache_size, per_block_size,
@@ -143,7 +148,7 @@ int StorageManager::Load() {
     segments_.push_back(segment);
   }
 
-  LOG(INFO) << "init gamma storage success! options=" << options_.ToStr()
+  LOG(INFO) << "load gamma storage success! options=" << options_.ToStr()
             << ", segment num=" << segments_.size();
   return size_;
 }
@@ -267,12 +272,12 @@ int StorageManager::Get(long id, const uint8_t *&value) {
   int seg_id = id / options_.segment_size;
   int count = 0;
   while (seg_id >= segments_.size()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     ++count;
-    if (count > 10) {
-      LOG(WARNING) << "Waited " << count * 10
-                   << "ms. Get(), seg_id: " << seg_id
-                   << " >= segments_.size(): " << segments_.size();
+    if (count % 20 == 0) {
+      LOG(WARNING) << "Waited " << count * 20 << "ms, StorageManager["
+                   << cache_->GetName() << "] Get(" << id << "), seg_id["
+                   << seg_id << "] >= segments_.size()[" << segments_.size() << "].";
     }
   }
   Segment *segment = segments_[seg_id];
@@ -293,14 +298,12 @@ int StorageManager::GetString(long id, std::string &value, uint32_t block_id,
   int seg_id = id / options_.segment_size;
   int count = 0;
   while (seg_id >= segments_.size()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    LOG(INFO) << "GetString(), seg_id:" << seg_id
-              << " >= segments_.size():" << segments_.size();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     ++count;
-    if (count > 10) {
-      LOG(ERROR) << "Because the wait timeout, StorageManager["
-                 << cache_->GetName() << "] GetString(" << id << ") failed.";
-      return -1;
+    if (count % 20 == 0) {
+      LOG(ERROR) << "Waited " << count * 20 << "ms, StorageManager["
+                 << cache_->GetName() << "] GetString(" << id << ") failed. seg_id["
+                 << seg_id << "] >= segments_.size()[" << segments_.size() << "].";
     }
   }
 

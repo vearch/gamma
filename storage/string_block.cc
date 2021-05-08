@@ -96,14 +96,18 @@ int StringBlock::WriteString(const char *data, str_len_t len,
 
 int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
                       std::string &str_out) {
-  // uint32_t off = block_pos_[block_id] + in_block_pos;
-  // std::vector<char> str(len);
-  // pread(fd_, str.data(), str.size(), off);
-  // str_out = std::string(str.data(), len);
+  if (str_lru_cache_ == nullptr) {
+    uint32_t off = block_pos_[block_id] + in_block_pos;
+    char *tmp_buf = new char[len];
+    pread(fd_, tmp_buf, len, off);
+    str_out = std::string(tmp_buf, len);
+    delete[] tmp_buf;
+    return 0;
+  }
 
   uint32_t block_pos = block_pos_[block_id];
-
   uint32_t block_pos_size = block_pos_.size();
+  
   // TODO needn't read last block's disk if it is not in last segment
   if (block_id + 1 >= block_pos_size) {
     char *str = new char[len];

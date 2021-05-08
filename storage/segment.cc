@@ -331,19 +331,19 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
   while (id + n > (int)cur_size_) {
     PersistentedSize();
     if (id + n <= (int)cur_size_) {
-      if (count > 2) {
-        LOG(INFO) << "Wait " << count * 10 
+      if (count > 5) {
+        LOG(INFO) << "Wait " << count * 20 
                   << "ms because the data is not being brushed to disk.";
       }
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     ++count;
-    if (count > 10) {
-      LOG(WARNING) << "Waited " << count * 10
-                << "ms because the data is not being brushed to disk."
-                << " segment[" << seg_id_
-                << "], GetValue(" << id << ", " << n << ")";
+    if (count % 20 == 0) {
+      LOG(WARNING) << "Waited " << count * 20
+                   << "ms because the data is not being brushed to disk."
+                   << " segment[" << seg_id_
+                   << "], GetValue(" << id << ", " << n << ")";
     }
   }
   blocks_->Read(value, n_bytes, start);

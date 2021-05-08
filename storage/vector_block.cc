@@ -97,7 +97,10 @@ int VectorBlock::ReadContent(uint8_t *value, uint32_t len, uint32_t offset) {
 }
 
 int VectorBlock::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
-  // ReadContent(value, n_bytes, start);
+  if (lru_cache_ == nullptr) {
+    return ReadContent(value, n_bytes, start);
+  }
+
 #ifdef WITH_ZFP
   uint32_t raw_len = 0;
   if (compressor_) {
@@ -209,7 +212,10 @@ int VectorBlock::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
 #endif
 
   pwrite(fd_, data, n_bytes, header_size_ + offset);
-
+  
+  if (lru_cache_ == nullptr) {
+    return 0;
+  }
   while (n_bytes) {
     int len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;

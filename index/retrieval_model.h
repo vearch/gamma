@@ -213,6 +213,7 @@ class RetrievalModel {
   RetrievalModel() {
     vector_ = nullptr;
     indexed_count_ = 0;
+    indexing_size_ = 0;
   }
 
   virtual ~RetrievalModel() {}
@@ -222,7 +223,7 @@ class RetrievalModel {
    * @param model_parameters   include model params, need parse by yourself
    * @return 0 if successed
    */
-  virtual int Init(const std::string &model_parameters) = 0;
+  virtual int Init(const std::string &model_parameters, int indexing_size) = 0;
 
   /** Parse parameters for dynamic retrieval
    *
@@ -296,4 +297,5 @@ class RetrievalModel {
   tbb::concurrent_bounded_queue<int> updated_vids_;
   // warining: indexed_count_ is only used by framework, sub-class cann't use it
   int indexed_count_;
+  int indexing_size_;
 };
