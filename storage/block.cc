@@ -55,7 +55,9 @@ uint32_t Block::WritenSize(int fd) {
 }
 
 int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
-  // ReadContent(value, n_bytes, start);
+  if (lru_cache_ == nullptr) {
+    return ReadContent(value, n_bytes, start);
+  }
   int read_num = 0;
   while (n_bytes) {
     int len = n_bytes;

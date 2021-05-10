@@ -19,6 +19,8 @@ namespace tig_gamma {
 
 namespace realtime {
 
+#define PI 3.14159265
+
 const static long kDelIdxMask = (long)1 << 63;     // 0x8000000000000000
 const static long kRecoverIdxMask = ~kDelIdxMask;  // 0x7fffffffffffffff
 
@@ -45,10 +47,13 @@ struct RTInvertBucketData {
                          uint8_t *&dst_code, long *&src_idx, uint8_t *&src_code,
                          int &pos, const size_t &code_bytes_per_vec);
 
+  double ExtendCoefficient(uint8_t extend_time);
+
  public:
   long **idx_array_;
   size_t *retrieve_idx_pos_;  // total nb of realtime added indexed vectors
   int *cur_bucket_keys_;
+  uint8_t *bucket_extend_time_;
   uint8_t **codes_array_;
   // int *dump_latest_pos_;
   VIDMgr *vid_mgr_;

@@ -123,7 +123,8 @@ GammaIndexHNSWLIB::~GammaIndexHNSWLIB() {
   }
 }
 
-int GammaIndexHNSWLIB::Init(const std::string &model_parameters) {
+int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_size) {
+  indexing_size_ = indexing_size;
   auto raw_vec_type = dynamic_cast<MemoryRawVector *>(vector_);
   if (raw_vec_type == nullptr) {
     LOG(ERROR) << "HNSW can only work in memory only mode";

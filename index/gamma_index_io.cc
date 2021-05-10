@@ -183,7 +183,9 @@ int ReadInvertedLists(faiss::IOReader *f,
       }
       if ((size_t)ids[pos] >= rt_data->cur_invert_ptr_->nids_) {
         rt_data->cur_invert_ptr_->ExtendIDs();
-        assert((size_t)ids[pos] < rt_data->cur_invert_ptr_->nids_);
+        while ((size_t)ids[pos] >= rt_data->cur_invert_ptr_->nids_) {
+          rt_data->cur_invert_ptr_->ExtendIDs();
+        }
       }
       rt_data->cur_invert_ptr_->vid_bucket_no_pos_[ids[pos]] = bno << 32 | pos;
     }

@@ -663,7 +663,7 @@ struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
   GammaInvertedListScanner *GetGammaInvertedListScanner(
       bool store_pairs, faiss::MetricType metric_type);
 
-  int Init(const std::string &model_parameters) override;
+  int Init(const std::string &model_parameters, int indexing_size) override;
 
   RetrievalParameters *Parse(const std::string &parameters) override;
 

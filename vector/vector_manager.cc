@@ -165,7 +165,7 @@ int VectorManager::CreateVectorTable(TableInfo &table,
       }
       retrieval_model->vector_ = vec;
 
-      if (retrieval_model->Init(retrieval_params[i]) != 0) {
+      if (retrieval_model->Init(retrieval_params[i], table.IndexingSize()) != 0) {
         LOG(ERROR) << "gamma index init " << vec_name << " error!";
         delete vec;
         delete retrieval_model;

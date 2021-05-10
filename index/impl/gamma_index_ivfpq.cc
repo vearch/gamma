@@ -310,7 +310,8 @@ GammaInvertedListScanner *GammaIVFPQIndex::GetGammaInvertedListScanner(
   return nullptr;
 }
 
-int GammaIVFPQIndex::Init(const std::string &model_parameters) {
+int GammaIVFPQIndex::Init(const std::string &model_parameters, int indexing_size) {
+  indexing_size_ = indexing_size;
   model_param_ = new IVFPQModelParams();
   IVFPQModelParams &ivfpq_param = *model_param_;
   if (model_parameters != "" && ivfpq_param.Parse(model_parameters.c_str())) {
@@ -470,24 +471,30 @@ int GammaIVFPQIndex::Indexing() {
   }
   RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
   size_t vectors_count = raw_vec->MetaInfo()->Size();
-  size_t num;
-  if (quantizer_type_ == 0) {
-    if (vectors_count < 8192) {
-        LOG(ERROR) << "vector total count [" << vectors_count
-                   << "] less then 8192, failed!";
-      return -1;
-    }
-    num = vectors_count > 100000 ? 100000 : vectors_count;
-  } else {
-    // for this case, can use more data for training
-    if (vectors_count < nlist) {
-      LOG(ERROR) << "vector total count [" << vectors_count
-               << "] less then " << nlist << ", failed!";
-      return -2;
-    }
-    num = vectors_count > nlist * 256 ? nlist * 256 : vectors_count;
-  }
 
+  size_t num;
+  if (indexing_size_ < nlist) {
+    num = nlist * 39;
+    LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
+                 << "], index_size becomes ncentroids * 39[" << num << "].";
+  } else if (indexing_size_ <= nlist * 265) {
+    if (indexing_size_ < nlist * 39) {
+      LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
+                   << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
+    }
+    num = indexing_size_;
+  } else {
+    num = nlist * 256;
+    LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too big. "
+                 << "The appropriate range is [ncentroids * 39, ncentroids * 256]."
+                 << "index_size becomes ncentroids * 256[" << num << "].";
+  }
+  if (num > vectors_count) {
+    LOG(ERROR) << "vector total count [" << vectors_count
+                << "] less then index_size[" << num << "], failed!";
+    return -1;
+  }
+  
   ScopeVectors headers;
   std::vector<int> lens;
   raw_vec->GetVectorHeader(0, num, headers, lens);

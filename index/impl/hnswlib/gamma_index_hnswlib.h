@@ -62,7 +62,7 @@ struct GammaIndexHNSWLIB : public GammaFLATIndex,
 
   virtual ~GammaIndexHNSWLIB();
 
-  int Init(const std::string &model_parameters) override;
+  int Init(const std::string &model_parameters, int indexing_size) override;
 
   RetrievalParameters *Parse(const std::string &parameters) override;
 

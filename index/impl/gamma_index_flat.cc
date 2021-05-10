@@ -61,7 +61,8 @@ GammaFLATIndex::GammaFLATIndex() {}
 
 GammaFLATIndex::~GammaFLATIndex() {}
 
-int GammaFLATIndex::Init(const std::string &model_parameters) {
+int GammaFLATIndex::Init(const std::string &model_parameters, int indexing_size) {
+  indexing_size_ = indexing_size;
   auto raw_vec_type = dynamic_cast<MemoryRawVector *>(vector_);
   if (raw_vec_type == nullptr) {
     LOG(ERROR) << "FLAT can only work in memory only mode";
