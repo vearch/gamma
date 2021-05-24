@@ -10,12 +10,14 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <vector>
-#include <tbb/concurrent_vector.h>
+#include <atomic>
 
 #include "async_writer.h"
 #include "lru_cache.h"
 #include "compress/compressor_zfp.h"
 #include "compress/compressor_zstd.h"
+
+#define  MAX_BLOCK_SIZE  65536
 
 typedef uint32_t str_offset_t;
 typedef uint16_t str_len_t;
@@ -33,16 +35,15 @@ enum class BlockType : uint8_t {TableBlockType = 0, StringBlockType, VectorBlock
 class Block {
  public:
   Block(int fd, int per_block_size, int length, uint32_t header_size,
-        uint32_t seg_id, uint32_t seg_block_capacity);
+        uint32_t seg_id, uint32_t seg_block_capacity,
+        const std::atomic<uint32_t> *cur_size, int max_size);
 
   virtual ~Block();
 
   void Init(void *lru, Compressor *compressor = nullptr);
 
   int Write(const uint8_t *data, int len, uint32_t offset,
-            disk_io::AsyncWriter *disk_io);
-
-  static uint32_t WritenSize(int fd);
+            disk_io::AsyncWriter *disk_io, std::atomic<uint32_t> *cur_size);
 
   virtual int Read(uint8_t *value, uint32_t len, uint32_t offset);
 
@@ -60,13 +61,15 @@ class Block {
   virtual void InitSubclass() = 0;
 
   virtual int WriteContent(const uint8_t *data, int len, uint32_t offset,
-                           disk_io::AsyncWriter *disk_io) = 0;
+                           disk_io::AsyncWriter *disk_io,
+                           std::atomic<uint32_t> *cur_size) = 0;
 
   virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
                                   uint32_t off) = 0;
 
   virtual int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) = 0;
 
+ protected:
   LRUCache<uint32_t, ReadFunParameter *> *lru_cache_;
 
   int fd_;
@@ -75,7 +78,9 @@ class Block {
 
   uint32_t per_block_size_;
 
-//   uint32_t size_;
+  const std::atomic<uint32_t> *cur_size_;
+
+  int max_size_;
 
   int item_length_;
 

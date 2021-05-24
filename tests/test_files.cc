@@ -603,8 +603,8 @@ int Create() {
   vector_info.dimension = opt.d;
   vector_info.model_id = opt.model_id;
   vector_info.store_type = opt.store_type;
-  vector_info.store_param = "{\"cache_size\": 2048, \"compress\": {\"rate\":16}}";
-  // vector_info.store_param = "{\"cache_size\": 2048}";
+  vector_info.store_param = "{\"cache_size\": 16, \"compress\": {\"rate\":16}}";
+  // vector_info.store_param = "{\"cache_size\": 16}";
   vector_info.has_source = false;
 
   table.AddVectorInfo(vector_info);

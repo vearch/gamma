@@ -10,6 +10,10 @@
 #include <string>
 
 #include "block.h"
+#include "safe_vector.h"
+
+#define BEGIN_GRP_OF_BLOCK_POS 50
+#define GRP_GAP_OF_BLOCK_POS   1000
 
 namespace tig_gamma {
 
@@ -20,18 +24,21 @@ class StringBlock : public Block {
 
   ~StringBlock();
 
-  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
-                          uint32_t off) { return 0; };
-  
+  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
+                          uint32_t off) {
+    return 0;
+  };
+
   int LoadIndex(const std::string &file_path);
 
   int CloseBlockPosFile();
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
-                   disk_io::AsyncWriter *disk_io);
+                   disk_io::AsyncWriter *disk_io,
+                   std::atomic<uint32_t> *cur_size);
 
   void InitStrBlock(void *lru);
-  
+
   int Add(const uint8_t *data, int len);
 
   int ReadContent(uint8_t *value, uint32_t len, uint32_t offset);
@@ -42,22 +49,20 @@ class StringBlock : public Block {
   int Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
            std::string &str_out);
 
-  static bool ReadString(uint32_t key, char *block,
-                         ReadStrFunParameter *param);
+  static bool ReadString(uint32_t key, char *block, ReadFunParameter *param);
 
  private:
-  void InitSubclass() {};
+  void InitSubclass(){};
 
   int AddBlockPos(uint32_t block_pos);
 
-  LRUCache<uint32_t, ReadStrFunParameter *> *str_lru_cache_;
+  LRUCache<uint32_t, ReadFunParameter *> *str_lru_cache_;
 
   std::string block_pos_file_path_;
 
   FILE *block_pos_fp_;
 
-  tbb::concurrent_vector<uint32_t> block_pos_;  // <block id, offset>
-
+  tig_gamma::SafeVector<uint16_t, uint32_t> block_pos_;
 };
 
 }  // namespace tig_gamma

@@ -146,6 +146,12 @@ uint32_t Segment::BaseOffset() {
 
 void Segment::SetBaseSize(uint32_t size) {
   uint32_t capacity;
+  if (cur_size_ > size) {
+    cur_size_ = size;
+  }
+  if (buffered_size_ > size) {
+    buffered_size_ = size;
+  }
   pwrite(base_fd_, &size, sizeof(size), sizeof(version_) + sizeof(capacity));
 }
 
@@ -249,7 +255,7 @@ int Segment::InitBlock(BlockType block_type, Compressor *compressor) {
   case BlockType::TableBlockType:
     blocks_ =
       new TableBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
-                     seg_id_, seg_block_capacity_);
+                     seg_id_, seg_block_capacity_, &cur_size_, max_size_);
     str_blocks_ =
       new StringBlock(str_fd_, per_block_size_, item_length_, seg_header_size_,
                       seg_id_, seg_block_capacity_);
@@ -257,18 +263,18 @@ int Segment::InitBlock(BlockType block_type, Compressor *compressor) {
   case BlockType::VectorBlockType:
     blocks_ =
       new VectorBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
-                      seg_id_, seg_block_capacity_);
+                      seg_id_, seg_block_capacity_, &cur_size_, max_size_);
     break;
   default:
-    LOG(ERROR) << "BlockType is error";
+    LOG(ERROR) << "Unknow BlockType [" << static_cast<int>(block_type) << "]";
     break;
   }
 
   blocks_->Init(cache_, compressor);
 
   if (str_blocks_) {
-    str_blocks_->LoadIndex(file_path_ + "_str.idx");
     str_blocks_->InitStrBlock(str_cache_);
+    str_blocks_->LoadIndex(file_path_ + "_str.idx");
     if (BufferedSize() == max_size_) {
       str_blocks_->CloseBlockPosFile();
     }
@@ -289,7 +295,7 @@ int Segment::Load(BlockType block_type, Compressor *compressor) {
 
 int Segment::Add(const uint8_t *data, int len) {
   size_t offset = (size_t)buffered_size_ * item_length_;
-  blocks_->Write(data, len, offset, disk_io_);
+  blocks_->Write(data, len, offset, disk_io_, &cur_size_);
   ++buffered_size_;
   return 0;
 }
@@ -319,17 +325,13 @@ str_offset_t Segment::AddString(const char *str, int len, uint32_t &block_id,
   return str_offset_;
 }
 
-int Segment::GetValue(uint8_t *value, int id) {
-  return GetValues(value, id, 1);
-}
-
 int Segment::GetValues(uint8_t *value, int id, int n) {
   int start = id * item_length_;
   int n_bytes = n * item_length_;
   // TODO read from buffer queue
   int count = 0;
   while (id + n > (int)cur_size_) {
-    PersistentedSize();
+    // PersistentedSize();
     if (id + n <= (int)cur_size_) {
       if (count > 5) {
         LOG(INFO) << "Wait " << count * 20 
@@ -342,8 +344,8 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
     if (count % 20 == 0) {
       LOG(WARNING) << "Waited " << count * 20
                    << "ms because the data is not being brushed to disk."
-                   << " segment[" << seg_id_
-                   << "], GetValue(" << id << ", " << n << ")";
+                   << " segment[" << seg_id_ << "], cur_size[" 
+                   << cur_size_ << "], GetValue(" << id << ", " << n << ")";
     }
   }
   blocks_->Read(value, n_bytes, start);

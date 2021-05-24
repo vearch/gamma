@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <atomic>
 #include <tbb/concurrent_queue.h>
 #include "concurrentqueue/blockingconcurrentqueue.h"
 
@@ -19,6 +20,7 @@ struct WriterStruct {
   uint8_t *data;
   uint32_t start;
   uint32_t len;
+  std::atomic<uint32_t> *cur_size;
 };
 
 //typedef moodycamel::BlockingConcurrentQueue<struct WriterStruct *> WriterQueue;

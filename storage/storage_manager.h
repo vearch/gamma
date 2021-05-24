@@ -9,14 +9,16 @@
 
 #include <sstream>
 #include <vector>
-#include <tbb/concurrent_vector.h>
 
 #include "async_writer.h"
 #include "compress/compressor_zfp.h"
 #include "compress/compressor_zstd.h"
 #include "lru_cache.h"
 #include "segment.h"
-#include "vector_buffer_queue.h"
+
+
+#define BEGIN_GRP_CAPACITY_OF_SEGMENT 20
+#define GRP_GAP_OF_SEGMENT   50
 
 namespace tig_gamma {
 
@@ -39,7 +41,8 @@ struct StorageManagerOptions {
 
   bool IsValid() {
     if (segment_size == -1 || fixed_value_bytes == -1 ||
-        seg_block_capacity == 0) return false;
+        seg_block_capacity == 0)
+      return false;
     return true;
   }
 
@@ -57,8 +60,8 @@ class StorageManager {
   StorageManager(const std::string &root_path, BlockType block_type,
                  const StorageManagerOptions &options);
   ~StorageManager();
-  int Init(int cache_size, std::string cache_name,
-           int str_cache_size = 0, std::string str_cache_name = "");
+  int Init(int cache_size, std::string cache_name, int str_cache_size = 0,
+           std::string str_cache_name = "");
 
   int Add(const uint8_t *value, int len);
 
@@ -104,12 +107,13 @@ class StorageManager {
  private:
   std::string root_path_;
   StorageManagerOptions options_;
-  size_t size_;                                // The total number of doc.
-  tbb::concurrent_vector<Segment *> segments_;
+  size_t size_;  // The total number of doc.
+  // tbb::concurrent_vector<Segment *> segments_;
+  tig_gamma::SafeVector<uint8_t, Segment *> segments_;
   disk_io::AsyncWriter *disk_io_;
   BlockType block_type_;
   LRUCache<uint32_t, ReadFunParameter *> *cache_;
-  LRUCache<uint32_t, ReadStrFunParameter *> *str_cache_;
+  LRUCache<uint32_t, ReadFunParameter *> *str_cache_;
   Compressor *compressor_;
 };
 
