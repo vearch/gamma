@@ -26,7 +26,7 @@
 
 INITIALIZE_EASYLOGGINGPP
 
-static bool log_dir_flag = false;
+static int log_dir_flag = 0;
 
 int SetLogDictionary(const std::string &log_dir);
 
@@ -34,10 +34,11 @@ void *Init(const char *config_str, int len) {
   tig_gamma::Config config;
   config.Deserialize(config_str, len);
 
-  if (not log_dir_flag) {
+  int flag = __sync_fetch_and_add(&log_dir_flag, 1);
+
+  if (flag == 0) {
     const std::string &log_dir = config.LogDir();
     SetLogDictionary(log_dir);
-    log_dir_flag = true;
   }
 
   const std::string &path = config.Path();
@@ -46,6 +47,8 @@ void *Init(const char *config_str, int len) {
     LOG(ERROR) << "Engine init faild!";
     return nullptr;
   }
+
+  tig_gamma::RequestConcurrentController::GetInstance();
   LOG(INFO) << "Engine init successed!";
   return static_cast<void *>(engine);
 }
@@ -207,4 +210,20 @@ int DelDocByQuery(void *engine, const char *request_str, int len) {
   int ret =
       static_cast<tig_gamma::GammaEngine *>(engine)->DelDocByQuery(request);
   return ret;
+}
+
+int SetConfig(void *engine, const char *config_str, int len) {
+  tig_gamma::Config config;
+  config.Deserialize(config_str, len);
+  int ret =
+      static_cast<tig_gamma::GammaEngine *>(engine)->SetConfig(config);
+  return ret;
+}
+
+int GetConfig(void *engine, char **config_str, int *len) {
+  tig_gamma::Config config;
+  int res = 
+      static_cast<tig_gamma::GammaEngine *>(engine)->GetConfig(config);
+  if (res == 0) { res = config.Serialize(config_str, len); }
+  return res;
 }

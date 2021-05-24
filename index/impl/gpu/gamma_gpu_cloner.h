@@ -16,84 +16,79 @@
 
 #pragma once
 
-#include <vector>
-
 #include <faiss/Index.h>
 #include <faiss/clone_index.h>
 #include <faiss/gpu/GpuClonerOptions.h>
 #include <faiss/gpu/GpuIndex.h>
 #include <faiss/gpu/GpuIndicesOptions.h>
+#include <faiss/gpu/StandardGpuResources.h>
+
+#include <vector>
+
 #include "gamma_index_ivfpq.h"
 
-namespace tig_gamma { namespace gamma_gpu {
+namespace tig_gamma {
+namespace gamma_gpu {
 
-using faiss::gpu::GpuResources;
 using faiss::Index;
 using faiss::IndexIVF;
 using faiss::gpu::GpuClonerOptions;
 using faiss::gpu::GpuMultipleClonerOptions;
-
+using faiss::gpu::GpuResources;
+using faiss::gpu::StandardGpuResources;
 
 /// Cloner specialized for GPU -> CPU
-struct GammaToCPUCloner: faiss::Cloner {
-    void merge_index(Index *dst, Index *src, bool successive_ids);
-    Index *clone_Index(const Index *index) override;
+struct GammaToCPUCloner : faiss::Cloner {
+  void merge_index(Index *dst, Index *src, bool successive_ids);
+  Index *clone_Index(const Index *index) override;
 };
 
-
 /// Cloner specialized for CPU -> 1 GPU
-struct GammaToGpuCloner: faiss::Cloner, GpuClonerOptions {
-    GpuResources *resources;
-    int device;
+struct GammaToGpuCloner : faiss::Cloner, GpuClonerOptions {
+  StandardGpuResources *resources;
+  int device;
 
-    GammaToGpuCloner(GpuResources *resources, int device,
-                const GpuClonerOptions &options);
+  GammaToGpuCloner(StandardGpuResources *resources, int device,
+                   const GpuClonerOptions &options);
 
-    Index *clone_Index(const Index *index) override;
-
+  Index *clone_Index(const Index *index) override;
 };
 
 /// Cloner specialized for CPU -> multiple GPUs
-struct GammaToGpuClonerMultiple: faiss::Cloner, GpuMultipleClonerOptions {
-    std::vector<GammaToGpuCloner> sub_cloners;
+struct GammaToGpuClonerMultiple : faiss::Cloner, GpuMultipleClonerOptions {
+  std::vector<GammaToGpuCloner> sub_cloners;
 
-    GammaToGpuClonerMultiple(std::vector<GpuResources *> & resources,
-                        std::vector<int>& devices,
-                        const GpuMultipleClonerOptions &options);
+  GammaToGpuClonerMultiple(std::vector<StandardGpuResources *> &resources,
+                           std::vector<int> &devices,
+                           const GpuMultipleClonerOptions &options);
 
-    GammaToGpuClonerMultiple(const std::vector<GammaToGpuCloner> & sub_cloners,
-                        const GpuMultipleClonerOptions &options);
+  GammaToGpuClonerMultiple(const std::vector<GammaToGpuCloner> &sub_cloners,
+                           const GpuMultipleClonerOptions &options);
 
-    void copy_ivf_shard (const GammaIVFPQIndex *index_ivf, IndexIVF *idx2,
-                         long n, long i);
+  void copy_ivf_shard(const GammaIVFPQIndex *index_ivf, IndexIVF *idx2, long n,
+                      long i);
 
-    Index * clone_Index_to_shards (const GammaIVFPQIndex *index);
+  Index *clone_Index_to_shards(const GammaIVFPQIndex *index);
 
-    /// main function
-    Index *clone_Index(const GammaIVFPQIndex *index);
+  /// main function
+  Index *clone_Index(const GammaIVFPQIndex *index);
 
-    /// main function
-    Index *clone_Index(const faiss::Index *index) { return nullptr; };
+  /// main function
+  Index *clone_Index(const faiss::Index *index) { return nullptr; };
 };
 
-
-
-
 /// converts any GPU index inside gpu_index to a CPU index
-faiss::Index * gamma_index_gpu_to_cpu(const faiss::Index *gpu_index);
+faiss::Index *gamma_index_gpu_to_cpu(const faiss::Index *gpu_index);
 
 /// converts any CPU index that can be converted to GPU
-faiss::Index * gamma_index_cpu_to_gpu(
-       GpuResources* resources, int device,
-       const GammaIVFPQIndex *index,
-       const GpuClonerOptions *options = nullptr);
+faiss::Index *gamma_index_cpu_to_gpu(StandardGpuResources *resources,
+                                     int device, const GammaIVFPQIndex *index,
+                                     const GpuClonerOptions *options = nullptr);
 
-faiss::Index * gamma_index_cpu_to_gpu_multiple(
-       std::vector<GpuResources*> & resources,
-       std::vector<int> &devices,
-       const GammaIVFPQIndex *index,
-       const GpuMultipleClonerOptions *options = nullptr);
+faiss::Index *gamma_index_cpu_to_gpu_multiple(
+    std::vector<StandardGpuResources *> &resources, std::vector<int> &devices,
+    const GammaIVFPQIndex *index,
+    const GpuMultipleClonerOptions *options = nullptr);
 
-
-
-} } // namespace
+}  // namespace gamma_gpu
+}  // namespace tig_gamma

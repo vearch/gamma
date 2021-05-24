@@ -13,12 +13,14 @@
 #include <fstream>
 #include <functional>
 #include <future>
+#include <iostream>
 
 #include "c_api/api_data/gamma_docs.h"
 #include "c_api/api_data/gamma_engine_status.h"
 #include "c_api/api_data/gamma_request.h"
 #include "c_api/api_data/gamma_response.h"
 #include "c_api/api_data/gamma_table.h"
+#include "c_api/api_data/gamma_config.h"
 #include "test.h"
 #include "utils.h"
 
@@ -31,6 +33,8 @@
  **/
 
 namespace test {
+
+using namespace std;
 
 static struct Options opt;
 
@@ -64,6 +68,17 @@ int AddDocToEngine(void *engine, int doc_num, int interval = 0) {
 
       field.source = url;
 
+      doc.AddField(std::move(field));
+    }
+    {
+      tig_gamma::Field field;
+      field.name = "float";
+      field.datatype = tig_gamma::DataType::FLOAT;
+
+      float f = random_float(0, 100);
+      int s = sizeof(f);
+      field.value = std::string((char *)(&f), sizeof(f));
+      field.source = "url";
       doc.AddField(std::move(field));
     }
 
@@ -159,7 +174,8 @@ int BatchAddDocToEngine(void *engine, int doc_num, int interval = 0) {
     double start = utils::getmillisecs();
     char *result_str = nullptr;
     int result_len = 0;
-    int ret = AddOrUpdateDocs(engine, doc_str, doc_len, &result_str, &result_len);
+    int ret =
+        AddOrUpdateDocs(engine, doc_str, doc_len, &result_str, &result_len);
     tig_gamma::BatchResult result;
     result.Deserialize(result_str, 0);
     free(result_str);
@@ -236,9 +252,9 @@ int SearchThread(void *engine, size_t num) {
 
       {
         struct tig_gamma::RangeFilter range_filter;
-        range_filter.field = "field1";
-        low = 1316;
-        upper = 999999;
+        range_filter.field = "float";
+        float low = 0;
+        float upper = 0.9;
         range_filter.lower_value = string((char *)&low, sizeof(low));
         range_filter.upper_value = string((char *)&upper, sizeof(upper));
         range_filter.include_lower = false;
@@ -251,13 +267,16 @@ int SearchThread(void *engine, size_t num) {
       term_filter.value = "1315\00115248";
       term_filter.is_union = 1;
 
-      // request.AddTermFielter(term_filter);
+      request.AddTermFielter(term_filter);
 
       std::string field_name = "field1";
       request.AddField(field_name);
 
       std::string id = "_id";
       request.AddField(id);
+
+      std::string ff = "float";
+      request.AddField(ff);
     }
 
     char *request_str, *response_str;
@@ -287,6 +306,7 @@ int SearchThread(void *engine, size_t num) {
         std::vector<struct tig_gamma::ResultItem> &result_items =
             result.result_items;
         if (result_items.size() <= 0) {
+	        LOG(ERROR) << "search no result, id=" << ii; 
           continue;
         }
         msg += string("total [") + std::to_string(result.total) + "], ";
@@ -381,56 +401,132 @@ int GetVector(void *engine) {
   return 0;
 }
 
+void ReadScalarFile() {
+  size_t idx = 0;
+  std::ifstream fin;
+  fin.open(opt.profile_file.c_str());
+  std::string str;
+  while (idx < opt.add_doc_num) {
+    std::getline(fin, str);
+    if (str == "") break;
+    auto profile = std::move(utils::split(str, "\t"));
+    size_t i = 0;
+    for (const auto &p : profile) {
+      opt.profiles[idx * opt.fields_vec.size() + i] = p;
+      ++i;
+      if (i > opt.fields_vec.size() - 1) {
+        break;
+      }
+    }
+
+    ++idx;
+  }
+  fin.close();
+}
+
 void UpdateThread(void *engine) {
-  int doc_id = 0;
-  tig_gamma::Doc doc;
-
-  for (size_t j = 0; j < opt.fields_vec.size(); ++j) {
-    tig_gamma::DataType data_type = opt.fields_type[j];
-    std::string &name = opt.fields_vec[j];
-
+  ReadScalarFile();
+  auto DocAddField = [&](tig_gamma::Doc &doc, std::string name,
+                         std::string source, std::string val,
+                         tig_gamma::DataType data_type) {
     tig_gamma::Field field;
     field.name = name;
-    field.source = "abc";
+    field.source = source;
     field.datatype = data_type;
-
-    std::string &data =
-        opt.profiles[(uint64_t)doc_id * opt.fields_vec.size() + j];
-    if (opt.fields_type[j] == tig_gamma::DataType::INT) {
-      char *value_str = static_cast<char *>(malloc(sizeof(int)));
-      int len = sizeof(int);
-      int v = atoi("88");
-      memcpy(value_str, &v, len);
-      field.value = std::string(value_str, len);
-      free(value_str);
-    } else if (opt.fields_type[j] == tig_gamma::DataType::LONG) {
-      char *value_str = static_cast<char *>(malloc(sizeof(long)));
-      int len = sizeof(long);
-      long v = atol(data.c_str());
-      memcpy(value_str, &v, len);
-      field.value = std::string(value_str, len);
-      free(value_str);
-    } else {
-      field.value = data;
-    }
+    field.value = val;
     doc.AddField(field);
+  };
+
+  auto DocInfoToString = [&](tig_gamma::Doc &doc, std::string &res_str) {
+    auto fields = doc.TableFields();
+    std::stringstream ss;
+    for (auto &f : fields) {
+      if (f.datatype == tig_gamma::DataType::INT) {
+        int val = *(int*)(f.value.c_str());
+        ss << val << ", ";
+      } else {
+        auto val = f.value;
+        ss << val << ", ";
+      }
+    }
+    res_str = ss.str();
+  };
+
+  for (int i = 0; i < opt.add_doc_num; i+=1000) {
+    int doc_id = i;
+    std::string _id;
+    tig_gamma::Doc doc;
+    int size = opt.fields_vec.size();
+
+    for (size_t j = 0; j < opt.fields_vec.size(); ++j) {
+      tig_gamma::DataType data_type = opt.fields_type[j];
+      std::string &name = opt.fields_vec[j];
+      std::string &data =
+          opt.profiles[(uint64_t)doc_id * opt.fields_vec.size() + j];
+      if (name == "_id") {
+        _id = data;
+      }
+      std::string value;
+      if (opt.fields_type[j] == tig_gamma::DataType::INT) {
+        char *value_str = static_cast<char *>(malloc(sizeof(int)));
+        int v = atoi("88");
+        memcpy(value_str, &v, sizeof(int));
+        value = std::string(value_str, sizeof(int));
+        free(value_str);
+      } else if (opt.fields_type[j] == tig_gamma::DataType::LONG) {
+        char *value_str = static_cast<char *>(malloc(sizeof(long)));
+        long v = atol(data.c_str());
+        memcpy(value_str, &v, sizeof(long));
+        value = std::string(value_str, sizeof(long));
+        free(value_str);
+      } else {
+        if (name != "_id") {
+          value = "00000";
+        } else {
+          value = data;
+        }
+      }
+      DocAddField(doc, name, "abc", value, data_type);
+    }
+    {
+      float val = 0;
+      std::string data((char*)&val, sizeof(val));
+      DocAddField(doc, "float", "abc", data,
+                  tig_gamma::DataType::FLOAT);
+      data = std::string((char *)(opt.feature + (uint64_t)doc_id * opt.d),
+                              opt.d * sizeof(float));
+      DocAddField(doc, opt.vector_name, "abc", data,
+                  tig_gamma::DataType::VECTOR);
+    }
+
+    {
+      char *str_doc = nullptr;
+      int str_len = 0;
+      GetDocByID(engine, _id.c_str(), _id.size(), &str_doc, &str_len);
+      tig_gamma::Doc old_doc;
+      old_doc.SetEngine((tig_gamma::GammaEngine*)engine);
+      old_doc.Deserialize(str_doc, str_len);
+      std::string get_res;
+      DocInfoToString(old_doc, get_res);
+      LOG(INFO) << "old doc info:" << get_res;
+    }
+
+    char *doc_str = nullptr;
+    int len = 0;
+    doc.Serialize(&doc_str, &len);
+    AddOrUpdateDoc(engine, doc_str, len);
+
+    char *str_doc = nullptr;
+    int str_len = 0;
+    GetDocByID(engine, _id.c_str(), _id.size(), &str_doc, &str_len);
+    tig_gamma::Doc get_doc;
+    get_doc.SetEngine((tig_gamma::GammaEngine*)engine);
+    get_doc.Deserialize(str_doc, str_len);
+    std::string get_res;
+    DocInfoToString(get_doc, get_res);
+    LOG(INFO) << "get_res: " << get_res;
+    free(str_doc);
   }
-
-  tig_gamma::Field field;
-  field.name = opt.vector_name;
-  field.source = "abc";
-  field.datatype = tig_gamma::DataType::VECTOR;
-  field.value = std::string(
-      reinterpret_cast<char *>(opt.feature + (uint64_t)doc_id * opt.d),
-      opt.d * sizeof(float));
-  doc.AddField(field);
-
-  char *doc_str = nullptr;
-  int len = 0;
-  doc.Serialize(&doc_str, &len);
-
-  UpdateDoc(engine, doc_str, len);
-  free(doc_str);
 }
 
 int InitEngine() {
@@ -492,6 +588,14 @@ int Create() {
     table.AddField(field_info);
   }
 
+  {
+    struct tig_gamma::FieldInfo field_info;
+    field_info.name = "float";
+
+    field_info.is_index = 1;
+    field_info.data_type = tig_gamma::DataType::FLOAT;
+    table.AddField(field_info);
+  }
   struct tig_gamma::VectorInfo vector_info;
   vector_info.name = opt.vector_name;
   vector_info.data_type = tig_gamma::DataType::FLOAT;
@@ -499,7 +603,8 @@ int Create() {
   vector_info.dimension = opt.d;
   vector_info.model_id = opt.model_id;
   vector_info.store_type = opt.store_type;
-  vector_info.store_param = "{\"cache_size\": 2048}";
+  vector_info.store_param = "{\"cache_size\": 2048, \"compress\": {\"rate\":16}}";
+  // vector_info.store_param = "{\"cache_size\": 2048}";
   vector_info.has_source = false;
 
   table.AddVectorInfo(vector_info);
@@ -516,28 +621,7 @@ int Create() {
 }
 
 int Add() {
-  size_t idx = 0;
-
-  std::ifstream fin;
-  fin.open(opt.profile_file.c_str());
-  std::string str;
-  while (idx < opt.add_doc_num) {
-    std::getline(fin, str);
-    if (str == "") break;
-    auto profile = std::move(utils::split(str, "\t"));
-    size_t i = 0;
-    for (const auto &p : profile) {
-      opt.profiles[idx * opt.fields_vec.size() + i] = p;
-      ++i;
-      if (i > opt.fields_vec.size() - 1) {
-        break;
-      }
-    }
-
-    ++idx;
-  }
-  fin.close();
-
+  ReadScalarFile();
   int ret = 0;
   if (opt.add_type == 0) {
     ret = AddDocToEngine(opt.engine, opt.add_doc_num);
@@ -548,8 +632,8 @@ int Add() {
 }
 
 int BuildEngineIndex() {
-  UpdateThread(opt.engine);
-  BuildIndex(opt.engine);
+  // UpdateThread(opt.engine);
+  // BuildIndex(opt.engine);
   int n_index_status = -1;
   do {
     char *status = nullptr;
@@ -615,20 +699,38 @@ int Search() {
   double end = utils::getmillisecs();
   LOG(INFO) << "Search cost [" << end - start << "] ms";
   // add_thread.join();
+
   return 0;
 }
 
+int AlterCacheSizeTest() {
+  tig_gamma::Config conf;
+  conf.AddCacheInfo("table", 1024);
+  conf.AddCacheInfo("string", 2048);
+  conf.AddCacheInfo(opt.vector_name, 4096);
+  char *buf = nullptr;
+  int len = 0;
+  conf.Serialize(&buf, &len);
+  return SetConfig(opt.engine, buf, len);
+}
+
+int GetCacheSizeTest() {
+  tig_gamma::Config config;
+  char *buf = nullptr;
+  int len = 0;
+  GetConfig(opt.engine, &buf, &len);
+  config.Deserialize(buf, len);
+  for (auto &cache_info : config.CacheInfos()) {
+    LOG(INFO) << "TestGetCacheSize() field_name:" << cache_info.field_name
+              << ", cache_size:" << cache_info.cache_size;
+  }
+  delete[] buf;
+  return 0;
+}
+
+
 int DumpEngine() {
   int ret = Dump(opt.engine);
-
-  // ret = AddDocToEngine(opt.engine, opt.add_doc_num);
-
-  // std::this_thread::sleep_for(std::chrono::seconds(10));
-
-  // ret = Dump(opt.engine);
-
-  Close(opt.engine);
-  opt.engine = nullptr;
   return ret;
 }
 
@@ -652,11 +754,6 @@ int LoadEngine() {
   return ret;
 }
 
-int DumpAfterLoad() {
-  int ret = Dump(opt.engine);
-  return ret;
-}
-
 int CloseEngine() {
   Close(opt.engine);
   opt.engine = nullptr;
@@ -672,7 +769,10 @@ int CloseEngine() {
 }  // namespace test
 
 int main(int argc, char **argv) {
-  utils::remove_dir(test::opt.path.c_str());
+  bool bLoad = false;
+  if (not bLoad) {
+    utils::remove_dir(test::opt.path.c_str());
+  }
   setvbuf(stdout, (char *)NULL, _IONBF, 0);
   if (argc != 3) {
     std::cout << "Usage: [Program] [profile_file] [vectors_file]\n";
@@ -683,18 +783,28 @@ int main(int argc, char **argv) {
   std::cout << test::opt.profile_file.c_str() << " "
             << test::opt.feature_file.c_str() << std::endl;
   test::InitEngine();
-  // test::LoadEngine();
-  // test::opt.doc_id = 20000;
-  test::Create();
-  test::Add();
+  if (bLoad) {
+    test::LoadEngine();
+    test::opt.doc_id = 20000;
+  } else {
+    test::Create();
+    test::Add();
+  }
   test::BuildEngineIndex();
   // test::Add();
   test::Search();
-  test::DumpEngine();
+
+  test::GetCacheSizeTest();
+  test::AlterCacheSizeTest();
+  test::GetCacheSizeTest();
+
+  test::UpdateThread(test::opt.engine);
+  if (not bLoad) {
+    test::DumpEngine();
+  }
   // test::LoadEngine();
   // test::BuildEngineIndex();
   // test::Search();
-  // test::DumpAfterLoad();
   test::CloseEngine();
 
   return 0;

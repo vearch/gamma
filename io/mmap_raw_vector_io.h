@@ -1,6 +1,3 @@
-#ifndef MMAP_RAW_VECTOR_IO_H_
-#define MMAP_RAW_VECTOR_IO_H_
-
 #pragma once
 
 #include <string>
@@ -24,4 +21,3 @@ struct MmapRawVectorIO : public RawVectorIO {
 
 }  // namespace tig_gamma
 
-#endif

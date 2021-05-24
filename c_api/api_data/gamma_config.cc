@@ -11,9 +11,22 @@ namespace tig_gamma {
 
 int Config::Serialize(char **out, int *out_len) {
   flatbuffers::FlatBufferBuilder builder;
+
+  std::vector<flatbuffers::Offset<gamma_api::CacheInfo>>
+                                        cache_vector(cache_infos_.size());
+  int i = 0;
+  for (auto &c : cache_infos_) {
+    auto cache = gamma_api::CreateCacheInfo(builder, 
+                                builder.CreateString(c.field_name),
+                                c.cache_size);
+    cache_vector[i++] = cache;
+  }
+  auto cache_vec = builder.CreateVector(cache_vector);
   auto config =
       gamma_api::CreateConfig(builder, builder.CreateString(path_),
-                              builder.CreateString(log_dir_));
+                              builder.CreateString(log_dir_),
+                              cache_vec);
+
   builder.Finish(config);
   *out_len = builder.GetSize();
   *out = (char *)malloc(*out_len * sizeof(char));
@@ -26,6 +39,16 @@ void Config::Deserialize(const char *data, int len) {
 
   path_ = config_->path()->str();
   log_dir_ = config_->log_dir()->str();
+
+  size_t cache_num = config_->cache_infos()->size();
+  cache_infos_.resize(cache_num);
+  for (size_t i = 0; i < cache_num; ++i) {
+    auto c = config_->cache_infos()->Get(i);
+    struct CacheInfo cache_info;
+    cache_info.field_name = c->field_name()->str();
+    cache_info.cache_size = c->cache_size();
+    cache_infos_[i] = cache_info;
+  }
 }
 
 const std::string &Config::Path() {
@@ -41,5 +64,20 @@ const std::string &Config::LogDir() {
 }
 
 void Config::SetLogDir(std::string &log_dir) { log_dir_ = log_dir; }
+
+void Config::AddCacheInfo(const struct CacheInfo &cache) {
+  cache_infos_.push_back(cache);
+}
+
+void Config::AddCacheInfo(struct CacheInfo &&cache) {
+  cache_infos_.emplace_back(std::forward<struct CacheInfo>(cache));
+}
+
+void Config::AddCacheInfo(std::string name, int cache_size) {
+  struct CacheInfo c;
+  c.field_name = name;
+  c.cache_size = cache_size;
+  cache_infos_.push_back(c);
+}
 
 }  // namespace tig_gamma

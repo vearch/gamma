@@ -8,13 +8,16 @@
 #pragma once
 
 #include <vector>
+#include <tbb/concurrent_queue.h>
 
+
+// #include "concurrentqueue/concurrentqueue.h"
 #include "reflector.h"
 #include "utils.h"
 
 enum class VectorValueType : std::uint8_t { FLOAT = 0, BINARY = 1, INT8 = 2 };
 
-enum class DistanceComputeType : std::uint8_t { INNER_PRODUCT = 0, L2 };
+enum class DistanceComputeType : std::uint8_t { INNER_PRODUCT = 0, L2, Cosine };
 
 // Performance tool, record performance info
 class PerfTool {
@@ -177,7 +180,6 @@ class ScopeVectors {
 
   size_t Size() { return ptr_.size(); }
 
- private:
   std::vector<const uint8_t *> ptr_;
   std::vector<bool> deletable_;
 };
@@ -210,6 +212,8 @@ class RetrievalModel {
  public:
   RetrievalModel() {
     vector_ = nullptr;
+    indexed_count_ = 0;
+    indexing_size_ = 0;
   }
 
   virtual ~RetrievalModel() {}
@@ -219,7 +223,7 @@ class RetrievalModel {
    * @param model_parameters   include model params, need parse by yourself
    * @return 0 if successed
    */
-  virtual int Init(const std::string &model_parameters) = 0;
+  virtual int Init(const std::string &model_parameters, int indexing_size) = 0;
 
   /** Parse parameters for dynamic retrieval
    *
@@ -285,9 +289,13 @@ class RetrievalModel {
   /** Load model and index
    *
    * @param dir   load directory
-   * @return 0 if successed
+   * @return load number(>=0) if successed
    */
   virtual int Load(const std::string &dir) = 0;
 
   VectorReader *vector_;
+  tbb::concurrent_bounded_queue<int> updated_vids_;
+  // warining: indexed_count_ is only used by framework, sub-class cann't use it
+  int indexed_count_;
+  int indexing_size_;
 };

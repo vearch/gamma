@@ -14,6 +14,7 @@
 #include "retrieval_model.h"
 #include "table.h"
 #include "utils.h"
+#include <algorithm>
 
 namespace tig_gamma {
 
@@ -101,8 +102,8 @@ class GammaSearchCondition : public RetrievalContext {
     brute_force_search = false;
     l2_sqrt = false;
     has_rank = 1;
-    min_score = std::numeric_limits<float>::max();
-    max_score = std::numeric_limits<float>::min();
+    min_score = std::numeric_limits<float>::min();
+    max_score = std::numeric_limits<float>::max();
 
 #ifdef BUILD_GPU
     table = nullptr;
@@ -191,6 +192,7 @@ struct VectorQuery {
   double max_score;
   double boost;
   int has_boost;
+  std::string retrieval_type;
 };
 
 struct GammaQuery {
@@ -254,6 +256,8 @@ struct VectorResult {
     source_lens = new int[n * topn];
     total.resize(n, 0);
     idx.resize(n, -1);
+    std::fill_n(dists, n * topn, 0.0);
+    std::fill_n(docids, n * topn, -1);
 
     return true;
   }

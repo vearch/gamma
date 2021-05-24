@@ -12,12 +12,9 @@
 #include "error_code.h"
 
 using std::string;
+#ifdef WITH_ROCKSDB
 using namespace rocksdb;
-
-#include "error_code.h"
-
-using std::string;
-using namespace rocksdb;
+#endif
 namespace tig_gamma {
 
 MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
@@ -40,7 +37,7 @@ MemoryRawVector::~MemoryRawVector() {
   CHECK_DELETE_ARRAY(segments_);
 }
 
-int MemoryRawVector::InitStore() {
+int MemoryRawVector::InitStore(std::string &vec_name) {
   // const std::string &name = meta_info_->Name();
   // string db_path = this->root_path_ + "/" + name;
   // if (rdb_.Open(db_path)) {

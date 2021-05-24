@@ -26,7 +26,7 @@ class RocksDBRawVector : public RawVector {
                    const StoreParams &store_params, const char *docids_bitmap);
   ~RocksDBRawVector();
   /* RawVector */
-  int InitStore() override;
+  int InitStore(std::string &vec_name) override;
   int AddToStore(uint8_t *v, int len) override;
   int GetVectorHeader(int start, int n, ScopeVectors &vecs,
                       std::vector<int> &lens) override;

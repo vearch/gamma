@@ -170,20 +170,27 @@ RawVector::RawVector(VectorMetaInfo *meta_info, const string &root_path,
     : VectorReader(meta_info),
       root_path_(root_path),
       total_mem_bytes_(0),
-      indexed_vector_num_(0),
       store_params_(store_params),
       docids_bitmap_(docids_bitmap) {
   data_size_ = meta_info_->DataSize();
   vio_ = nullptr;
+  str_mem_ptr_ = nullptr;
+  vid_mgr_ = nullptr;
+#ifdef WITH_ZFP
+  zfp_compressor_ = nullptr;
+#endif
+  allow_use_zpf = true;
 }
 
 RawVector::~RawVector() {
   CHECK_DELETE_ARRAY(str_mem_ptr_);
-  CHECK_DELETE(updated_vids_);
   CHECK_DELETE(vid_mgr_);
+#ifdef WITH_ZFP
+  CHECK_DELETE(zfp_compressor_);
+#endif
 }
 
-int RawVector::Init(bool has_source, bool multi_vids) {
+int RawVector::Init(std::string vec_name, bool has_source, bool multi_vids) {
   desc_ += "raw vector=" + meta_info_->Name() + ", ";
   if (has_source || multi_vids) {
     LOG(ERROR) << "source and multi-vids is unsupported now";
@@ -204,22 +211,22 @@ int RawVector::Init(bool has_source, bool multi_vids) {
   vid_mgr_->Init(kInitSize, total_mem_bytes_);
 
   vector_byte_size_ = meta_info_->Dimension() * data_size_;
-  updated_vids_ = new moodycamel::ConcurrentQueue<int>();
 
 #ifdef WITH_ZFP
-  if (!store_params_.compress.IsEmpty()) {
+  if (!store_params_.compress.IsEmpty() && allow_use_zpf) {
     if (meta_info_->DataType() != VectorValueType::FLOAT) {
       LOG(ERROR) << "data type is not float, compress is unsupported";
       return PARAM_ERR;
     }
+    zfp_compressor_ = new ZFPCompressor;
     int ret =
-        zfp_compressor_.Init(meta_info_->Dimension(), store_params_.compress);
+        zfp_compressor_->Init(meta_info_->Dimension(), store_params_.compress);
     if (ret) return ret;
-    vector_byte_size_ = zfp_compressor_.ZfpSize();
+    vector_byte_size_ = zfp_compressor_->ZfpSize();
   }
 #endif
 
-  if (InitStore()) return -2;
+  if (InitStore(vec_name)) return -2;
 
   LOG(INFO) << "raw vector init success! name=" << meta_info_->Name()
             << ", has source=" << has_source << ", multi_vids=" << multi_vids
@@ -320,16 +327,15 @@ int RawVector::Update(int docid, struct Field &field) {
     return -1;
   }
 
-  updated_vids_->enqueue(vid);
   // TODO: update source
   return 0;
 }
 
 int RawVector::Compress(uint8_t *v, ScopeVector &svec) {
 #ifdef WITH_ZFP
-  if (!store_params_.compress.IsEmpty()) {
+  if (zfp_compressor_) {
     uint8_t *cmprs_v = nullptr;
-    if (zfp_compressor_.Compress((float *)v, cmprs_v)) {
+    if (zfp_compressor_->Compress((float *)v, cmprs_v)) {
       return INTERNAL_ERR;
     }
     svec.Set(cmprs_v, true);
@@ -344,9 +350,9 @@ int RawVector::Compress(uint8_t *v, ScopeVector &svec) {
 int RawVector::Decompress(uint8_t *cmprs_v, int n, uint8_t *&vec,
                           bool &deletable) const {
 #ifdef WITH_ZFP
-  if (!store_params_.compress.IsEmpty()) {
+  if (zfp_compressor_) {
     float *v = nullptr;
-    if (zfp_compressor_.Decompress(cmprs_v, n, v)) {
+    if (zfp_compressor_->Decompress(cmprs_v, n, v)) {
       return INTERNAL_ERR;
     }
     vec = (uint8_t *)v;
@@ -402,7 +408,7 @@ int StoreParams::Parse(utils::JsonParser &jp) {
 int StoreParams::MergeRight(StoreParams &other) {
   cache_size = other.cache_size;
   segment_size = other.segment_size;
-  compress.MergeRight(other.compress);
+  // compress.MergeRight(other.compress);
   return 0;
 }
   

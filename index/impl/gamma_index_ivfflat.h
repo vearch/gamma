@@ -116,13 +116,14 @@ class IVFFlatRetrievalParameters : public RetrievalParameters {
 
 struct GammaIndexIVFFlat : faiss::IndexIVFFlat, public RetrievalModel {
   GammaIndexIVFFlat();
+  virtual ~GammaIndexIVFFlat();
 
   void search_preassigned(RetrievalContext *retrieval_context, idx_t n,
                           const float *x, int k, const idx_t *keys,
                           const float *coarse_dis, float *distances,
                           idx_t *labels, int nprobe, bool store_pairs) const;
 
-  int Init(const std::string &model_parameters) override;
+  int Init(const std::string &model_parameters, int indexing_size) override;
   RetrievalParameters *Parse(const std::string &parameters) override;
   int Indexing() override;
   bool Add(int n, const uint8_t *vec) override;

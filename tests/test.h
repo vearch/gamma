@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <random>
 #include <string>
 #include <thread>
 #include <utility>
@@ -24,10 +25,10 @@
 
 #include "api_data/gamma_config.h"
 #include "bitmap.h"
+#include "c_api/api_data/gamma_response.h"
 #include "c_api/gamma_api.h"
 #include "log.h"
 #include "util/utils.h"
-#include "c_api/api_data/gamma_response.h"
 
 using std::string;
 
@@ -35,11 +36,11 @@ namespace {
 
 string kIVFPQParam =
     "{\"nprobe\" : 10, \"metric_type\" : \"InnerProduct\", \"ncentroids\" : "
-    "256,\"nsubvector\" : 64}";
+    "256,\"nsubvector\" : 64, \"relayout_group_size\": 4}";
 
 string kHNSWParam_str =
     "{\"nlinks\" : 32, \"metric_type\" : \"InnerProduct\", \"efSearch\" : "
-    "64,\"efConstruction\" : 40}";
+    "64,\"efConstruction\" : 160}";
 
 string kFLATParam_str = "{\"metric_type\" : \"InnerProduct\"}";
 
@@ -64,7 +65,7 @@ struct Options {
     log_dir = "log";
     model_id = "model";
     retrieval_type = "IVFPQ";
-    store_type = "MemoryOnly";
+    store_type = "MMap";
     // store_type = "RocksDB";
     profiles.resize(max_doc_size * fields_vec.size());
     engine = nullptr;
@@ -90,7 +91,7 @@ struct Options {
   string model_id;
   string retrieval_type;
   string store_type;
-  int add_type; // 0 single add, 1 batch add
+  int add_type;  // 0 single add, 1 batch add
 
   std::vector<string> profiles;
   float *feature;
@@ -117,6 +118,9 @@ void printDoc(struct tig_gamma::ResultItem &result_item, std::string &msg,
         break;
       }
     }
+    if (name == "float") {
+      data_type = tig_gamma::DataType::FLOAT;
+    }
 
     msg += "field name [" + name + "], type [" +
            std::to_string(static_cast<int>(data_type)) + "], value [";
@@ -139,7 +143,8 @@ void printDoc(struct tig_gamma::ResultItem &result_item, std::string &msg,
       d /= sizeof(float);
       int cur = sizeof(int);
 
-      const float *feature = reinterpret_cast<const float *>(value.data() + cur);
+      const float *feature =
+          reinterpret_cast<const float *>(value.data() + cur);
 
       cur += d * sizeof(float);
       int len = value.length();
@@ -168,6 +173,7 @@ float *fvecs_read(const char *fname, size_t *d_out, size_t *n_out) {
   }
   int d;
   fread(&d, 1, sizeof(int), f);
+  LOG(INFO) << "assert" << d;
   assert((d > 0 && d < 1000000) || !"unreasonable dimension");
   fseek(f, 0, SEEK_SET);
   struct stat st;
@@ -238,4 +244,11 @@ struct RandomGenerator {
   int Rand(int n, int offset = 0) { return std::rand() % n + offset; }
   double RandDouble(double offset = 0.0f) { return drand48() + offset; }
 };
+
+float random_float(float min, float max, unsigned int seed = 0) {
+  static std::default_random_engine e(seed);
+  static std::uniform_real_distribution<float> u(min, max);
+  return u(e);
+}
+
 }  // namespace

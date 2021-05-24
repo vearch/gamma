@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef GAMMA_ENGINE_H_
-#define GAMMA_ENGINE_H_
+#pragma once
 
 #include <condition_variable>
 #include <string>
@@ -18,11 +17,10 @@
 #include "api_data/gamma_request.h"
 #include "api_data/gamma_response.h"
 #include "api_data/gamma_table.h"
+#include "async_flush.h"
 #include "field_range_index.h"
 #include "table.h"
 #include "vector_manager.h"
-#include "async_flush.h"
-#include "table_io.h"
 
 namespace tig_gamma {
 
@@ -102,9 +100,15 @@ class GammaEngine {
 
   char **BatchDocsStr() { return batch_docs_.data(); }
 
+  int GetConfig(Config &config);
+
+  int SetConfig(Config &config);
+
  private:
   GammaEngine(const std::string &index_root_path);
+
   int CreateTableFromLocal(std::string &table_name);
+
   int Indexing();
 
  private:
@@ -118,15 +122,13 @@ class GammaEngine {
   VectorManager *vec_manager_;
 
   int AddNumIndexFields();
-  template <typename T>
-  int AddNumIndexField(const std::string &field);
 
   int max_docid_;
   int indexing_size_;
 
   std::atomic<int> delete_num_;
 
-  bool b_running_;
+  int b_running_; // 0 not run, not 0 running
   bool b_field_running_;
 
   std::condition_variable running_cv_;
@@ -145,16 +147,15 @@ class GammaEngine {
 
   enum IndexStatus index_status_;
 
-  int dump_docid_;  // next dump docid
   int bitmap_bytes_size_;
   const std::string date_time_format_;
   std::string last_dump_dir_;  // it should be delete after next dump
 
   bool created_table_;
 
-  int indexed_field_num_;
-
   bool b_loading_;
+
+  bool is_dirty_;
 
   std::vector<char *> batch_docs_;
 
@@ -162,13 +163,39 @@ class GammaEngine {
   std::atomic<uint64_t> search_num_;
 #endif
 
-  TableIO *table_io_;
   AsyncFlushExecutor *af_exector_;
 };
 
-// specialization for string
-template <>
-int GammaEngine::AddNumIndexField<std::string>(const std::string &field);
+
+class RequestConcurrentController {
+ public:
+  static RequestConcurrentController &GetInstance() {
+    static RequestConcurrentController intance;
+    return intance;
+  }
+
+  ~RequestConcurrentController() = default;
+
+  bool Acquire(int req_num);
+
+  void Release(int req_num);
+
+ private:
+  RequestConcurrentController();
+
+  RequestConcurrentController(const RequestConcurrentController &) = delete;
+
+  RequestConcurrentController &operator=(const RequestConcurrentController &) =
+      delete;
+
+  int GetMaxThread();
+
+  int GetSystemInfo(const char *cmd);
+
+ private:
+  int cur_concurrent_num_;
+  int concurrent_threshold_;
+  int max_threads_;
+};
 
 }  // namespace tig_gamma
-#endif

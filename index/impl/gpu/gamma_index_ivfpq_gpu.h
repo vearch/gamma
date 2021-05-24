@@ -10,11 +10,11 @@
 #include "concurrentqueue/blockingconcurrentqueue.h"
 #include "faiss/Index.h"
 #include "field_range_index.h"
-#include "gamma_gpu_resources.h"
+#include "gamma_gpu_cloner.h"
 #include "gamma_index_ivfpq.h"
-#include "retrieval_model.h"
 #include "log.h"
 #include "raw_vector.h"
+#include "retrieval_model.h"
 #include "utils.h"
 
 namespace tig_gamma {
@@ -92,7 +92,6 @@ class GammaIVFPQGPUIndex : public RetrievalModel {
 
   int CreateSearchThread();
 
-  int indexed_vec_count_;
   size_t nlist_;
   size_t M_;
   size_t nbits_per_idx_;
@@ -104,14 +103,13 @@ class GammaIVFPQGPUIndex : public RetrievalModel {
   GammaIVFPQIndex *cpu_index_;
 
   int tmp_mem_num_;
-  std::vector<faiss::gpu::GpuResources *> resources_;
+  std::vector<faiss::gpu::StandardGpuResources *> resources_;
   std::vector<std::thread> gpu_threads_;
 
   bool b_exited_;
 
   bool is_trained_;
 
-  bool use_standard_resource_;
   int d_;
   DistanceComputeType metric_type_;
   std::mutex cpu_mutex_;

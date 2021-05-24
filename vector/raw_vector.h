@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "api_data/gamma_doc.h"
-#include "concurrentqueue/concurrentqueue.h"
 #include "io_common.h"
 #include "log.h"
 #include "raw_vector_common.h"
@@ -29,7 +28,6 @@ static const int kInitSize = 1000 * 1000;
 
 class RawVectorIO;
 struct StoreParams : DumpConfig {
-  std::string store_type;
   long cache_size;  // bytes
   int segment_size;
   utils::JsonParser compress;
@@ -41,7 +39,6 @@ struct StoreParams : DumpConfig {
 
   StoreParams(const StoreParams &other) {
     name = other.name;
-    store_type = other.store_type;
     cache_size = other.cache_size;
     segment_size = other.segment_size;
     compress = other.compress;
@@ -54,7 +51,6 @@ struct StoreParams : DumpConfig {
   std::string ToJsonStr() {
     std::stringstream ss;
     ss << "{";
-    ss << "\"store_type\":" << store_type << ",";
     ss << "\"cache_size\":" << cache_size << ",";
     ss << "\"segment_size\":" << segment_size << ",";
     ss << "\"compress\":" << compress.ToStr();
@@ -63,7 +59,6 @@ struct StoreParams : DumpConfig {
   }
 
   int ToJson(utils::JsonParser &jp) {
-    jp.PutString("store_type", store_type);
     jp.PutDouble("cache_size", cache_size);
     jp.PutInt("segment_size", segment_size);
     jp.PutObject("compress", compress);
@@ -82,7 +77,7 @@ class RawVector : public VectorReader {
    *
    * @return 0 if successed
    */
-  int Init(bool has_source, bool multi_vids);
+  int Init(std::string vec_name, bool has_source, bool multi_vids);
 
   /** get the header of vectors, so it can access vecotors through the
    * header if dimension is known
@@ -150,17 +145,10 @@ class RawVector : public VectorReader {
   virtual size_t GetStoreMemUsage() { return 0; }
 
   long GetTotalMemBytes() {
-    GetStoreMemUsage();
-    return total_mem_bytes_;
+    return total_mem_bytes_ + GetStoreMemUsage();
   };
 
   int GetVectorNum() const { return meta_info_->Size(); };
-
-  int IndexedVectorNum() const { return indexed_vector_num_; };
-
-  void SetIndexedVectorNum(int indexed_vector_num) {
-    indexed_vector_num_ = indexed_vector_num;
-  };
 
   /** add vector to the specific implementation of RawVector(memory or disk)
    *it is called by next common function Add()
@@ -168,6 +156,10 @@ class RawVector : public VectorReader {
   virtual int AddToStore(uint8_t *v, int len) = 0;
 
   virtual int UpdateToStore(int vid, uint8_t *v, int len) = 0;
+
+  virtual int GetCacheSize(uint32_t &cache_size) { return -1; };
+
+  virtual int AlterCacheSize(uint32_t cache_size) { return -1; }
 
   RawVectorIO *GetIO() { return vio_; }
 
@@ -178,9 +170,6 @@ class RawVector : public VectorReader {
   int VectorByteSize() { return vector_byte_size_; }
   std::string RootPath() { return root_path_; }
   DumpConfig *GetDumpConfig();
-
-  moodycamel::ConcurrentQueue<int> *UpdatedVids() { return updated_vids_; }
-  moodycamel::ConcurrentQueue<int> *updated_vids_;
 
  protected:
   /** get vector by id
@@ -195,7 +184,7 @@ class RawVector : public VectorReader {
 
   // virtual int LoadVectors(int vec_num) { return 0; }
 
-  virtual int InitStore() = 0;
+  virtual int InitStore(std::string &vec_name) = 0;
 
   int Compress(uint8_t *v, ScopeVector &svec);
   int Decompress(uint8_t *cmpr_v, int n, uint8_t *&vec, bool &deletable) const;
@@ -210,10 +199,10 @@ class RawVector : public VectorReader {
   std::vector<long> source_mem_pos_;  // position of each source
   bool has_source_;
   std::string desc_;  // description of this raw vector
-  int indexed_vector_num_;
   StoreParams store_params_;
+  bool allow_use_zpf;
 #ifdef WITH_ZFP
-  ZFPCompressor zfp_compressor_;
+  ZFPCompressor *zfp_compressor_;
 #endif
   const char *docids_bitmap_;
   VIDMgr *vid_mgr_;

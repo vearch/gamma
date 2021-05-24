@@ -79,7 +79,8 @@ GammaIndexBinaryIVF::~GammaIndexBinaryIVF() {
   }
 }
 
-int GammaIndexBinaryIVF::Init(const std::string &model_parameters) {
+int GammaIndexBinaryIVF::Init(const std::string &model_parameters, int indexing_size) {
+  indexing_size_ = indexing_size;
   BinaryModelParams binary_param;
   if (model_parameters != "" && binary_param.Parse(model_parameters.c_str())) {
     return -1;
@@ -208,12 +209,30 @@ int GammaIndexBinaryIVF::Indexing() {
   }
   RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
   int vectors_count = raw_vec->MetaInfo()->Size();
-  if (vectors_count < 8192) {
+
+  size_t num;
+  if (indexing_size_ < nlist) {
+    num = nlist * 39;
+    LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
+                 << "], index_size becomes ncentroids * 39[" << num << "].";
+  } else if (indexing_size_ <= nlist * 265) {
+    if (indexing_size_ < nlist * 39) {
+      LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
+                   << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
+    }
+    num = indexing_size_;
+  } else {
+    num = nlist * 256;
+    LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too big. "
+                 << "The appropriate range is [ncentroids * 39, ncentroids * 256]."
+                 << "index_size becomes ncentroids * 256[" << num << "].";
+  }
+  if (num > vectors_count) {
     LOG(ERROR) << "vector total count [" << vectors_count
-               << "] less then 8192, failed!";
+                << "] less then index_size[" << num << "], failed!";
     return -1;
   }
-  size_t num = vectors_count > 100000 ? 100000 : vectors_count;
+
   ScopeVectors headers;
   std::vector<int> lens;
   raw_vec->GetVectorHeader(0, num, headers, lens);
@@ -223,13 +242,13 @@ int GammaIndexBinaryIVF::Indexing() {
   if (lens.size() == 1) {
     train_vec = headers.Get(0);
   } else {
-    int raw_d = d;
+    int raw_d = raw_vec->MetaInfo()->Dimension();
     train_vec = new uint8_t[raw_d * num];
     del_vec.set(train_vec);
     size_t offset = 0;
     for (size_t i = 0; i < headers.Size(); ++i) {
       memcpy((void *)(train_vec + offset), (void *)headers.Get(i),
-             sizeof(float) * raw_d * lens[i]);
+             sizeof(char) * raw_d * lens[i]);
       offset += raw_d * lens[i];
     }
   }

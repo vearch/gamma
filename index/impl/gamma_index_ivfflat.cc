@@ -94,12 +94,20 @@ REGISTER_MODEL(IVFFLAT, GammaIndexIVFFlat);
 GammaIndexIVFFlat::GammaIndexIVFFlat() {
   indexed_vec_count_ = 0;
   updated_num_ = 0;
+  rt_invert_index_ptr_ = nullptr;
 #ifdef PERFORMANCE_TESTING
   add_count_ = 0;
 #endif
 }
 
-int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
+GammaIndexIVFFlat::~GammaIndexIVFFlat() {
+  CHECK_DELETE(rt_invert_index_ptr_);
+  CHECK_DELETE(invlists);
+  CHECK_DELETE(quantizer);
+}
+
+int GammaIndexIVFFlat::Init(const std::string &model_parameters, int indexing_size) {
+  indexing_size_ = indexing_size;
   IVFFlatModelParams params;
   if (params.Parse(model_parameters.c_str())) {
     LOG(ERROR) << "parse model parameters error";
@@ -107,7 +115,10 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   }
   LOG(INFO) << params.ToString();
 
-  RawVector *raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+  RawVector *raw_vec = nullptr;
+#ifdef WITH_ROCKSDB
+  raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+#endif
   if (raw_vec == nullptr) {
     LOG(ERROR) << "IVFFlat needs store type=RocksDB";
     return PARAM_ERR;
@@ -116,6 +127,7 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   d = vector_->MetaInfo()->Dimension();
   nlist = params.ncentroids;
   quantizer = new faiss::IndexFlatL2(d);
+  own_fields = false;
   code_size = sizeof(float) * d;
   is_trained = false;
 
@@ -135,6 +147,7 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters) {
   }
   this->invlists =
       new realtime::RTInvertedLists(rt_invert_index_ptr_, nlist, code_size);
+  own_invlists = false;
 
   if (params.metric_type ==
       DistanceComputeType::INNER_PRODUCT) {
@@ -210,13 +223,31 @@ int GammaIndexIVFFlat::Indexing() {
     return 0;
   }
   RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
-  int vectors_count = raw_vec->MetaInfo()->Size();
-  if (vectors_count < 8192) {
+  size_t vectors_count = raw_vec->MetaInfo()->Size();
+
+  size_t num;
+  if (indexing_size_ < nlist) {
+    num = nlist * 39;
+    LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
+                 << "], index_size becomes ncentroids * 39[" << num << "].";
+  } else if (indexing_size_ <= nlist * 265) {
+    if (indexing_size_ < nlist * 39) {
+      LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
+                   << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
+    }
+    num = indexing_size_;
+  } else {
+    num = nlist * 256;
+    LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too big. "
+                 << "The appropriate range is [ncentroids * 39, ncentroids * 256]."
+                 << "index_size becomes ncentroids * 256[" << num << "].";
+  }
+  if (num > vectors_count) {
     LOG(ERROR) << "vector total count [" << vectors_count
-               << "] less then 8192, failed!";
+                << "] less then index_size[" << num << "], failed!";
     return -1;
   }
-  size_t num = vectors_count > 100000 ? 100000 : vectors_count;
+
   ScopeVectors headers;
   std::vector<int> lens;
   raw_vec->GetVectorHeader(0, num, headers, lens);

@@ -49,13 +49,13 @@ void Doc::Deserialize(const char *data, int len) {
   VectorManager *vec_manager = engine_->GetVectorManager();
   std::map<std::string, int> &field_map = table->FieldMap();
   int table_field_num = table->FieldsNum();
-  int vector_field_num = vec_manager->VectorIndexes().size();
+  int vector_field_num = vec_manager->RawVectors().size();
   size_t fields_num = doc_->fields()->size();
 
   if (fields_num != table_field_num + vector_field_num) {
-    LOG(ERROR) << "Add Doc fields num [" << fields_num
-               << "], not equal to table_field_num [" << table_field_num
-               << "] + vector_field_num [" << vector_field_num << "]";
+    LOG(WARNING) << "Add Doc fields num [" << fields_num
+                 << "], not equal to table_field_num [" << table_field_num
+                 << "] + vector_field_num [" << vector_field_num << "]";
     return;
   }
 
