@@ -35,14 +35,15 @@ static uint32_t WritenSize(int fd) {
   return size;
 }
 
-static void UpdateSize(int fd, int num) {
-  uint32_t cur_size = WritenSize(fd) + num;
-  pwrite(fd, &cur_size, sizeof(cur_size), sizeof(uint8_t) + sizeof(uint32_t));
+static void UpdateSize(int fd, std::atomic<uint32_t> *cur_size, int num) {
+  uint32_t size = *cur_size + num;
+  pwrite(fd, &size, sizeof(size), sizeof(uint8_t) + sizeof(uint32_t));
+  *cur_size = size;
 }
 
 int AsyncWriter::WriterHandler() {
   int bulk_size = 1000;
-  int bulk_bytes = 64 * 1024 * 2048;  // TODO check overflow
+  int bulk_bytes = 1 * 1024 * 1024;  // TODO check overflow
   uint8_t *buffer = new uint8_t[bulk_bytes];
 
   while (running_) {
@@ -55,67 +56,55 @@ int AsyncWriter::WriterHandler() {
       if (ret) writer_structs[size++] = pop_val;
     }
 
-    if (size > 1) {
-      int fd = -1;
+    if (size == 1) {
+      pwrite(writer_structs[0]->fd, writer_structs[0]->data,
+             writer_structs[0]->len, writer_structs[0]->start);
+      UpdateSize(writer_structs[0]->fd, writer_structs[0]->cur_size,
+                 writer_structs[0]->len / item_length_);
+      delete[] writer_structs[0]->data;
+      delete writer_structs[0];
+    } else if (size > 1) {
       int prev_fd = writer_structs[0]->fd;
-
-      uint32_t buffered_size = 0;
+      uint32_t buffered_size = writer_structs[0]->len;
       uint32_t buffered_start = writer_structs[0]->start;
+      std::atomic<uint32_t> *prev_cur_size = writer_structs[0]->cur_size;
+      memcpy(buffer + 0, writer_structs[0]->data, buffered_size);
+      delete[] writer_structs[0]->data;
+      delete writer_structs[0];
 
-      for (size_t i = 0; i < size; ++i) {
-        fd = writer_structs[i]->fd;
+      for (size_t i = 1; i < size; ++i) {
+        int fd = writer_structs[i]->fd;
         uint8_t *data = writer_structs[i]->data;
         uint32_t len = writer_structs[i]->len;
         uint32_t start = writer_structs[i]->start;
+        std::atomic<uint32_t> *cur_size = writer_structs[i]->cur_size;
 
-        if (prev_fd != fd) {
+        if (prev_fd != fd || buffered_size + len >= bulk_bytes) {
           // flush prev data
           pwrite(prev_fd, buffer, buffered_size, buffered_start);
-          UpdateSize(prev_fd, buffered_size / item_length_);
+          UpdateSize(prev_fd, prev_cur_size, buffered_size / item_length_);
           prev_fd = fd;
           buffered_start = start;
-          buffered_size = 0;
+          prev_cur_size = cur_size;
           // TODO check buffered_size + len < bulk_bytes
+          memcpy(buffer + 0, data, len);
+          buffered_size = len;
+        } else {
           memcpy(buffer + buffered_size, data, len);
           buffered_size += len;
-        } else {
-          if (buffered_size + len < bulk_bytes) {
-            memcpy(buffer + buffered_size, data, len);
-            buffered_size += len;
-          } else {
-            buffered_size += len;
-            pwrite(fd, buffer, buffered_size, buffered_start);
-            UpdateSize(fd, buffered_size / item_length_);
-            buffered_size = 0;
-            buffered_start = start;
-          }
         }
-
+        
         delete[] data;
         delete writer_structs[i];
       }
-      pwrite(fd, buffer, buffered_size, buffered_start);
-      UpdateSize(fd, buffered_size / item_length_);
-      buffered_size = 0;
-    } else if (size == 1) {
-      int fd = writer_structs[0]->fd;
-      uint8_t *data = writer_structs[0]->data;
-      uint32_t start = writer_structs[0]->start;
-      uint32_t len = writer_structs[0]->len;
-
-      pwrite(fd, data, len, start);
-      UpdateSize(fd, len / item_length_);
-
-      delete[] data;
-      delete writer_structs[0];
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      pwrite(prev_fd, buffer, buffered_size, buffered_start);
+      UpdateSize(prev_fd, prev_cur_size, buffered_size / item_length_);
     }
-    // if (size < bulk_size) {
-    //   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    // }
+    else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
   }
-  delete buffer;
+  delete[] buffer;
   return 0;
 }
 
@@ -135,11 +124,12 @@ int AsyncWriter::SyncWrite(struct WriterStruct *writer_struct) {
   uint8_t *data = writer_struct->data;
   uint32_t start = writer_struct->start;
   uint32_t len = writer_struct->len;
+  std::atomic<uint32_t> *cur_size = writer_struct->cur_size;
 
   pwrite(fd, data, len, start);
-  UpdateSize(fd, len / item_length_);
+  UpdateSize(fd, cur_size, len / item_length_);
 
-  delete data;
+  delete[] data;
   delete writer_struct;
   return 0;
 }

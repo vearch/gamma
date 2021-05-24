@@ -36,8 +36,6 @@ class Segment {
   str_offset_t AddString(const char *vec, int len, uint32_t &block_id,
                          uint32_t &in_block_pos);
 
-  int GetValue(uint8_t *value, int id);
-
   int GetValues(uint8_t *value, int id, int size);
 
   std::string GetString(uint32_t block_id, uint32_t in_block_pos,
@@ -91,13 +89,14 @@ class Segment {
   std::string file_path_;
   uint32_t seg_block_capacity_;
 
-  int max_size_;                // a segment max docs num
-  uint32_t cur_size_;           // For this segment, the number of docs written to disk.
+  int max_size_;                        // a segment max docs num
+  std::atomic<uint32_t> cur_size_ {0};  // For this segment, the number of docs written to disk.
+                                        // Block can read it. Async_write can write/read it.
 
-  uint32_t buffered_size_;      // For this segment, the number of docs is written. 
+  uint32_t buffered_size_;              // For this segment, the number of docs is written. 
 
-  str_offset_t str_offset_;     // offset of string      
-  uint64_t str_capacity_;       // capacity of string file
+  str_offset_t str_offset_;             // offset of string      
+  uint64_t str_capacity_;               // capacity of string file
 
   uint64_t seg_header_size_;
   uint8_t version_;

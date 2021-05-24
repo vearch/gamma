@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <list>
+#include <queue>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -28,17 +29,11 @@ struct ReadFunParameter {
   uint32_t offset;
 };
 
-struct ReadStrFunParameter {
-  int fd;
-  uint32_t block_id;
-  uint32_t in_block_pos;
-  uint32_t len;
-  void *str_block;
-};
-
 #define THRESHOLD_OF_SWAP 250
 #define THRESHOLD_TYPE uint8_t
 #define MAP_GROUP_NUM 100
+
+
 
 template <typename Value>
 class CacheList {
@@ -84,7 +79,8 @@ class CacheList {
 
   void MoveToTail(void *n) {
     Node *node = (Node *)n;
-    if (!node || node->prev == nullptr || node->next == nullptr || node == tail_) {
+    if (!node || node->prev == nullptr || node->next == nullptr ||
+        node == tail_) {
       return;
     }
     node->prev->next = node->next;
@@ -136,6 +132,7 @@ class CacheQueue {
 
   CacheQueue() {
     head_ = nullptr;
+    tail_ = nullptr;
     size_ = 0;
   }
 
@@ -180,6 +177,7 @@ class CacheQueue {
   }
 
   uint32_t size_;
+
  private:
   Node *head_;
   Node *tail_;
@@ -187,134 +185,126 @@ class CacheQueue {
 
 class MemoryPool {
  public:
-  MemoryPool(void *(*create_cell_fun)(uint32_t),
-             void (*del_cell_fun)(void*)) {
-    del_cell_fun_ = del_cell_fun;
-    create_cell_fun_ = create_cell_fun;
-  }
+  MemoryPool() {}
 
-  ~MemoryPool() {
-    ClearQueue();
-  }
+  ~MemoryPool() { ClearQueue(); }
 
   void Init(uint32_t max_cell_num, uint32_t cell_size) {
-    que_.Init();
-    cell_size_ = cell_size;             // uint: byte
-    max_cell_num_ = max_cell_num;   
-    LOG(INFO) << "MemoryPool info, cell_size_=" << cell_size_ << ",max_cell_num_=" 
-              << max_cell_num_ << ",use_cell_num_=" << use_cell_num_;
+    // que_.Init();
+    cell_size_ = cell_size;  // uint: byte
+    max_cell_num_ = max_cell_num;
+    LOG(INFO) << "MemoryPool info, cell_size_=" << cell_size_
+              << ",max_cell_num_=" << max_cell_num_
+              << ",use_cell_num_=" << use_cell_num_;
   }
 
-  void *GetCell() {
-    void *cell = nullptr;
-    if (que_.size_ > 0) {
-      que_.Pop(cell);
+  char *GetBuffer() {
+    char *val = nullptr;
+    if (que_.size() > 0) {
+      val = que_.front();
+      que_.pop();
     } else {
-      cell = create_cell_fun_(cell_size_);
+      val = new char[cell_size_];
+      if (val == nullptr) {
+        LOG(ERROR) << "lrucache GetBuffer failed, value size[" << cell_size_ << "]";
+        return nullptr;
+      }
     }
     ++use_cell_num_;
-    return cell;
+    return val;
   }
 
-  void ReclaimCell(void *cell) {
-    que_.Push(cell);
+  void ReclaimBuffer(char *val) {
+    // que_.Push(cell);
+    que_.push(val);
     --use_cell_num_;
-    if (use_cell_num_ + que_.size_ > max_cell_num_) {
-      que_.Pop(cell);
-      del_cell_fun_(cell);
+    if (use_cell_num_ + que_.size() > max_cell_num_) {
+      char *del = nullptr;
+      del = que_.front();
+      que_.pop();
+      if (del == nullptr) {
+        LOG(ERROR) << "lrucache MemPool que_.front() is nullptr";
+      } else {
+        delete[] del;
+        del = nullptr;
+      }
     }
   }
 
-  uint32_t SetMaxCellNum(uint32_t max_cell_num) {
-    if (que_.size_ + use_cell_num_ <= max_cell_num) {
+  uint32_t SetMaxBufferNum(uint32_t max_cell_num) {
+    // if (que_.size_ + use_cell_num_ <= max_cell_num) {
+    if (que_.size() + use_cell_num_ <= max_cell_num) {
       max_cell_num_ = max_cell_num;
       return max_cell_num_;
     }
 
     uint32_t del_num = 0;
     if (use_cell_num_ > max_cell_num) {
-      del_num = que_.size_;
+      // del_num = que_.size_;
+      del_num = que_.size();
     } else {
-      del_num = que_.size_ + use_cell_num_ - max_cell_num;
+      // del_num = que_.size_ + use_cell_num_ - max_cell_num;
+      del_num = que_.size() + use_cell_num_ - max_cell_num;
     }
 
     for (uint32_t i = 0; i < del_num; ++i) {
-      void *del = nullptr;
-      que_.Pop(del);
-      del_cell_fun_(del);
+      char *del = nullptr;
+      // que_.Pop(del);
+      del = que_.front();
+      que_.pop();
+      delete[] del;
       del = nullptr;
     }
     max_cell_num_ -= del_num;
     return max_cell_num;
   }
 
-  uint32_t UseCellNum() {
-    return use_cell_num_;
-  }
+  uint32_t UseBufferNum() { return use_cell_num_; }
 
  private:
   void ClearQueue() {
-    while (que_.size_ > 0) {
-      void *del = nullptr;
-      que_.Pop(del);
-      del_cell_fun_(del);
+    while (que_.size() > 0) {
+      char *del = nullptr;
+      del = que_.front();
+      que_.pop();
+      delete[] del;
       del = nullptr;
     }
   }
-  
+
   uint32_t cell_size_ = 0;
   uint32_t max_cell_num_ = 0;
   uint32_t use_cell_num_ = 0;
-  void (*del_cell_fun_)(void*);
-  void *(*create_cell_fun_)(uint32_t);
 
-  CacheQueue<void*> que_;
+  // CacheQueue<void *> que_;
+  std::queue<char *> que_;
 };
-
-
 
 template <typename Key, typename FuncToken,
           typename HashFunction = std::hash<Key>>
 class LRUCache {
  public:
   using LoadFunc = bool (*)(Key, char *, FuncToken);
-
+  using QueueIterator = typename std::list<Key>::iterator;
   struct Cell {
     char *value = nullptr;
-    void *queue_ite = nullptr;
+    QueueIterator que_ite;
     THRESHOLD_TYPE hits;
-    ~Cell() {
-      if (value) {
-        delete[] value;
-        value = nullptr;
-        // LOG(INFO) << "~Cell";
-      }
-    }
-
-    static void *CreateCell(uint32_t val_len) {
-      Cell *cell = new Cell;
-      cell->value = new char[val_len];
-      return (void*)cell;
-    }
-
-    static void DeleteCell(void *cell) {
-      if (cell) {
-        Cell *del = (Cell*)cell;
-        delete del;
-        cell = nullptr;
-        del = nullptr;
-      }
-    }
+    // ~Cell() {
+    //   if (value) {
+    //     delete[] value;
+    //     value = nullptr;
+    //   }
+    // }
   };
+
 
   struct InsertInfo {
     std::mutex mtx_;
     bool is_clean_ = false;
     bool is_product_ = false;
-    // std::shared_ptr<Mapped> value_;
-    Cell *cell_ = nullptr;
+    Cell cell_;
   };
-
 
  private:
   std::string name_;
@@ -329,26 +319,27 @@ class LRUCache {
   std::atomic<size_t> hits_{0};
   std::atomic<size_t> misses_{0};
   std::atomic<size_t> set_hits_{0};
-  std::unordered_map<Key, Cell *, HashFunction> cells_;
+  size_t evict_num_ = 0;
+  std::unordered_map<Key, Cell, HashFunction> cells_;
 
-  CacheList<Key> queue_;
+  // CacheList<Key> queue_;
+  std::list<Key> queue_;
   LoadFunc load_func_;
   std::mutex mtx_;
   // pthread_rwlock_t rw_lock_;
 
  public:
-  LRUCache(std::string name, size_t cache_size, size_t cell_size,
-           LoadFunc func) : mem_pool_(&Cell::CreateCell, &Cell::DeleteCell){
+  LRUCache(std::string name, size_t cache_size, size_t cell_size, LoadFunc func) {
     name_ = name;
     cell_size_ = cell_size;
-    max_size_ = (cache_size * 1024 * 1024) / cell_size; 
+    max_size_ = (cache_size * 1024 * 1024) / cell_size;
     max_overflow_ = max_size_ / 20;
-    if(max_overflow_ > 1000) {
+    if (max_overflow_ > 1000) {
       max_overflow_ = 1000;
     }
     max_size_ -= max_overflow_;
     load_func_ = func;
-    LOG(INFO) << "LruCache[" << name_ << "] open! Max_size[" << max_size_ 
+    LOG(INFO) << "LruCache[" << name_ << "] open! Max_size[" << max_size_
               << "], max_overflow[" << max_overflow_ << "]";
   }
 
@@ -358,23 +349,24 @@ class LRUCache {
   }
 
   int Init() {
-    queue_.Init();
-    mem_pool_.Init((uint32_t)max_size_ + max_overflow_ + 500, (uint32_t)cell_size_);
+    // queue_.Init();
+    mem_pool_.Init((uint32_t)max_size_ + max_overflow_ + 500,
+                   (uint32_t)cell_size_);
     // int ret = pthread_rwlock_init(&rw_lock_, nullptr);
     // if (ret != 0) {
-    //   LOG(ERROR) << "LruCache[" << name_ 
+    //   LOG(ERROR) << "LruCache[" << name_
     //              << "] init read-write lock error, ret=" << ret;
     //   return 2;
     // }
     return 0;
   }
 
-  bool Get(Key key, char *&mapped) {
+  bool Get(Key key, char *&value) {
     bool res;
     {
       std::lock_guard<std::mutex> lock(mtx_);
       // pthread_rwlock_rdlock(&rw_lock_);
-      res = GetImpl(key, mapped);
+      res = GetImpl(key, value);
       // pthread_rwlock_unlock(&rw_lock_);
     }
 
@@ -385,26 +377,26 @@ class LRUCache {
     if (hits_ % 100000 == 0 && hits_ != last_show_log_) {
       LOG(INFO) << "LruCache[" << name_ << "] cur_size[" << cur_size_
                 << "] cells_size[" << cells_.size() << "] hits[" << hits_
-                << "] set_hits[" << set_hits_ << "] misses[" << misses_ << "]";
+                << "] set_hits[" << set_hits_ << "] misses[" << misses_
+                << "] evict_num_[" << evict_num_ << "]";
       last_show_log_ = hits_;
     }
     return res;
   }
 
-  void Set(Key key, char *mapped) {
+  void Set(Key key, char *value) {
     std::lock_guard<std::mutex> lock(mtx_);
     // pthread_rwlock_wrlock(&rw_lock_);
-    SetImpl(key, mapped);
+    SetImpl(key, value);
     // pthread_rwlock_unlock(&rw_lock_);
   }
 
-  bool SetOrGet(Key key, char *&load_mapped,
-                FuncToken token) {
+  bool SetOrGet(Key key, char *&value, FuncToken token) {
     std::shared_ptr<InsertInfo> ptr_insert;
     {
       std::lock_guard<std::mutex> cache_lck(mtx_);
       // pthread_rwlock_wrlock(&rw_lock_);
-      bool res = GetImpl(key, load_mapped);
+      bool res = GetImpl(key, value);
       if (res) {
         // pthread_rwlock_unlock(&rw_lock_);
         ++set_hits_;
@@ -414,10 +406,10 @@ class LRUCache {
       auto &insert_info = insert_infos_[key];
       if (!insert_info) {
         insert_info = std::make_shared<InsertInfo>();
-        insert_info->cell_ = (Cell*)(mem_pool_.GetCell());
+        insert_info->cell_.value = mem_pool_.GetBuffer();
       }
       ptr_insert = insert_info;
-    // pthread_rwlock_unlock(&rw_lock_);
+      // pthread_rwlock_unlock(&rw_lock_);
     }
 
     InsertInfo *insert = ptr_insert.get();
@@ -425,12 +417,12 @@ class LRUCache {
 
     if (insert->is_product_) {
       ++set_hits_;
-      load_mapped = insert->cell_->value;
+      value = insert->cell_.value;
       return true;
     }
-    bool res = load_func_(key, insert->cell_->value, token);
+    bool res = load_func_(key, insert->cell_.value, token);
     if (res) {
-      load_mapped = insert->cell_->value;
+      value = insert->cell_.value;
       insert->is_product_ = true;
     }
 
@@ -438,9 +430,10 @@ class LRUCache {
     // pthread_rwlock_wrlock(&rw_lock_);
     auto ite = insert_infos_.find(key);
     if (res && ite != insert_infos_.end() && ite->second.get() == insert) {
-      SetImpl(key, insert->cell_);
+      SetImpl(key, insert->cell_.value);
     } else {
-      mem_pool_.ReclaimCell((void*)(insert->cell_));
+      mem_pool_.ReclaimBuffer(insert->cell_.value);
+      value = nullptr;
     }
 
     if (!ptr_insert->is_clean_) {
@@ -451,6 +444,41 @@ class LRUCache {
     return res;
   }
 
+  bool Get2(Key key, char *&value) {
+    bool res;
+    {
+      std::lock_guard<std::mutex> lock(mtx_);
+      res = GetImpl(key, value);
+      if (res == false) {
+        value = mem_pool_.GetBuffer();
+        if (value == nullptr) {
+          LOG(ERROR) << "lrucache[" << name_ << "] mem_pool GetBuffer error, buffer is nullptr:";
+        }
+      }
+    }
+
+    if (res)
+      ++hits_;
+    else
+      ++misses_;
+    if (hits_ % 100000 == 0 && hits_ != last_show_log_) {
+      LOG(INFO) << "LruCache[" << name_ << "] cur_size[" << cur_size_
+                << "] cells_size[" << cells_.size() << "] hits[" << hits_
+                << "] set_hits[" << set_hits_ << "] misses[" << misses_
+                << "] evict_num_[" << evict_num_ << "]";
+      last_show_log_ = hits_;
+    }
+    return res;
+  }
+
+  void Set2(Key key, char *buffer) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (buffer == nullptr) {
+      LOG(ERROR) << "lrucache[" << name_ << "] Set2 buffer is nullptr"; 
+    }
+    SetImpl(key, buffer);
+  }
+
   void Evict(Key key) {
     std::lock_guard<std::mutex> lock(mtx_);
     // pthread_rwlock_wrlock(&rw_lock_);
@@ -459,35 +487,34 @@ class LRUCache {
       // pthread_rwlock_unlock(&rw_lock_);
       return;
     }
-    Cell *del = ite->second;
-    auto que_ite = del->queue_ite;
-    mem_pool_.ReclaimCell((void*)del);
+    Cell &del = ite->second;
+    char *buffer = del.value;
+    auto que_ite = del.que_ite;
+    mem_pool_.ReclaimBuffer(buffer);
+    queue_.erase(que_ite);
     cells_.erase(ite);
     --cur_size_;
-
-    queue_.Erase(que_ite);
+    ++evict_num_;
     // pthread_rwlock_unlock(&rw_lock_);
   }
 
   void AlterCacheSize(size_t cache_size) {
-    max_size_ = (cache_size * 1024 * 1024) / cell_size_; 
+    max_size_ = (cache_size * 1024 * 1024) / cell_size_;
     max_overflow_ = max_size_ / 20;
-    if(max_overflow_ > 1000) {
+    if (max_overflow_ > 1000) {
       max_overflow_ = 1000;
     }
     max_size_ = max_size_ - max_overflow_;
     // pthread_rwlock_wrlock(&rw_lock_);
     std::lock_guard<std::mutex> lock(mtx_);
     EvictOverflow();
-    mem_pool_.SetMaxCellNum((uint32_t)max_size_ + 500);
+    mem_pool_.SetMaxBufferNum((uint32_t)max_size_ + 500);
     // pthread_rwlock_unlock(&rw_lock_);
-    LOG(INFO) << "LruCache[" << name_ << "] Max_size[" << max_size_ 
+    LOG(INFO) << "LruCache[" << name_ << "] Max_size[" << max_size_
               << "], max_overflow[" << max_overflow_ << "]";
   }
 
-  size_t GetMaxSize() {
-    return max_size_ + max_overflow_;
-  }
+  size_t GetMaxSize() { return max_size_ + max_overflow_; }
 
   size_t Count() const { return cur_size_; }
 
@@ -500,51 +527,50 @@ class LRUCache {
   std::string GetName() { return name_; }
 
  private:
-  
-  bool GetImpl(const Key &key, char *&mapped) {
+  bool GetImpl(const Key &key, char *&value) {
     auto ite = cells_.find(key);
     if (ite == cells_.end()) {
       return false;
     }
-    Cell *&cell = ite->second;
-    mapped = cell->value;
+    Cell &cell = ite->second;
+    value = cell.value;
 
-    if (cell->hits >= THRESHOLD_OF_SWAP) {
+    if (cell.hits >= THRESHOLD_OF_SWAP) {
       // pthread_rwlock_unlock(&rw_lock_);
       // pthread_rwlock_wrlock(&rw_lock_);
-      queue_.MoveToTail(cell->queue_ite);
-      cell->hits = 0;
+      // queue_.MoveToTail(cell->queue_ite);
+      queue_.splice(queue_.end(), queue_, cell.que_ite);
+      cell.hits = 0;
     } else {
-      ++(cell->hits);
+      ++cell.hits;
     }
     return true;
   }
 
-  
-  void SetImpl(const Key &key, Cell *add_cell) {
+  void SetImpl(const Key &key, char *value) {
     auto res =
         cells_.emplace(std::piecewise_construct, std::forward_as_tuple(key),
                        std::forward_as_tuple());
-    Cell* &cell = res.first->second;
+    Cell &cell = res.first->second;
     bool inserted = res.second;
 
     if (inserted) {
-      cell = add_cell;
-      cell->queue_ite = queue_.Insert(key);
-      cell->hits = 0;
+      cell.value = value;
+      // cell->queue_ite = queue_.Insert(key);
+      cell.que_ite = queue_.insert(queue_.end(), key);
+      cell.hits = 0;
       ++cur_size_;
       EvictOverflow();
     } else {
-      if (cell->hits >= THRESHOLD_OF_SWAP) {
-        queue_.MoveToTail(cell->queue_ite);
-        add_cell->hits = 0;
+      if (cell.hits >= THRESHOLD_OF_SWAP) {
+        // queue_.MoveToTail(cell->queue_ite);
+        queue_.splice(queue_.end(), queue_, cell.que_ite);
+        cell.hits = 0;
       } else {
-        add_cell->hits = cell->hits;
-        ++add_cell->hits;
+        ++cell.hits;
       }
-      add_cell->queue_ite = cell->queue_ite;
-      mem_pool_.ReclaimCell((void*)cell);
-      cell = add_cell;
+      mem_pool_.ReclaimBuffer(cell.value);
+      cell.value = value;
     }
   }
 
@@ -556,21 +582,25 @@ class LRUCache {
       int fail_pop_num = 0;
       Key key;
       for (int i = 0; i < evict_num; ++i) {
-        if (!queue_.Pop(key)) {
+        // if (!queue_.Pop(key)) {
+        if (queue_.empty()) {
           ++fail_pop_num;
-          LOG(ERROR) << "Lrucache[" << name_ << "] queue_.Pop(" << key <<") failed.";
+          LOG(ERROR) << "Lrucache[" << name_ << "] queue_.Pop(" << key
+                     << ") failed.";
           continue;
         }
+        key = queue_.front();
         auto ite = cells_.find(key);
         if (ite == cells_.end()) {
-          LOG(ERROR) << "LruCache[" << name_ << "], cur_size[" << cur_size_ 
+          LOG(ERROR) << "LruCache[" << name_ << "], cur_size[" << cur_size_
                      << "], cells_.size()[" << cells_.size() << "]."
                      << "Queue and map is inconsistent.";
           continue;
           // abort();
         }
-        mem_pool_.ReclaimCell((void*)(ite->second));
+        mem_pool_.ReclaimBuffer((ite->second).value);
         cells_.erase(ite);
+        queue_.pop_front();
       }
       cur_size_ += fail_pop_num;
       // malloc_trim(0);

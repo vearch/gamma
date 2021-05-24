@@ -89,10 +89,8 @@ class Table {
 
   long GetMemoryBytes();
 
-  int GetDocInfo(std::string &id, Doc &doc, std::vector<std::string> &fields,
-                 DecompressStr &decompress_str);
-  int GetDocInfo(const int docid, Doc &doc, std::vector<std::string> &fields,
-                 DecompressStr &decompress_str);
+  int GetDocInfo(std::string &id, Doc &doc, std::vector<std::string> &fields);
+  int GetDocInfo(const int docid, Doc &doc, std::vector<std::string> &fields);
 
   int GetFieldRawValue(int docid, const std::string &field_name, std::string &value,
                        const uint8_t *doc_v = nullptr);

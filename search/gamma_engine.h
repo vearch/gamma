@@ -138,8 +138,7 @@ class GammaEngine {
                   Request &request);
 
   int PackResultItem(const VectorDoc *vec_doc, Request &request,
-                     struct ResultItem &result_item,
-                     table::DecompressStr &decompress_str);
+                     struct ResultItem &result_item);
 
   int MultiRangeQuery(Request &request, GammaSearchCondition *condition,
                       Response &response_results,

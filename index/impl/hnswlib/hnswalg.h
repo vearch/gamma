@@ -253,14 +253,19 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         std::vector<std::pair<dist_t, tableint>>,
                         CompareByFirst>
         candidate_set;
-	int nstep = 0;
+    int nstep = 0;
     dist_t lowerBound;
     if (!has_deletions || !isMarkedDeleted(ep_id)) {
       dist_t dist =
           fstdistfunc(data_point, getDataByInternalId(ep_id), dist_func_param_);
+      dist_t fixed_dist = dist;
+      if (retrieval_context->retrieval_params_->GetDistanceComputeType() ==
+          DistanceComputeType::INNER_PRODUCT) {
+        fixed_dist = 1 - fixed_dist;
+      }
       lowerBound = dist;
       if (retrieval_context->IsValid(ep_id) &&
-          retrieval_context->IsSimilarScoreValid(dist)) {
+          retrieval_context->IsSimilarScoreValid(fixed_dist)) {
         top_candidates.emplace(dist, ep_id);
       }
       candidate_set.emplace(-dist, ep_id);
@@ -318,8 +323,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 #endif
 
             if (!has_deletions || !isMarkedDeleted(candidate_id)) {
+              dist_t fixed_dist = dist;
+              if (retrieval_context->retrieval_params_->GetDistanceComputeType() == 
+                  DistanceComputeType::INNER_PRODUCT) {
+                fixed_dist = 1 - fixed_dist;
+              }
               if (retrieval_context->IsValid(candidate_id) &&
-                  retrieval_context->IsSimilarScoreValid(dist)) {
+                  retrieval_context->IsSimilarScoreValid(fixed_dist)) {
                 top_candidates.emplace(dist, candidate_id);
               }
             }

@@ -890,9 +890,8 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
   std::vector<std::string> index_names;
   vec_manager_->VectorNames(index_names);
 
-  table::DecompressStr decompress_str;
   std::vector<string> table_fields;
-  table_->GetDocInfo(docid, doc, table_fields, decompress_str);
+  table_->GetDocInfo(docid, doc, table_fields);
 
   std::vector<std::pair<std::string, int>> vec_fields_ids;
   for (size_t i = 0; i < index_names.size(); ++i) {
@@ -1265,49 +1264,14 @@ int GammaEngine::PackResults(const GammaResult *gamma_results,
   for (int i = 0; i < request.ReqNum(); ++i) {
     struct SearchResult result;
     result.total = gamma_results[i].total;
+    result.result_items.resize(gamma_results[i].results_count);
 
-    auto string_field_num = table_->StringFieldNum();
-    if (table_->IsCompress() && string_field_num > 0) {
-      std::vector<std::vector<int> *> doc_bucket(MAX_SEGMENT_NUM);
-      std::fill(doc_bucket.begin(), doc_bucket.end(), nullptr);
-
-      for (int j = 0; j < gamma_results[i].results_count; ++j) {
-        int docid = gamma_results[i].docs[j]->docid;
-        int bucket_id = docid / DOCNUM_PER_SEGMENT;
-        if (doc_bucket[bucket_id] == nullptr) {
-          doc_bucket[bucket_id] = new std::vector<int>;
-        }
-        doc_bucket[bucket_id]->push_back(j);
-      }
-
-      result.result_items.resize(gamma_results[i].results_count);
-
-      for (int j = 0; j < MAX_SEGMENT_NUM; ++j) {
-        if (doc_bucket[j] == nullptr) {
-          continue;
-        }
-
-        std::vector<int> *bucket = doc_bucket[j];
-        table::DecompressStr decompress_str;
-        for (int k = 0; k < bucket->size(); ++k) {
-          int idx = (*bucket)[k];
-          VectorDoc *vec_doc = gamma_results[i].docs[idx];
-          struct ResultItem result_item;
-          PackResultItem(vec_doc, request, result_item, decompress_str);
-          result.result_items[idx] = std::move(result_item);
-        }
-        delete bucket;
-      }
-    } else {
-      result.result_items.resize(gamma_results[i].results_count);
-      table::DecompressStr decompress_str;
-      for (int j = 0; j < gamma_results[i].results_count; ++j) {
-        int docid = gamma_results[i].docs[j]->docid;
-        VectorDoc *vec_doc = gamma_results[i].docs[j];
-        struct ResultItem result_item;
-        PackResultItem(vec_doc, request, result_item, decompress_str);
-        result.result_items[j] = std::move(result_item);
-      }
+    for (int j = 0; j < gamma_results[i].results_count; ++j) {
+      int docid = gamma_results[i].docs[j]->docid;
+      VectorDoc *vec_doc = gamma_results[i].docs[j];
+      struct ResultItem result_item;
+      PackResultItem(vec_doc, request, result_item);
+      result.result_items[j] = std::move(result_item);
     }
     result.msg = "Success";
     result.result_code = SearchResultCode::SUCCESS;
@@ -1317,8 +1281,7 @@ int GammaEngine::PackResults(const GammaResult *gamma_results,
 }
 
 int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
-                                struct ResultItem &result_item,
-                                table::DecompressStr &decompress_str) {
+                                struct ResultItem &result_item) {
   result_item.score = vec_doc->score;
 
   Doc doc;
@@ -1344,7 +1307,7 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
     std::vector<string> vec;
     int ret = vec_manager_->GetVector(vec_fields_ids, vec, true);
 
-    table_->GetDocInfo(docid, doc, table_fields, decompress_str);
+    table_->GetDocInfo(docid, doc, table_fields);
 
     if (ret == 0 && vec.size() == vec_fields_ids.size()) {
       for (size_t i = 0; i < vec_fields_ids.size(); ++i) {
@@ -1359,7 +1322,7 @@ int GammaEngine::PackResultItem(const VectorDoc *vec_doc, Request &request,
     }
   } else {
     std::vector<string> table_fields;
-    table_->GetDocInfo(docid, doc, table_fields, decompress_str);
+    table_->GetDocInfo(docid, doc, table_fields);
   }
 
   std::vector<struct Field> &fields = doc.TableFields();

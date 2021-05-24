@@ -13,14 +13,16 @@ namespace tig_gamma {
 
 class TableBlock : public Block {
  public:
-  TableBlock(int fd, int max_size, int length, uint32_t header_size,
-             uint32_t seg_id, uint32_t seg_block_capacity);
+  TableBlock(int fd, int per_block_size, int length, uint32_t header_size,
+             uint32_t seg_id, uint32_t seg_block_capacity,
+             const std::atomic<uint32_t> *cur_size, int max_size);
 
   static bool ReadBlock(uint32_t key, char *block,
                         ReadFunParameter *param);
 
   int WriteContent(const uint8_t *data, int len, uint32_t offset,
-                   disk_io::AsyncWriter *disk_io) override;
+                   disk_io::AsyncWriter *disk_io,
+                   std::atomic<uint32_t> *cur_size) override;
 
   int Add(const uint8_t *data, int len);
 

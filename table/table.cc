@@ -424,19 +424,17 @@ long Table::GetMemoryBytes() {
 }
 
 int Table::GetDocInfo(std::string &id, Doc &doc,
-                      std::vector<std::string> &fields,
-                      DecompressStr &decompress_str) {
+                      std::vector<std::string> &fields) {
   int doc_id = 0;
   int ret = GetDocIDByKey(id, doc_id);
   if (ret < 0) {
     return ret;
   }
-  return GetDocInfo(doc_id, doc, fields, decompress_str);
+  return GetDocInfo(doc_id, doc, fields);
 }
 
 int Table::GetDocInfo(const int docid, Doc &doc,
-                      std::vector<std::string> &fields,
-                      DecompressStr &decompress_str) {
+                      std::vector<std::string> &fields) {
   if (docid > last_docid_) {
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
