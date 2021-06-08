@@ -98,8 +98,9 @@ int GammaIndexBinaryIVF::Init(const std::string &model_parameters, int indexing_
   code_size = d / 8;
   verbose = false;
 
+  int bucket_keys = std::max(1000, this->indexing_size_ / binary_param.ncentroids);
   rt_invert_index_ptr_ = new realtime::RTInvertIndex(
-      this->nlist, this->code_size, raw_vec->VidMgr(), raw_vec->Bitmap(), 10000,
+      this->nlist, this->code_size, raw_vec->VidMgr(), raw_vec->Bitmap(), bucket_keys,
       1280000);
   // default is true in faiss
   is_trained = false;
