@@ -56,17 +56,17 @@ bool VectorBlock::ReadBlock(uint32_t key, char *block,
   return true;
 }
 
-int VectorBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
+int VectorBlock::WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
                               disk_io::AsyncWriter *disk_io, 
                               std::atomic<uint32_t> *cur_size) {
 #ifdef WITH_ZFP
   std::vector<char> output;
   if (compressor_) {
     int raw_len = compressor_->GetRawLen();
-    Compress(data, len, output);
+    Compress(value, n_bytes, output);
 
-    offset = (offset / raw_len) * vec_item_len_;
-    data = (const uint8_t *)output.data();
+    start = (start / raw_len) * vec_item_len_;
+    value = (const uint8_t *)output.data();
   }
 #endif
 
@@ -74,8 +74,8 @@ int VectorBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
   struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct;
   write_struct->fd = fd_;
   write_struct->data = new uint8_t[vec_item_len_];
-  memcpy(write_struct->data, data, vec_item_len_);
-  write_struct->start = header_size_ + offset;
+  memcpy(write_struct->data, value, vec_item_len_);
+  write_struct->start = header_size_ + start;
   write_struct->len = vec_item_len_;
   write_struct->cur_size = cur_size;
   disk_io->AsyncWrite(write_struct);
@@ -83,27 +83,27 @@ int VectorBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
   return 0;
 }
 
-int VectorBlock::ReadContent(uint8_t *value, uint32_t len, uint32_t offset) {
+int VectorBlock::ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) {
 #ifdef WITH_ZFP
   if (compressor_) {
     uint32_t raw_len = (uint32_t)(compressor_->GetRawLen());
-    uint32_t batch_num = len / raw_len;
+    uint32_t batch_num = n_bytes / raw_len;
     uint32_t cmprs_data_len = batch_num * vec_item_len_;
     char *cmprs_data = new char[cmprs_data_len];
-    offset = (offset / raw_len) * vec_item_len_;
-    pread(fd_, cmprs_data, cmprs_data_len, header_size_ + offset);
+    start = (start / raw_len) * vec_item_len_;
+    pread(fd_, cmprs_data, cmprs_data_len, header_size_ + start);
 
     if (batch_num == 1) {
-      compressor_->Decompress((char *)cmprs_data, (char *)value, len);
+      compressor_->Decompress((char *)cmprs_data, (char *)value, n_bytes);
     } else {
       compressor_->DecompressBatch((char *)cmprs_data, (char *)value, batch_num,
-                                       len);
+                                   n_bytes);
     }
     delete[] cmprs_data;
   } else
 #endif
   {
-    pread(fd_, value, len, header_size_ + offset);
+    pread(fd_, value, n_bytes, header_size_ + start);
   }
   return 0;
 }
@@ -230,19 +230,19 @@ int VectorBlock::Compress(const uint8_t *data, int len, std::vector<char> &outpu
   return -1;
 }
 
-int VectorBlock::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
+int VectorBlock::Update(const uint8_t *value, int n_bytes, uint32_t start) {
 #ifdef WITH_ZFP
   std::vector<char> output;
   if (compressor_) {
     int raw_len = compressor_->GetRawLen();
-    offset = (offset / raw_len) * vec_item_len_;
-    Compress(data, n_bytes, output);
-    data = (uint8_t *)output.data();
+    start = (start / raw_len) * vec_item_len_;
+    Compress(value, n_bytes, output);
+    value = (uint8_t *)output.data();
     n_bytes = output.size();
   }
 #endif
 
-  pwrite(fd_, data, n_bytes, header_size_ + offset);
+  pwrite(fd_, value, n_bytes, header_size_ + start);
   
   if (lru_cache_ == nullptr) {
     return 0;
@@ -251,8 +251,8 @@ int VectorBlock::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
     int len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;
 
-    uint32_t block_id = offset / per_block_size_;
-    uint32_t block_offset = offset % per_block_size_;
+    uint32_t block_id = start / per_block_size_;
+    uint32_t block_offset = start % per_block_size_;
 
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
@@ -260,7 +260,7 @@ int VectorBlock::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
     uint32_t cache_block_id = seg_id_ * seg_block_capacity_ + block_id;
     lru_cache_->Evict(cache_block_id);
 
-    offset += len;
+    start += len;
     n_bytes -= len;
   }
   return 0;

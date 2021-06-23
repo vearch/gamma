@@ -130,7 +130,7 @@ int Table::CreateTable(TableInfo &table, TableParams &table_params) {
             << ", field num=" << (int)field_num_;
 
   StorageManagerOptions options;
-  options.segment_size = 102400;
+  options.segment_size = 500000;
   options.fixed_value_bytes = item_length_;
   options.seg_block_capacity = 400000;
   storage_mgr_ =

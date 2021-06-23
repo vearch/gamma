@@ -70,27 +70,27 @@ int StringBlock::CloseBlockPosFile() {
   return -1;
 }
 
-int StringBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
+int StringBlock::WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
                               disk_io::AsyncWriter *disk_io,
                               std::atomic<uint32_t> *cur_size) {
   return 0;
 }
 
-int StringBlock::ReadContent(uint8_t *value, uint32_t len, uint32_t offset) {
+int StringBlock::ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) {
   return 0;
 }
 
-int StringBlock::WriteString(const char *data, str_len_t len,
-                             str_offset_t offset, uint32_t &block_id,
+int StringBlock::WriteString(const char *value, str_len_t n_bytes,
+                             str_offset_t start, uint32_t &block_id,
                              uint32_t &in_block_pos) {
-  pwrite(fd_, data, len, offset);
+  pwrite(fd_, value, n_bytes, start);
 
   if (block_pos_.Size() == 0) {
     AddBlockPos(0);
   }
-  in_block_pos = offset - block_pos_.GetLastData();
-  if (in_block_pos + len > per_block_size_) {
-    AddBlockPos(offset);
+  in_block_pos = start - block_pos_.GetLastData();
+  if (in_block_pos + n_bytes > per_block_size_) {
+    AddBlockPos(start);
     in_block_pos = 0;
   }
   block_id = block_pos_.Size() - 1;
@@ -98,13 +98,13 @@ int StringBlock::WriteString(const char *data, str_len_t len,
   return 0;
 }
 
-int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
+int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t n_bytes,
                       std::string &str_out) {
   if (str_lru_cache_ == nullptr) {
     uint32_t off = block_pos_.GetData(block_id) + in_block_pos;
-    char *tmp_buf = new char[len];
-    pread(fd_, tmp_buf, len, off);
-    str_out = std::string(tmp_buf, len);
+    char *tmp_buf = new char[n_bytes];
+    pread(fd_, tmp_buf, n_bytes, off);
+    str_out = std::string(tmp_buf, n_bytes);
     delete[] tmp_buf;
     return 0;
   }
@@ -114,9 +114,9 @@ int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
 
   // The last block of each segment does not enter the cache.
   if (block_id + 1 >= block_num) {
-    char *str = new char[len];
-    pread(fd_, str, len, block_pos + in_block_pos);
-    str_out = std::string(str, len);
+    char *str = new char[n_bytes];
+    pread(fd_, str, n_bytes, block_pos + in_block_pos);
+    str_out = std::string(str, n_bytes);
     delete[] str;
   }
   else {
@@ -136,7 +136,7 @@ int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
                  << "]";
       return -1;
     }
-    str_out = std::string(block + in_block_pos, len);
+    str_out = std::string(block + in_block_pos, n_bytes);
   }
   // else {
   //   char *block = nullptr;
@@ -158,13 +158,12 @@ int StringBlock::Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
   //     }
   //   }
 
-  //   str_out = std::string(block + in_block_pos, len);
+  //   str_out = std::string(block + in_block_pos, n_bytes);
   // }
   return 0;
 }
 
-bool StringBlock::ReadString(uint32_t key, char *block,
-                             ReadFunParameter *param) {
+bool StringBlock::ReadString(uint32_t key, char *block, ReadFunParameter *param) {
   if (param->len > MAX_BLOCK_SIZE) {
     LOG(ERROR) << "ReadString len[" << param->len << "] fd["
                << param->fd << "] offset[" << param->offset << "]";

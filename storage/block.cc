@@ -121,15 +121,15 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
   return 0;
 }
 
-int Block::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
-  pwrite(fd_, data, n_bytes, header_size_ + offset);
+int Block::Update(const uint8_t *value, int n_bytes, uint32_t start) {
+  pwrite(fd_, value, n_bytes, header_size_ + start);
 
   while (n_bytes) {
     int len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;
 
-    uint32_t block_id = offset / per_block_size_;
-    uint32_t block_offset = offset % per_block_size_;
+    uint32_t block_id = start / per_block_size_;
+    uint32_t block_offset = start % per_block_size_;
 
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
@@ -137,7 +137,7 @@ int Block::Update(const uint8_t *data, int n_bytes, uint32_t offset) {
     uint32_t cache_block_id = seg_id_ * seg_block_capacity_ + block_id;
     lru_cache_->Evict(cache_block_id);
 
-    offset += len;
+    start += len;
     n_bytes -= len;
   }
   return 0;

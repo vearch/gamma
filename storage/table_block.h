@@ -20,13 +20,11 @@ class TableBlock : public Block {
   static bool ReadBlock(uint32_t key, char *block,
                         ReadFunParameter *param);
 
-  int WriteContent(const uint8_t *data, int len, uint32_t offset,
+  int WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
                    disk_io::AsyncWriter *disk_io,
                    std::atomic<uint32_t> *cur_size) override;
 
-  int Add(const uint8_t *data, int len);
-
-  int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) override;
+  int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) override;
 
  private:
   void InitSubclass() {};

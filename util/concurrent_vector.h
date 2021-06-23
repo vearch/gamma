@@ -20,9 +20,9 @@
 namespace tig_gamma {
 
 template <typename Base, typename Value>
-class SafeVector {
+class ConcurrentVector {
  public:
-  SafeVector() {
+  ConcurrentVector() {
     name_ = "";
     begin_grp_capacity_ = 0;
     grp_capacity_ = 0;
@@ -32,7 +32,7 @@ class SafeVector {
     grps_ = nullptr;
   }
 
-  ~SafeVector() {
+  ~ConcurrentVector() {
     for (int i = 0; i < grp_num_; ++i) {
       if (grps_[i]) {
         delete[] grps_[i];
@@ -54,7 +54,7 @@ class SafeVector {
 
     grps_ = new Value *[begin_grp_capacity_];
     if (grps_ == nullptr) {
-      LOG(ERROR) << "SafeVector[" << name_ << "], new Value*["
+      LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value*["
                  << begin_grp_capacity_ << "] fail.";
       return false;
     }
@@ -68,7 +68,7 @@ class SafeVector {
         Value **new_grps = new Value *[new_capacitye];
         Value **del_grps = grps_;
         if (new_grps == nullptr) {
-          LOG(ERROR) << "SafeVector[" << name_ << "], new Value*["
+          LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value*["
                      << new_capacitye << "] fail.";
           return false;
         }
@@ -78,13 +78,13 @@ class SafeVector {
         grps_ = new_grps;
         grp_capacity_ = new_capacitye;
         delete[] del_grps;
-        LOG(INFO) << "SafeVector[" << name_ << "] is full."
+        LOG(INFO) << "ConcurrentVector[" << name_ << "] is full."
                   << "grp_capacity extend to " << grp_capacity_;
       }
 
       grps_[grp_num_] = new Value[grp_gap_];
       if (not grps_[grp_num_]) {
-        LOG(ERROR) << "SafeVector[" << name_ << "], new Value[" << grp_gap_
+        LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value[" << grp_gap_
                    << "] fail.";
         return false;
       }
@@ -101,7 +101,7 @@ class SafeVector {
 
   bool ResetData(uint32_t id, Value val) {
     if (id >= size_) {
-      LOG(ERROR) << "SafeVector[" << name_ << "], size[" << size_ << "], id["
+      LOG(ERROR) << "ConcurrentVector[" << name_ << "], size[" << size_ << "], id["
                  << id << "] is out of bounds";
       return false;
     }
@@ -112,7 +112,7 @@ class SafeVector {
 
   Value GetData(uint32_t id) {
     if (id / grp_gap_ >= grp_num_) {
-      LOG(ERROR) << "SafeVector[" << name_ << "], id[" << id
+      LOG(ERROR) << "ConcurrentVector[" << name_ << "], id[" << id
                  << "] is out of bounds";
       return 0;
     }
@@ -122,7 +122,7 @@ class SafeVector {
 
   Value GetLastData() {
     if (grp_num_ == 0) {
-      LOG(WARNING) << "SafeVector[" << name_
+      LOG(WARNING) << "ConcurrentVector[" << name_
                    << "] is empty, GetLastData failed.";
       return 0;
     }
@@ -137,7 +137,7 @@ class SafeVector {
       size_ = size;
       grp_num_ = new_grp_num;
       if (size_ % grp_gap_) {
-        memset(grps_[grp_num_ - 1] + size_, 0,
+        memset(grps_[grp_num_ - 1] + (size_ % grp_gap_), 0,
                sizeof(Value *) * (grp_gap_ - size_ % grp_gap_));
       }
       for (uint32_t j = grp_num_; j < old_grp_num; ++j) {
@@ -151,7 +151,7 @@ class SafeVector {
         Value **new_grps = new Value *[new_capacitye];
         Value **del_grps = grps_;
         if (new_grps == nullptr) {
-          LOG(ERROR) << "SafeVector[" << name_ << "], new Value*["
+          LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value*["
                      << new_capacitye << "] fail.";
           return false;
         }
@@ -160,7 +160,7 @@ class SafeVector {
         grps_ = new_grps;
         grp_capacity_ = new_capacitye;
         delete[] del_grps;
-        LOG(INFO) << "SafeVector[" << name_ << "] is full."
+        LOG(INFO) << "ConcurrentVector[" << name_ << "] is full."
                   << "grp_capacity extend to " << grp_capacity_;
       }
 
@@ -168,7 +168,7 @@ class SafeVector {
       for (uint32_t i = 0; i < extend_grp_num; ++i) {
         grps_[grp_num_] = new Value[grp_gap_];
         if (not grps_[grp_num_]) {
-          LOG(ERROR) << "SafeVector[" << name_ << "], new Value[" << grp_gap_
+          LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value[" << grp_gap_
                      << "] fail.";
           size_ = grp_num_ * grp_gap_;
           return false;

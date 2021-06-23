@@ -10,7 +10,7 @@
 #include <string>
 
 #include "block.h"
-#include "safe_vector.h"
+#include "concurrent_vector.h"
 
 #define BEGIN_GRP_OF_BLOCK_POS 50
 #define GRP_GAP_OF_BLOCK_POS   1000
@@ -19,7 +19,7 @@ namespace tig_gamma {
 
 class StringBlock : public Block {
  public:
-  StringBlock(int fd, int max_size, int length, uint32_t header_size,
+  StringBlock(int fd, int per_block_size, int length, uint32_t header_size,
               uint32_t seg_id, uint32_t seg_block_capacity_);
 
   ~StringBlock();
@@ -33,20 +33,18 @@ class StringBlock : public Block {
 
   int CloseBlockPosFile();
 
-  int WriteContent(const uint8_t *data, int len, uint32_t offset,
+  int WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
                    disk_io::AsyncWriter *disk_io,
-                   std::atomic<uint32_t> *cur_size);
+                   std::atomic<uint32_t> *cur_size) override;
 
   void InitStrBlock(void *lru);
 
-  int Add(const uint8_t *data, int len);
+  int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) override;
 
-  int ReadContent(uint8_t *value, uint32_t len, uint32_t offset);
-
-  int WriteString(const char *data, str_len_t len, str_offset_t offset,
+  int WriteString(const char *value, str_len_t n_bytes, str_offset_t start,
                   uint32_t &block_id, uint32_t &in_block_pos);
 
-  int Read(uint32_t block_id, uint32_t in_block_pos, str_len_t len,
+  int Read(uint32_t block_id, uint32_t in_block_pos, str_len_t n_bytes,
            std::string &str_out);
 
   static bool ReadString(uint32_t key, char *block, ReadFunParameter *param);
@@ -62,7 +60,7 @@ class StringBlock : public Block {
 
   FILE *block_pos_fp_;
 
-  tig_gamma::SafeVector<uint16_t, uint32_t> block_pos_;
+  tig_gamma::ConcurrentVector<uint16_t, uint32_t> block_pos_;
 };
 
 }  // namespace tig_gamma

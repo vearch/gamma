@@ -42,12 +42,12 @@ class Block {
 
   void Init(void *lru, Compressor *compressor = nullptr);
 
-  int Write(const uint8_t *data, int len, uint32_t offset,
+  int Write(const uint8_t *value, int n_bytes, uint32_t start,
             disk_io::AsyncWriter *disk_io, std::atomic<uint32_t> *cur_size);
 
-  virtual int Read(uint8_t *value, uint32_t len, uint32_t offset);
+  virtual int Read(uint8_t *value, uint32_t n_bytes, uint32_t start);
 
-  virtual int Update(const uint8_t *data, int n_bytes, uint32_t offset);
+  virtual int Update(const uint8_t *value, int n_bytes, uint32_t start);
 
   void SegmentIsFull(); // Segment is full and all data is brushed to disk.
   
@@ -60,14 +60,14 @@ class Block {
 
   virtual void InitSubclass() = 0;
 
-  virtual int WriteContent(const uint8_t *data, int len, uint32_t offset,
+  virtual int WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
                            disk_io::AsyncWriter *disk_io,
                            std::atomic<uint32_t> *cur_size) = 0;
 
   virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
                                   uint32_t off) = 0;
 
-  virtual int ReadContent(uint8_t *value, uint32_t len, uint32_t offset) = 0;
+  virtual int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) = 0;
 
  protected:
   LRUCache<uint32_t, ReadFunParameter *> *lru_cache_;
