@@ -27,16 +27,16 @@ int TableBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
   return 0;
 }
 
-int TableBlock::WriteContent(const uint8_t *data, int len, uint32_t offset,
+int TableBlock::WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
                              disk_io::AsyncWriter *disk_io,
                              std::atomic<uint32_t> *cur_size) {
   disk_io->Set(header_size_, item_length_);
   struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct;
   write_struct->fd = fd_;
-  write_struct->data = new uint8_t[len];
-  memcpy(write_struct->data, data, len);
-  write_struct->start = header_size_ + offset;
-  write_struct->len = len;
+  write_struct->data = new uint8_t[n_bytes];
+  memcpy(write_struct->data, value, n_bytes);
+  write_struct->start = header_size_ + start;
+  write_struct->len = n_bytes;
   write_struct->cur_size = cur_size;
   disk_io->AsyncWrite(write_struct);
   // disk_io->SyncWrite(write_struct);
@@ -58,8 +58,8 @@ bool TableBlock::ReadBlock(uint32_t key, char *block,
   return true;
 }
 
-int TableBlock::ReadContent(uint8_t *value, uint32_t len, uint32_t offset) {
-  pread(fd_, value, len, header_size_ + offset);
+int TableBlock::ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) {
+  pread(fd_, value, n_bytes, header_size_ + start);
   return 0;
 }
 

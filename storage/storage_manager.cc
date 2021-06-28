@@ -121,6 +121,11 @@ int StorageManager::Init(int cache_size, std::string cache_name,
   }
 
   disk_io_ = new disk_io::AsyncWriter();
+  if (disk_io_ == nullptr) {
+    LOG(ERROR) << "new AsyncWriter failed.";
+    return SYSTEM_ERR;
+  }
+  disk_io_->Init();
   if (!options_.IsValid()) {
     LOG(ERROR) << "invalid options=" << options_.ToStr();
     return PARAM_ERR;
@@ -207,10 +212,10 @@ str_offset_t StorageManager::AddString(const char *value, int len,
 }
 
 int StorageManager::GetHeaders(int start, int n,
-                               std::vector<const uint8_t *> &vecs,
+                               std::vector<const uint8_t *> &values,
                                std::vector<int> &lens) {
   if ((size_t)start + n > size_) {
-    LOG(ERROR) << "start [" << start << "] + n [" << n << "] >= size_ [" << size_
+    LOG(ERROR) << "start [" << start << "] + n [" << n << "] > size_ [" << size_
                << "]";
     return PARAM_ERR;
   }
@@ -236,14 +241,14 @@ int StorageManager::GetHeaders(int start, int n,
     // }
     // std::string aa = ss.str();
     lens.push_back(len);
-    vecs.push_back(value);
+    values.push_back(value);
     start += len;
     n -= len;
   }
   return 0;
 }
 
-int StorageManager::Update(int id, uint8_t *v, int len) {
+int StorageManager::Update(int id, uint8_t *value, int len) {
   if ((size_t)id >= size_ || id < 0 || len != options_.fixed_value_bytes) {
     LOG(ERROR) << "id [" << id << "] >= size_ [" << size_ << "]";
     return PARAM_ERR;
@@ -255,7 +260,7 @@ int StorageManager::Update(int id, uint8_t *v, int len) {
                << "] cannot be used. Update(" << id << ") failed.";
     return -1;
   }
-  return segment->Update(id % options_.segment_size, v, len);
+  return segment->Update(id % options_.segment_size, value, len);
 }
 
 str_offset_t StorageManager::UpdateString(int id, const char *value, int len,

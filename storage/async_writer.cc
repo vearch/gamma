@@ -16,17 +16,29 @@ namespace disk_io {
 
 AsyncWriter::AsyncWriter() {
   running_ = true;
-  writer_q_ = new WriterQueue;
-  auto func_operate = std::bind(&AsyncWriter::WriterHandler, this);
-  handler_thread_ = std::thread(func_operate);
+  writer_q_ = nullptr;
+  header_size_ = 0;
+  item_length_ = 0;
 }
 
 AsyncWriter::~AsyncWriter() {
   Sync();
   running_ = false;
   handler_thread_.join();
-  delete writer_q_;
-  writer_q_ = nullptr;
+  if (writer_q_) {
+    delete writer_q_;
+    writer_q_ = nullptr;
+  }
+}
+
+int AsyncWriter::Init() {
+  writer_q_ = new WriterQueue;
+  if (writer_q_ == nullptr) {
+    LOG(ERROR) << "AsyncWriter init failed.";
+    return -1;
+  }
+  auto func_operate = std::bind(&AsyncWriter::WriterHandler, this);
+  handler_thread_ = std::thread(func_operate);
 }
 
 static uint32_t WritenSize(int fd) {

@@ -31,6 +31,8 @@ class AsyncWriter {
   AsyncWriter();
   ~AsyncWriter();
 
+  int Init();
+
   int AsyncWrite(struct WriterStruct *writer_struct);
 
   int SyncWrite(struct WriterStruct *writer_struct);

@@ -23,7 +23,7 @@ class Segment {
   Segment(const std::string &file_path, uint32_t seg_id, int max_size,
           int vec_byte_size, uint32_t seg_block_capacity,
           disk_io::AsyncWriter *disk_io,
-          void *table_cache, void *str_cache);
+          void *cache, void *str_cache);
 
   ~Segment();
 
@@ -43,7 +43,7 @@ class Segment {
 
   bool IsFull();
 
-  int Update(int id, uint8_t *vec, int len);
+  int Update(int id, uint8_t *data, int len);
 
   uint32_t BaseOffset();
   

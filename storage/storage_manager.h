@@ -109,7 +109,7 @@ class StorageManager {
   StorageManagerOptions options_;
   size_t size_;  // The total number of doc.
   // tbb::concurrent_vector<Segment *> segments_;
-  tig_gamma::SafeVector<uint8_t, Segment *> segments_;
+  tig_gamma::ConcurrentVector<uint8_t, Segment *> segments_;
   disk_io::AsyncWriter *disk_io_;
   BlockType block_type_;
   LRUCache<uint32_t, ReadFunParameter *> *cache_;

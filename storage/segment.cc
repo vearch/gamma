@@ -62,13 +62,13 @@ inline size_t BCompressedOff() {
 Segment::Segment(const std::string &file_path, uint32_t seg_id, int max_size,
                  int vec_byte_size, uint32_t seg_block_capacity,
                  disk_io::AsyncWriter *disk_io,
-                 void *table_cache, void *str_cache)
+                 void *cache, void *str_cache)
     : file_path_(file_path),
       seg_id_(seg_id),
       max_size_(max_size),
       item_length_(vec_byte_size),
       disk_io_(disk_io),
-      cache_(table_cache),
+      cache_(cache),
       str_cache_(str_cache),
       seg_block_capacity_(seg_block_capacity) {
   base_fd_ = -1;
