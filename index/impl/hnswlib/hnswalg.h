@@ -328,9 +328,14 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                   DistanceComputeType::INNER_PRODUCT) {
                 fixed_dist = 1 - fixed_dist;
               }
+              // Set this point as the candidate set of topk only when the docid and distance meet the requirements.
+              // However, even if the requirement is not met, the larger value of this distance and lowerBound needs 
+              // to be reassigned to lowerBound to gradually expand the search range.
               if (retrieval_context->IsValid(candidate_id) &&
                   retrieval_context->IsSimilarScoreValid(fixed_dist)) {
                 top_candidates.emplace(dist, candidate_id);
+              } else if (dist > lowerBound) {
+                lowerBound = dist;
               }
             }
 
