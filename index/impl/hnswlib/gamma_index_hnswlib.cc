@@ -123,7 +123,8 @@ GammaIndexHNSWLIB::~GammaIndexHNSWLIB() {
   }
 }
 
-int GammaIndexHNSWLIB::Init(const std::string &model_parameters) {
+int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_size) {
+  indexing_size_ = indexing_size;
   auto raw_vec_type = dynamic_cast<MemoryRawVector *>(vector_);
   if (raw_vec_type == nullptr) {
     LOG(ERROR) << "HNSW can only work in memory only mode";
@@ -231,8 +232,11 @@ RetrievalParameters *GammaIndexHNSWLIB::Parse(const std::string &parameters) {
   int efSearch = 0;
   jp.GetInt("efSearch", efSearch);
 
+  int do_efSearch_check = 1;
+  jp.GetInt("do_efSearch_check", do_efSearch_check);
+
   RetrievalParameters *retrieval_params =
-      new HNSWLIBRetrievalParameters(efSearch > 0 ? efSearch : 64, type);
+      new HNSWLIBRetrievalParameters(efSearch > 0 ? efSearch : 64, type, do_efSearch_check);
   return retrieval_params;
 }
 
@@ -316,8 +320,9 @@ int GammaIndexHNSWLIB::Search(RetrievalContext *retrieval_context, int n,
   for (int i = 0; i < n; ++i) {
     int j = 0;
 
-    auto result = searchKnn((const void *)(x + i * d), k, fstdistfunc,
-                            retrieval_params->EfSearch(), retrieval_context);
+    auto result = searchKnn((const void *)(xq + i * d), k, fstdistfunc,
+                            retrieval_params->EfSearch(), 
+                            retrieval_params->DoEfSearchCheck(), retrieval_context);
 
     if (retrieval_params->GetDistanceComputeType() ==
         DistanceComputeType::INNER_PRODUCT) {

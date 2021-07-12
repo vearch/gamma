@@ -20,7 +20,6 @@
 #include "async_flush.h"
 #include "field_range_index.h"
 #include "table.h"
-#include "table_io.h"
 #include "vector_manager.h"
 
 namespace tig_gamma {
@@ -101,9 +100,15 @@ class GammaEngine {
 
   char **BatchDocsStr() { return batch_docs_.data(); }
 
+  int GetConfig(Config &config);
+
+  int SetConfig(Config &config);
+
  private:
   GammaEngine(const std::string &index_root_path);
+
   int CreateTableFromLocal(std::string &table_name);
+
   int Indexing();
 
  private:
@@ -123,7 +128,7 @@ class GammaEngine {
 
   std::atomic<int> delete_num_;
 
-  bool b_running_;
+  int b_running_; // 0 not run, not 0 running
   bool b_field_running_;
 
   std::condition_variable running_cv_;
@@ -133,8 +138,7 @@ class GammaEngine {
                   Request &request);
 
   int PackResultItem(const VectorDoc *vec_doc, Request &request,
-                     struct ResultItem &result_item,
-                     table::DecompressStr &decompress_str);
+                     struct ResultItem &result_item);
 
   int MultiRangeQuery(Request &request, GammaSearchCondition *condition,
                       Response &response_results,
@@ -142,7 +146,6 @@ class GammaEngine {
 
   enum IndexStatus index_status_;
 
-  int dump_docid_;  // next dump docid
   int bitmap_bytes_size_;
   const std::string date_time_format_;
   std::string last_dump_dir_;  // it should be delete after next dump
@@ -151,13 +154,14 @@ class GammaEngine {
 
   bool b_loading_;
 
+  bool is_dirty_;
+
   std::vector<char *> batch_docs_;
 
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;
 #endif
 
-  TableIO *table_io_;
   AsyncFlushExecutor *af_exector_;
 };
 
@@ -171,9 +175,9 @@ class RequestConcurrentController {
 
   ~RequestConcurrentController() = default;
 
-  bool Acquire();
+  bool Acquire(int req_num);
 
-  void Release();
+  void Release(int req_num);
 
  private:
   RequestConcurrentController();

@@ -49,7 +49,7 @@ struct Options {
     nprobe = 10;
     doc_id = 0;
     d = 512;
-    filter = true;
+    filter = false;
     print_doc = true;
     search_thread_num = 1;
     max_doc_size = 10000 * 200;
@@ -65,7 +65,7 @@ struct Options {
     log_dir = "log";
     model_id = "model";
     retrieval_type = "IVFPQ";
-    store_type = "MemoryOnly";
+    store_type = "MMap";
     // store_type = "RocksDB";
     profiles.resize(max_doc_size * fields_vec.size());
     engine = nullptr;
@@ -173,6 +173,7 @@ float *fvecs_read(const char *fname, size_t *d_out, size_t *n_out) {
   }
   int d;
   fread(&d, 1, sizeof(int), f);
+  LOG(INFO) << "assert" << d;
   assert((d > 0 && d < 1000000) || !"unreasonable dimension");
   fseek(f, 0, SEEK_SET);
   struct stat st;

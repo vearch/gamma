@@ -161,6 +161,22 @@ int Search(void *engine, const char *request_str, int req_len,
  */
 int DelDocByQuery(void *engine, const char *request_str, int len);
 
+/** alter all cache size by query
+ *
+ * @param engine  search engine pointer
+ * @param cache_str caches' serialized string
+ * @return 0 successed, 1 failed
+ */
+int SetConfig(void *engine, const char *config_str, int len);
+
+/** get all cache size by query
+ *
+ * @param engine  search engine pointer
+ * @param cache_str caches' serialized string
+ * @return 0 successed, 1 failed
+ */
+int GetConfig(void *engine, char **config_str, int *len);
+
 #ifdef __cplusplus
 }
 #endif

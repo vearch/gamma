@@ -16,7 +16,6 @@
 #include "rocksdb/table.h"
 #include "utils.h"
 
-using namespace std;
 using namespace rocksdb;
 
 namespace tig_gamma {
@@ -36,11 +35,10 @@ RocksDBRawVector::~RocksDBRawVector() {
   }
 }
 
-int RocksDBRawVector::InitStore() {
+int RocksDBRawVector::InitStore(std::string &vec_name) {
   block_cache_size_ = (size_t)store_params_.cache_size * 1024 * 1024;
 
   std::shared_ptr<Cache> cache = NewLRUCache(block_cache_size_);
-  // BlockBasedTableOptions table_options_;
   table_options_.block_cache = cache;
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options_));
@@ -50,7 +48,7 @@ int RocksDBRawVector::InitStore() {
   // create the DB if it's not already present
   options.create_if_missing = true;
 
-  string db_path = this->root_path_ + "/" + meta_info_->Name();
+  std::string db_path = this->root_path_ + "/" + meta_info_->Name();
   if (!utils::isFolderExist(db_path.c_str())) {
     mkdir(db_path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   }
@@ -72,7 +70,7 @@ int RocksDBRawVector::GetVector(long vid, const uint8_t *&vec,
   if ((size_t)vid >= meta_info_->Size() || vid < 0) {
     return 1;
   }
-  string key, value;
+  std::string key, value;
   ToRowKey((int)vid, key);
   Status s = db_->Get(ReadOptions(), Slice(key), &value);
   if (!s.ok()) {
@@ -90,12 +88,10 @@ int RocksDBRawVector::GetVector(long vid, const uint8_t *&vec,
 
 int RocksDBRawVector::Gets(const std::vector<int64_t> &vids,
                            ScopeVectors &vecs) const {
-  std::vector<std::string> keys_data;
   size_t k = vids.size();
-  keys_data.resize(k);
+  std::vector<std::string> keys_data(k);
   std::vector<Slice> keys;
   keys.reserve(k);
-  std::vector<std::string> values;
 
   size_t j = 0;
   for (size_t i = 0; i < k; i++) {
@@ -107,7 +103,8 @@ int RocksDBRawVector::Gets(const std::vector<int64_t> &vids,
     ++j;
     // LOG(INFO) << "i=" << i << "key=" << keys[i].ToString();
   }
-  values.resize(j);
+
+  std::vector<std::string> values(j);
   std::vector<Status> statuses = db_->MultiGet(ReadOptions(), keys, &values);
   assert(statuses.size() == j);
 
@@ -161,7 +158,7 @@ int RocksDBRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
     return INTERNAL_ERR;
   }
 
-  string key;
+  std::string key;
   ToRowKey(vid, key);
   Status s = db_->Put(WriteOptions(), Slice(key),
                       Slice((const char *)svec.Get(), this->vector_byte_size_));
@@ -179,7 +176,7 @@ int RocksDBRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
   }
 
   rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
-  string start_key, end_key;
+  std::string start_key, end_key;
   ToRowKey(start, start_key);
   ToRowKey(start + n, end_key);
   it->Seek(Slice(start_key));
@@ -195,7 +192,7 @@ int RocksDBRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
     }
 
     Slice value = it->value();
-    string vstr = value.ToString();
+    std::string vstr = value.ToString();
     if (Decompress(vstr, dst)) {
       LOG(ERROR) << "rocksdb get, decompress error, vid=" << start + c;
       delete it;
@@ -220,7 +217,7 @@ int RocksDBRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
   return 0;
 }
 
-void RocksDBRawVector::ToRowKey(int vid, string &key) const {
+void RocksDBRawVector::ToRowKey(int vid, std::string &key) const {
   char data[11];
   snprintf(data, 11, "%010d", vid);
   key.assign(data, 10);
@@ -228,8 +225,8 @@ void RocksDBRawVector::ToRowKey(int vid, string &key) const {
 
 int RocksDBRawVector::Decompress(std::string &cmprs_data, uint8_t *&vec) const {
 #ifdef WITH_ZFP
-  if (!store_params_.compress.IsEmpty()) {
-    if (zfp_compressor_.Decompress((const uint8_t *)cmprs_data.c_str(), 1,
+  if (zfp_compressor_) {
+    if (zfp_compressor_->Decompress((const uint8_t *)cmprs_data.c_str(), 1,
                                    (float *&)vec)) {
       return INTERNAL_ERR;
     }

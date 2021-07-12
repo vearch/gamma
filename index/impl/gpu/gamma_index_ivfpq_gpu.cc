@@ -298,7 +298,6 @@ int GammaIVFPQGPUIndex::Init(const std::string &model_parameters) {
   metric_type_ = ivfpq_param.metric_type;
 
   b_exited_ = false;
-  use_standard_resource_ = true;
 
   gpu_index_ = nullptr;
   cpu_index_ = new GammaIVFPQIndex();
@@ -363,23 +362,11 @@ faiss::Index *GammaIVFPQGPUIndex::CreateGPUIndex() {
   }
 
   if (resources_.size() == 0) {
-    if (not use_standard_resource_) {
-      GammaMemManager manager;
-      tmp_mem_num_ = manager.Init(ngpus);
-      LOG(INFO) << "Resource num [" << tmp_mem_num_ << "]";
-    }
-
     for (int i : devs) {
-      if (use_standard_resource_) {
-        auto res = new faiss::gpu::StandardGpuResources;
-        res->initializeForDevice(i);
-        res->setTempMemory((size_t)1536 * 1024 * 1024);  // 1.5 GiB
-        resources_.push_back(res);
-      } else {
-        auto res = new faiss::gpu::GammaGpuResources;
-        res->initializeForDevice(i);
-        resources_.push_back(res);
-      }
+      auto res = new faiss::gpu::StandardGpuResources;
+      res->getResources()->initializeForDevice(i);
+      res->setTempMemory((size_t)1536 * 1024 * 1024);  // 1.5 GiB
+      resources_.push_back(res);
     }
   }
 
@@ -510,7 +497,7 @@ int GammaIVFPQGPUIndex::AddRTVecsToIndex() {
 
   // warning: it's not recommended to access indexed_count_ and updated_vids_ in
   // sub-class
-  this->indexed_count_ = cpu_index_->indexed_vec_count_; 
+  this->indexed_count_ = cpu_index_->indexed_vec_count_;
   std::vector<int64_t> vids;
   int vid;
   while (this->updated_vids_.try_dequeue(vid)) {
@@ -559,7 +546,6 @@ int GammaIVFPQGPUIndex::Load(const string &index_dir) {
 }
 
 int GammaIVFPQGPUIndex::GPUThread() {
-  GammaMemManager manager;
   std::thread::id tid = std::this_thread::get_id();
   float *xx = new float[kMaxBatch * d_ * kMaxReqNum];
   size_t max_recallnum = (size_t)faiss::gpu::getMaxKSelection();
@@ -639,10 +625,6 @@ int GammaIVFPQGPUIndex::GPUThread() {
     }
   }
 
-  if (not use_standard_resource_) {
-    manager.ReturnMem(tid);
-  }
-
   delete[] xx;
   delete[] label;
   delete[] dis;
@@ -694,7 +676,11 @@ int ParseFilters(GammaSearchCondition *condition,
 template <class T>
 bool IsInRange(Table *table, RangeFilter &range, long docid) {
   T value = 0;
-  table->GetField<T>(docid, range.field, value);
+  std::string field_value;
+  int field_id = table->GetAttrIdx(range.field); 
+  table->GetFieldRawValue(docid, field_id, field_value);
+  memcpy(&value, field_value.c_str(), sizeof(value));
+
   T lower_value, upper_value;
   memcpy(&lower_value, range.lower_value.c_str(), range.lower_value.size());
   memcpy(&upper_value, range.upper_value.c_str(), range.upper_value.size());
@@ -736,11 +722,10 @@ bool FilteredByTermFilter(GammaSearchCondition *condition,
     auto term = condition->term_filters[i];
 
     std::string field_value;
-    table::DecompressStr decompress_str;
-    int len = condition->table->GetFieldString(docid, term.field, field_value,
-                                               decompress_str);
+    int field_id = condition->table->GetAttrIdx(term.field); 
+    condition->table->GetFieldRawValue(docid, field_id, field_value);
     vector<string> field_items;
-    if (len >= 0) field_items = utils::split(field_value, kDelim);
+    if (field_value.size() >= 0) field_items = utils::split(field_value, kDelim);
 
     bool all_in_field_items;
     if (term.is_union == static_cast<int>(FilterOperator::Or))

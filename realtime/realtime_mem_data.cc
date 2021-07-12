@@ -25,6 +25,7 @@ RTInvertBucketData::RTInvertBucketData(RTInvertBucketData *other) {
   idx_array_ = other->idx_array_;
   retrieve_idx_pos_ = other->retrieve_idx_pos_;
   cur_bucket_keys_ = other->cur_bucket_keys_;
+  bucket_extend_time_ = other->bucket_extend_time_;
   codes_array_ = other->codes_array_;
   vid_mgr_ = other->vid_mgr_;
   docids_bitmap_ = other->docids_bitmap_;
@@ -40,6 +41,7 @@ RTInvertBucketData::RTInvertBucketData(VIDMgr *vid_mgr,
   idx_array_ = nullptr;
   retrieve_idx_pos_ = nullptr;
   cur_bucket_keys_ = nullptr;
+  bucket_extend_time_ = nullptr;
   codes_array_ = nullptr;
   vid_mgr_ = vid_mgr;
   docids_bitmap_ = docids_bitmap;
@@ -59,6 +61,8 @@ bool RTInvertBucketData::Init(const size_t &buckets_num,
   idx_array_ = new (std::nothrow) long *[buckets_num];
   codes_array_ = new (std::nothrow) uint8_t *[buckets_num];
   cur_bucket_keys_ = new (std::nothrow) int[buckets_num];
+  bucket_extend_time_ = new (std::nothrow) uint8_t[buckets_num];
+  memset(bucket_extend_time_, 0, buckets_num * sizeof(uint8_t));
   deleted_nums_ = new (std::nothrow) std::atomic<int>[buckets_num];
   if (idx_array_ == nullptr || codes_array_ == nullptr ||
       cur_bucket_keys_ == nullptr || deleted_nums_ == nullptr)
@@ -108,6 +112,11 @@ void RTInvertBucketData::CompactOne(const size_t &bucket_no, long *&dst_idx,
   src_code += code_bytes_per_vec;
 }
 
+double RTInvertBucketData::ExtendCoefficient(uint8_t extend_time) {
+  double result = 1.1 + PI / 2 - atan (extend_time);
+  return result;
+}
+
 bool RTInvertBucketData::CompactBucket(const size_t &bucket_no,
                                        const size_t &code_bytes_per_vec) {
   int old_pos = retrieve_idx_pos_[bucket_no];
@@ -146,8 +155,14 @@ bool RTInvertBucketData::ExtendBucketMem(const size_t &bucket_no,
                                          const size_t &code_bytes_per_vec,
                                          std::atomic<long> &total_mem_bytes) {
   int least = retrieve_idx_pos_[bucket_no] + increment;
-  int extend_size = cur_bucket_keys_[bucket_no] * 2;
-  while (extend_size < least) extend_size *= 2;
+  double coefficient = ExtendCoefficient(++bucket_extend_time_[bucket_no]);
+  int extend_size = (int)(cur_bucket_keys_[bucket_no] * coefficient);
+  while (extend_size < least) {
+    coefficient = ExtendCoefficient(++bucket_extend_time_[bucket_no]);
+    extend_size = (int)(extend_size * coefficient);
+  }
+
+
   uint8_t *extend_code_bytes_array =
       new (std::nothrow) uint8_t[extend_size * code_bytes_per_vec];
   if (extend_code_bytes_array == nullptr) {
@@ -189,7 +204,9 @@ void RTInvertBucketData::ExtendIDs() {
   std::atomic<long> *new_array = new std::atomic<long>[nids_ * 2];
   memcpy((void *)new_array, (void *)old_array,
          sizeof(std::atomic<long>) * nids_);
+#pragma omp parallel for
   for (size_t i = nids_; i < nids_ * 2; ++i) new_array[i] = -1;
+  
   vid_bucket_no_pos_ = new_array;
   nids_ *= 2;
   // delay free
@@ -224,6 +241,7 @@ RealTimeMemData::~RealTimeMemData() {
     CHECK_DELETE_ARRAY(cur_invert_ptr_->idx_array_);
     CHECK_DELETE_ARRAY(cur_invert_ptr_->retrieve_idx_pos_);
     CHECK_DELETE_ARRAY(cur_invert_ptr_->cur_bucket_keys_);
+    CHECK_DELETE_ARRAY(cur_invert_ptr_->bucket_extend_time_);
     CHECK_DELETE_ARRAY(cur_invert_ptr_->codes_array_);
     CHECK_DELETE_ARRAY(cur_invert_ptr_->vid_bucket_no_pos_);
     CHECK_DELETE_ARRAY(cur_invert_ptr_->deleted_nums_);
@@ -265,9 +283,8 @@ bool RealTimeMemData::AddKeys(size_t list_no, size_t n, std::vector<long> &keys,
          (void *)(keys_codes.data()), sizeof(uint8_t) * keys_codes.size());
 
   for (size_t i = 0; i < keys.size(); i++) {
-    if ((size_t)keys[i] >= cur_invert_ptr_->nids_) {
+    while ((size_t)keys[i] >= cur_invert_ptr_->nids_) {
       cur_invert_ptr_->ExtendIDs();
-      assert((size_t)keys[i] < cur_invert_ptr_->nids_);
     }
     cur_invert_ptr_->vid_bucket_no_pos_[keys[i]] = list_no << 32 | retrive_pos;
     retrive_pos++;
@@ -285,6 +302,7 @@ bool RealTimeMemData::AddKeys(size_t list_no, size_t n, std::vector<long> &keys,
 
 int RealTimeMemData::Update(int bucket_no, int vid,
                             std::vector<uint8_t> &codes) {
+  if (vid >= cur_invert_ptr_->nids_) return 0;
   long bucket_no_pos = cur_invert_ptr_->vid_bucket_no_pos_[vid];
   if (bucket_no_pos == -1) return 0;  // do nothing
   int old_bucket_no = bucket_no_pos >> 32;
@@ -309,7 +327,7 @@ int RealTimeMemData::Update(int bucket_no, int vid,
 int RealTimeMemData::Delete(int *vids, int n) {
   for (int i = 0; i < n; i++) {
     RTInvertBucketData *invert_ptr = cur_invert_ptr_;
-    invert_ptr->Delete(vids[i]);
+    if (invert_ptr->nids_ > vids[i]) invert_ptr->Delete(vids[i]);
   }
   return 0;
 }

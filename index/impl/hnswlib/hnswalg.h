@@ -238,8 +238,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
   template <bool has_deletions, bool collect_metrics = false>
   std::priority_queue<std::pair<dist_t, tableint>,
                       std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-  searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef,
-                    DISTFUNC<float> fstdistfunc,
+  searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef, int efSearch,
+                    int do_efSearch_check, DISTFUNC<float> fstdistfunc,
                     const RetrievalContext *retrieval_context) {
     VisitedList *vl = visited_list_pool_->getFreeVisitedList();
     vl_type *visited_array = vl->mass;
@@ -253,14 +253,19 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         std::vector<std::pair<dist_t, tableint>>,
                         CompareByFirst>
         candidate_set;
-
+    int nstep = 0;
     dist_t lowerBound;
     if (!has_deletions || !isMarkedDeleted(ep_id)) {
       dist_t dist =
           fstdistfunc(data_point, getDataByInternalId(ep_id), dist_func_param_);
+      dist_t fixed_dist = dist;
+      if (retrieval_context->retrieval_params_->GetDistanceComputeType() ==
+          DistanceComputeType::INNER_PRODUCT) {
+        fixed_dist = 1 - fixed_dist;
+      }
       lowerBound = dist;
       if (retrieval_context->IsValid(ep_id) &&
-          retrieval_context->IsSimilarScoreValid(dist)) {
+          retrieval_context->IsSimilarScoreValid(fixed_dist)) {
         top_candidates.emplace(dist, ep_id);
       }
       candidate_set.emplace(-dist, ep_id);
@@ -318,8 +323,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 #endif
 
             if (!has_deletions || !isMarkedDeleted(candidate_id)) {
+              dist_t fixed_dist = dist;
+              if (retrieval_context->retrieval_params_->GetDistanceComputeType() == 
+                  DistanceComputeType::INNER_PRODUCT) {
+                fixed_dist = 1 - fixed_dist;
+              }
               if (retrieval_context->IsValid(candidate_id) &&
-                  retrieval_context->IsSimilarScoreValid(dist)) {
+                  retrieval_context->IsSimilarScoreValid(fixed_dist)) {
                 top_candidates.emplace(dist, candidate_id);
               }
             }
@@ -330,6 +340,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
               lowerBound = top_candidates.top().first;
           }
         }
+      }
+      nstep++;
+      if (do_efSearch_check && nstep > efSearch) {
+        break;
       }
     }
 
@@ -1090,7 +1104,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
   std::priority_queue<std::pair<dist_t, labeltype>> searchKnn(
       const void *query_data, size_t k, DISTFUNC<float> fstdistfunc,
-      size_t efSearch, const RetrievalContext *retrieval_context) {
+      size_t efSearch, int do_efSearch_check, const RetrievalContext *retrieval_context) {
     std::priority_queue<std::pair<dist_t, labeltype>> result;
     if (cur_element_count == 0) return result;
 
@@ -1133,13 +1147,13 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     if (has_deletions_) {
       pthread_rwlock_rdlock(&shared_mutex_);
       top_candidates = searchBaseLayerST<true, true>(
-          currObj, query_data, std::max(efSearch, k), fstdistfunc,
+          currObj, query_data, std::max(efSearch, k), efSearch, do_efSearch_check, fstdistfunc,
           retrieval_context);
       pthread_rwlock_unlock(&shared_mutex_);
     } else {
       pthread_rwlock_rdlock(&shared_mutex_);
       top_candidates = searchBaseLayerST<false, true>(
-          currObj, query_data, std::max(efSearch, k), fstdistfunc,
+          currObj, query_data, std::max(efSearch, k), efSearch, do_efSearch_check, fstdistfunc,
           retrieval_context);
       pthread_rwlock_unlock(&shared_mutex_);
     }

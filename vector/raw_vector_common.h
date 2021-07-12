@@ -102,8 +102,8 @@ class VIDMgr {
     int *vid_list = docid2vid_[docid];
     int n_vids = vid_list[0];
     vids.resize(n_vids);
-    for (size_t i = 0; i < n_vids * sizeof(int); ++i) {
-      vids[i] = *(vid_list + 1);
+    for (size_t i = 0; i < n_vids; ++i) {
+      vids[i] = *(vid_list + i + 1);
     }
     // memcpy((void *)vids.data(), (void *)(vid_list + 1), n_vids *
     // sizeof(int));

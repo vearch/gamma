@@ -18,46 +18,8 @@ namespace table {
 #define OUT
 #endif
 
-#define TABLE_MAIN "table.main"
-#define TABLE_EXT "table.ext"
-
 const static int DOCNUM_PER_SEGMENT = 1 << 20;  // 1048576
 const static int MAX_SEGMENT_NUM = 102400;      // max segment num
-
-#ifdef TABLE_STR_INT64
-typedef uint64_t str_offset_t;
-typedef uint16_t str_len_t;
-#else
-typedef uint32_t str_offset_t;
-typedef uint8_t str_len_t;
-#endif
-
-class DecompressStr {
- public:
-  DecompressStr() {
-    segid_ = -1;
-    hit_ = false;
-  }
-
-  std::string &Str() { return str_; }
-
-  void SetStr(const std::string &str) { str_ = str; }
-
-  void SetStr(std::string &&str) { str_ = std::move(str); }
-
-  bool Hit() { return hit_; }
-
-  void SetHit(bool hit) { hit_ = hit; }
-
-  int SegID() { return segid_; }
-
-  void SetSegID(int segid) { segid_ = segid; }
-
- private:
-  std::string str_;
-  int segid_;
-  bool hit_;
-};
 
 }  // namespace table
 }

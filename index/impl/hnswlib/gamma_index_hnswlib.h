@@ -29,11 +29,15 @@ namespace tig_gamma {
 
 class HNSWLIBRetrievalParameters : public RetrievalParameters {
  public:
-  HNSWLIBRetrievalParameters() : RetrievalParameters() { efSearch_ = 64; }
+  HNSWLIBRetrievalParameters() : RetrievalParameters() { 
+    efSearch_ = 64; 
+    do_efSearch_check_ = 1;
+  }
 
-  HNSWLIBRetrievalParameters(int efSearch, enum DistanceComputeType type) {
+  HNSWLIBRetrievalParameters(int efSearch, enum DistanceComputeType type, int do_efSearch_check) {
     efSearch_ = efSearch;
     distance_compute_type_ = type;
+    do_efSearch_check_ = do_efSearch_check;
   }
 
   ~HNSWLIBRetrievalParameters() {}
@@ -42,8 +46,12 @@ class HNSWLIBRetrievalParameters : public RetrievalParameters {
 
   void SetEfSearch(int efSearch) { efSearch_ = efSearch; }
 
+  int DoEfSearchCheck() { return do_efSearch_check_; }
+  void SetDoEfSearchCheck(int do_efSearch_check) { do_efSearch_check_ = do_efSearch_check; }
+
  private:
   int efSearch_;
+  int do_efSearch_check_;
 };
 
 struct GammaIndexHNSWLIB : public GammaFLATIndex,
@@ -54,7 +62,7 @@ struct GammaIndexHNSWLIB : public GammaFLATIndex,
 
   virtual ~GammaIndexHNSWLIB();
 
-  int Init(const std::string &model_parameters) override;
+  int Init(const std::string &model_parameters, int indexing_size) override;
 
   RetrievalParameters *Parse(const std::string &parameters) override;
 

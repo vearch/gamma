@@ -17,12 +17,8 @@
 #include "api_data/gamma_table.h"
 #include "io_common.h"
 #include "log.h"
-#include "table_data.h"
+#include "storage_manager.h"
 #include "table_define.h"
-
-#ifdef USE_BTREE
-#include "threadskv10h.h"
-#endif
 
 using namespace tig_gamma::table;
 
@@ -93,47 +89,14 @@ class Table {
 
   long GetMemoryBytes();
 
-  int GetDocInfo(std::string &id, Doc &doc, DecompressStr &decompress_str);
-  int GetDocInfo(const int docid, Doc &doc, DecompressStr &decompress_str);
+  int GetDocInfo(std::string &id, Doc &doc, std::vector<std::string> &fields);
+  int GetDocInfo(const int docid, Doc &doc, std::vector<std::string> &fields);
 
-  void GetFieldInfo(const int docid, const std::string &field_name,
-                    struct Field &field, DecompressStr &decompress_str);
+  int GetFieldRawValue(int docid, const std::string &field_name, std::string &value,
+                       const uint8_t *doc_v = nullptr);
 
-  template <typename T>
-  bool GetField(const int docid, const int field_id, T &value) {
-    if ((docid < 0) or (field_id < 0 || field_id >= field_num_)) return false;
-
-    size_t offset = idx_attr_offset_[field_id];
-
-    int seg_pos;
-    size_t in_seg_pos;
-    int ret = GetSegPos(docid, field_id, seg_pos, in_seg_pos);
-    if (ret != 0) {
-      return false;
-    }
-    offset += in_seg_pos * item_length_;
-    TableData *seg_file = main_file_[seg_pos];
-    char *base = seg_file->Base();
-    memcpy(&value, base + offset, sizeof(T));
-    return true;
-  }
-
-  template <typename T>
-  void GetField(int docid, const std::string &field, T &value) {
-    const auto &iter = attr_idx_map_.find(field);
-    if (iter == attr_idx_map_.end()) {
-      return;
-    }
-    GetField<T>(docid, iter->second, value);
-  }
-
-  int GetFieldString(int docid, const std::string &field, std::string &value,
-                     DecompressStr &decompress_str);
-
-  int GetFieldString(int docid, int field_id, std::string &value,
-                     DecompressStr &decompress_str);
-
-  int GetFieldRawValue(int docid, int field_id, std::string &value);
+  int GetFieldRawValue(int docid, int field_id, std::string &value,
+                       const uint8_t *doc_v = nullptr);
 
   int GetFieldType(const std::string &field, DataType &type);
 
@@ -155,9 +118,11 @@ class Table {
 
   DumpConfig *GetDumpConfig() { return table_params_; }
 
-  int GetRawDoc(int docid, std::vector<char> &raw_doc);
-
   bool IsCompress() { return b_compress_; }
+
+  bool AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size);
+
+  void GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size);
 
   std::string root_path_;
   int last_docid_;
@@ -165,27 +130,7 @@ class Table {
  private:
   int FTypeSize(DataType fType);
 
-  void SetFieldValue(int docid, const std::string &field, int field_id,
-                     const char *value, str_len_t len);
-
   int AddField(const std::string &name, DataType ftype, bool is_index);
-
-  // void ToRowKey(int id, std::string &key) const;
-
-  int AddRawDoc(int docid, const char *raw_doc, int doc_size);
-
-  int GetSegPos(IN int32_t docid, IN int32_t field_id, OUT int &seg_pos,
-                OUT size_t &in_seg_pos, bool bRead = true);
-
-  // int PutToDB(int docid);
-
-  int BatchPutToDB(int docid, int batch_size);
-
-  int Extend();
-
-  void Compress();
-
-  void BufferQueueWorker();
 
   std::string name_;   // table name
   int item_length_;    // every doc item length
@@ -193,28 +138,24 @@ class Table {
   uint8_t string_field_num_;
   int key_idx_;  // key postion
 
-  std::map<int, std::string> idx_attr_map_;
-  std::map<std::string, int> attr_idx_map_;
-  std::map<std::string, DataType> attr_type_map_;
-  std::map<std::string, bool> attr_is_index_map_;
+  std::map<int, std::string> idx_attr_map_; // <field_id, field_name>
+  std::map<std::string, int> attr_idx_map_; // <field_name, field_id>
+  std::map<std::string, DataType> attr_type_map_; // <field_name, field_type>
+  std::map<std::string, bool> attr_is_index_map_; // <field_name, is index>
   std::vector<int> idx_attr_offset_;
   std::vector<DataType> attrs_;
+  std::map<int, int> str_field_id_; // <field_id, str_field_id>
 
   uint8_t id_type_;  // 0 string, 1 long, default 1
   bool b_compress_;
   cuckoohash_map<long, int> item_to_docid_;
 
-  TableData *main_file_[MAX_SEGMENT_NUM];
   int seg_num_;  // cur segment num
-  int compressed_num_;
 
   bool table_created_;
 
-#ifdef USE_BTREE
-  BtMgr *main_mgr_;
-  BtMgr *cache_mgr_;
-#endif
   TableParams *table_params_;
+  StorageManager *storage_mgr_;
 };
 
 }  // namespace table

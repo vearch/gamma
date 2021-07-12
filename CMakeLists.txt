@@ -2,16 +2,18 @@
 #    GAMMA ENGINE 
 #--------------------------------------------
 project(gamma_engine C CXX)
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.17)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
-
-find_package(FAISS REQUIRED)
 
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
-option(TABLE_STR_INT64 "table string int64 address" off)
+
+exec_program(
+    "sh"
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    ARGS "build.sh" ${BUILD_WITH_GPU})
 
 #ENV VARs
 set(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
@@ -25,7 +27,10 @@ set(GAMMA_SEARCH ${CMAKE_CURRENT_SOURCE_DIR}/search)
 set(GAMMA_INDEX ${CMAKE_CURRENT_SOURCE_DIR}/index)
 set(GAMMA_INDEX_IMPL ${CMAKE_CURRENT_SOURCE_DIR}/index/impl)
 set(GAMMA_INDEX_IMPL_HNSWLIB ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/hnswlib)
+set(GAMMA_INDEX_IMPL_SSG ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/ssg)
 set(GAMMA_VECTOR ${CMAKE_CURRENT_SOURCE_DIR}/vector)
+set(STORAGE ${CMAKE_CURRENT_SOURCE_DIR}/storage)
+set(STORAGE_COMPRESS ${CMAKE_CURRENT_SOURCE_DIR}/storage/compress)
 set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
 set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
 set(GAMMA_C_API ${CMAKE_CURRENT_SOURCE_DIR}/c_api)
@@ -37,11 +42,11 @@ if(APPLE)
     set(CMAKE_CXX_COMPILER "/usr/local/opt/llvm/bin/clang++")
     include_directories("/usr/local/include"
                         "/usr/local/opt/llvm/include" 
-                        "/usr/local/Cellar/openssl@1.1/1.1.1d/include"
+                        "/usr/local/Cellar/openssl@1.1/1.1.1h/include"
                         "/usr/local/opt/openblas/include")
     link_directories("/usr/local/lib"
                      "/usr/local/opt/llvm/lib"
-                     "/usr/local/Cellar/openssl@1.1/1.1.1d/lib/"
+                     "/usr/local/Cellar/openssl@1.1/1.1.1h/lib/"
                      "/usr/local/opt/openblas/lib")
 endif(APPLE)
 
@@ -64,19 +69,6 @@ ELSE (DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
 ENDIF (DEFINED ENV{ZFP_HOME})
 
-IF (DEFINED ENV{ZSTD_HOME})
-	#MESSAGE(STATUS "ZSTD FINDED! ")
-	#SET(ZSTD_INCLUDE_DIR "$ZSTD_HOME/lib")
-	#link_directories("$ZSTD_HOME/lib")
-	ADD_DEFINITIONS(-DWITH_ZSTD)
-	FIND_PACKAGE(ZSTD REQUIRED)
-ENDIF (DEFINED ENV{ZSTD_HOME})
-
-if(TABLE_STR_INT64)
-    MESSAGE(STATUS "TABLE_STR_INT64 is on")
-    ADD_DEFINITIONS(-DTABLE_STR_INT64)
-endif(TABLE_STR_INT64)
-
 #INCLUDE DIR
 include_directories(
     ${THIRDPARTY}
@@ -91,26 +83,32 @@ include_directories(
     ${GAMMA_INDEX}
     ${GAMMA_INDEX_IMPL}
     ${GAMMA_INDEX_IMPL_HNSWLIB}
+    ${GAMMA_INDEX_IMPL_SSG}
     ${GAMMA_VECTOR}
+    ${STORAGE}
+    ${STORAGE_COMPRESS}
     ${GAMMA_REALTIME}
     ${GAMMA_C_API}
     ${GAMMA_IO}
-    ${FAISS_INCLUDE_DIR}
+    ${THIRDPARTY}/faiss/include
     ${RocksDB_INCLUDE_DIR}
     ${FLATBUFFERS_OUT}/c
     ${ZFP_INCLUDE_DIR}
-    ${ZSTD_INCLUDE_DIR}
+)
+
+link_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/faiss/lib
 )
 
 #LINK LIBRARY
 set(LIBRARIES
-    ${FAISS_LIB}
+    -lfaiss
     ${RocksDB_LIB}
     ${ZFP_LIB}
-    ${ZSTD_LIB}
     -lcrypto
     -lzstd
     -lopenblas
+    -ltbb
 )
 
 #ADDITIONAL SOURCE DIR
@@ -122,8 +120,11 @@ aux_source_directory(${UTIL} DIR_SRCS)
 aux_source_directory(${COMMON} DIR_SRCS)
 aux_source_directory(${GAMMA_SEARCH} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX} DIR_SRCS)
+aux_source_directory(${STORAGE} DIR_SRCS)
+aux_source_directory(${STORAGE_COMPRESS} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX_IMPL} DIR_SRCS)
 aux_source_directory(${GAMMA_INDEX_IMPL_HNSWLIB} DIR_SRCS)
+aux_source_directory(${GAMMA_INDEX_IMPL_SSG} DIR_SRCS)
 aux_source_directory(${GAMMA_VECTOR} DIR_SRCS)
 aux_source_directory(${GAMMA_REALTIME} DIR_SRCS)
 aux_source_directory(${GAMMA_TABLE} DIR_SRCS)
@@ -200,11 +201,18 @@ if(BUILD_WITH_GPU)
     ${FAISS_GPU_CUH}
     ${FAISS_GPU_CU}
     ${LIB_SRCS})
+
+    target_link_libraries(gamma 
+    ${LIBRARIES}
+    -lcublas 
+    /usr/local/cuda/lib64/libcudart.so
+    )
+
 else(BUILD_WITH_GPU)
     add_library(gamma SHARED ${LIB_SRCS})
+    target_link_libraries(gamma ${LIBRARIES})
 endif(BUILD_WITH_GPU)
 
-target_link_libraries(gamma ${LIBRARIES})
 
 set_target_properties(gamma PROPERTIES VERSION 0.1 SOVERSION 0.1)
 
