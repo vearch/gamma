@@ -694,11 +694,20 @@ int VectorManager::Dump(const string &path, int dump_docid, int max_docid) {
 }
 
 int VectorManager::Load(const std::vector<std::string> &index_dirs,
-                        int doc_num) {
+                        int &doc_num) {
+  int min_vec_num = doc_num;
+  for (const auto &iter : raw_vectors_) {
+    if (iter.second->GetIO()) {
+      int vector_num = min_vec_num;
+      iter.second->GetIO()->GetDiskVecNum(vector_num);
+      if (vector_num < min_vec_num) min_vec_num = vector_num;
+    }
+  }
+
   for (const auto &iter : raw_vectors_) {
     if (iter.second->GetIO()) {
       // TODO: doc num to vector num
-      int vec_num = doc_num;
+      int vec_num = min_vec_num;
       if (0 != iter.second->GetIO()->Load(vec_num)) {
         LOG(ERROR) << "vector [" << iter.first << "] load failed!";
         return -1;
@@ -714,12 +723,18 @@ int VectorManager::Load(const std::vector<std::string> &index_dirs,
         LOG(ERROR) << "vector [" << iter.first << "] load gamma index failed!";
         return -1;
       } else {
+        if (load_num > min_vec_num) {
+          LOG(ERROR) << "load vec_index_num=" << load_num << " > raw_vec_num="
+                     << min_vec_num;
+          return -1;
+        }
         iter.second->indexed_count_ = load_num;
         LOG(INFO) << "vector [" << iter.first << "] load gamma index success!";
       }
     }
   }
-
+  doc_num = min_vec_num;
+  LOG(INFO) << "vector_mgr load vec_num=" << doc_num;
   return 0;
 }
 

@@ -27,18 +27,19 @@ class Segment {
 
   ~Segment();
 
-  int Init(BlockType block_type, Compressor *compressor = nullptr);
+  int Init(std::string name, BlockType block_type,
+           Compressor *compressor = nullptr);
 
-  int Load(BlockType block_type, Compressor *compressor = nullptr);
+  int Load(std::string name, BlockType block_type, Compressor *compressor = nullptr);
 
   int Add(const uint8_t *vec, int len);
 
-  str_offset_t AddString(const char *vec, int len, uint32_t &block_id,
-                         uint32_t &in_block_pos);
+  str_offset_t AddString(const char *vec, str_len_t len, uint32_t &block_id,
+                         in_block_pos_t &in_block_pos);
 
   int GetValues(uint8_t *value, int id, int size);
 
-  std::string GetString(uint32_t block_id, uint32_t in_block_pos,
+  std::string GetString(uint32_t block_id, in_block_pos_t in_block_pos,
                         str_len_t len);
 
   bool IsFull();
@@ -82,7 +83,7 @@ class Segment {
 
   int OpenFile(BlockType block_type);
 
-  int InitBlock(BlockType block_type, Compressor *compressor);
+  int InitBlock(std::string name, BlockType block_type, Compressor *compressor);
 
  private:
   uint32_t seg_id_;

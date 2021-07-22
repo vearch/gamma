@@ -7,6 +7,24 @@ namespace tig_gamma {
 using std::string;
 using namespace rocksdb;
 
+int RocksDBRawVectorIO::GetDiskVecNum(int &vec_num) {
+  if (vec_num <= 0) return 0;
+  int max_id_in_disk = vec_num - 1;
+  string key, value;
+  for (int i = max_id_in_disk; i >= 0; --i) {
+    raw_vector->ToRowKey(i, key);
+    Status s = raw_vector->db_->Get(ReadOptions(), Slice(key), &value);
+    if (s.ok()) {
+      vec_num = i + 1;
+      LOG(INFO) << "In the disk rocksdb vec_num=" << vec_num;
+      return 0;
+    }
+  }
+  vec_num = 0;
+  LOG(INFO) << "In the disk rocksdb vec_num=" << vec_num;
+  return 0;
+}
+
 int RocksDBRawVectorIO::Load(int vec_num) {
   if (vec_num == 0) return 0;
   string key, value;

@@ -172,7 +172,6 @@ void MemTrimHandler() {
 GammaEngine::GammaEngine(const string &index_root_path)
     : index_root_path_(index_root_path),
       date_time_format_("%Y-%m-%d-%H:%M:%S") {
-  docids_bitmap_ = nullptr;
   table_ = nullptr;
   vec_manager_ = nullptr;
   index_status_ = IndexStatus::UNINDEXED;
@@ -180,7 +179,6 @@ GammaEngine::GammaEngine(const string &index_root_path)
   b_running_ = 0;
   b_field_running_ = false;
   is_dirty_ = false;
-  bitmap_bytes_size_ = 0;
   field_range_index_ = nullptr;
   created_table_ = false;
   b_loading_ = false;
@@ -220,11 +218,6 @@ GammaEngine::~GammaEngine() {
     table_ = nullptr;
   }
 
-  if (docids_bitmap_) {
-    delete docids_bitmap_;
-    docids_bitmap_ = nullptr;
-  }
-
   if (field_range_index_) {
     delete field_range_index_;
     field_range_index_ = nullptr;
@@ -251,12 +244,9 @@ int GammaEngine::Setup() {
     mkdir(dump_path_.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   }
 
-  if (!docids_bitmap_) {
-    if (bitmap::create(docids_bitmap_, bitmap_bytes_size_,
-                       std::numeric_limits<int>::max()) != 0) {
-      LOG(ERROR) << "Cannot create bitmap!";
-      return INTERNAL_ERR;
-    }
+  if (docids_bitmap_.Init(std::numeric_limits<int>::max()) != 0) {
+    LOG(ERROR) << "Cannot create bitmap!";
+    return INTERNAL_ERR;
   }
 
   if (!table_) {
@@ -264,8 +254,8 @@ int GammaEngine::Setup() {
   }
 
   if (!vec_manager_) {
-    vec_manager_ = new VectorManager(VectorStorageType::Mmap, docids_bitmap_,
-                                     index_root_path_);
+    vec_manager_ = new VectorManager(VectorStorageType::Mmap, 
+                                     docids_bitmap_.Bitmap(), index_root_path_);
   }
 
 #ifndef __APPLE__
@@ -281,7 +271,7 @@ int GammaEngine::Setup() {
 
   max_docid_ = 0;
   LOG(INFO) << "GammaEngine setup successed! bitmap_bytes_size="
-            << bitmap_bytes_size_;
+            << docids_bitmap_.BytesSize();
   return 0;
 }
 
@@ -444,8 +434,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
     } else {
       gamma_result.init(topn, nullptr, 0);
       for (int docid = 0; docid < max_docid_; ++docid) {
-        if (range_query_result.Has(docid) &&
-            !bitmap::test(docids_bitmap_, docid)) {
+        if (range_query_result.Has(docid) && !docids_bitmap_.GetN(docid)) {
           ++gamma_result.total;
           if (gamma_result.results_count < topn) {
             gamma_result.docs[gamma_result.results_count++]->docid = docid;
@@ -623,6 +612,16 @@ int GammaEngine::CreateTable(TableInfo &table) {
     LOG(ERROR) << "write table schema error, path=" << path;
   }
 
+  docids_bitmap_.SetDumpFilePath(index_root_path_ + "/bitmap");
+  int file_bytes_size = docids_bitmap_.GetBitmapFileBytesSize();
+  if (file_bytes_size + 1 >= docids_bitmap_.BytesSize() &&
+      docids_bitmap_.LoadBitmap() == 0) {
+    LOG(INFO) << "Load bitmap success.";
+  } else {
+    docids_bitmap_.DumpBitmap();
+    LOG(INFO) << "Full dump bitmap.";
+  }
+
   af_exector_->Start();
 
   LOG(INFO) << "create table [" << table_name << "] success!";
@@ -692,6 +691,7 @@ int GammaEngine::AddOrUpdateDocs(Docs &docs, BatchResult &result) {
   double start = utils::getmillisecs();
 #endif
   std::vector<Doc> &doc_vec = docs.GetDocs();
+  std::set<std::string> remove_dupliacte;
   int batch_size = 0, start_id = 0;
 
   auto batchAdd = [&](int start_id, int batch_size) {
@@ -731,18 +731,21 @@ int GammaEngine::AddOrUpdateDocs(Docs &docs, BatchResult &result) {
   for (size_t i = 0; i < doc_vec.size(); ++i) {
     Doc &doc = doc_vec[i];
     std::string &key = doc.Key();
+    auto ite = remove_dupliacte.find(key);
+    if (ite == remove_dupliacte.end()) remove_dupliacte.insert(key);
     // add fields into table
     int docid = -1;
     table_->GetDocIDByKey(key, docid);
-    if (docid == -1) {
+    if (docid == -1 && ite == remove_dupliacte.end()) {
       ++batch_size;
       continue;
     } else {
       batchAdd(start_id, batch_size);
       batch_size = 0;
-      start_id = i;
+      start_id = i + 1;
       std::vector<struct Field> &fields_table = doc.TableFields();
       std::vector<struct Field> &fields_vec = doc.VectorFields();
+      if (ite != remove_dupliacte.end()) table_->GetDocIDByKey(key, docid);
       if (Update(docid, fields_table, fields_vec)) {
         LOG(ERROR) << "update error, key=" << key << ", docid=" << docid;
         continue;
@@ -760,7 +763,8 @@ int GammaEngine::AddOrUpdateDocs(Docs &docs, BatchResult &result) {
 #ifdef PERFORMANCE_TESTING
   double end = utils::getmillisecs();
   if (max_docid_ % 10000 == 0) {
-    LOG(INFO) << "Add total cost [" << end - start << "]ms";
+    LOG(INFO) << "Doc_num[" << max_docid_ << "], BatchAdd[" << batch_size
+              << "] total cost [" << end - start << "]ms";
   }
 #endif
   is_dirty_ = true;
@@ -809,11 +813,12 @@ int GammaEngine::Delete(std::string &key) {
   ret = table_->GetDocIDByKey(key, docid);
   if (ret != 0 || docid < 0) return -1;
 
-  if (bitmap::test(docids_bitmap_, docid)) {
+  if (docids_bitmap_.GetN(docid)) {
     return ret;
   }
   ++delete_num_;
-  bitmap::set(docids_bitmap_, docid);
+  docids_bitmap_.SetN(docid);
+  docids_bitmap_.DumpBitmap(docid, 1);
   table_->Delete(key);
 
   vec_manager_->Delete(docid);
@@ -859,14 +864,88 @@ int GammaEngine::DelDocByQuery(Request &request) {
   std::vector<int> doc_ids = range_query_result.ToDocs();
   for (size_t i = 0; i < doc_ids.size(); ++i) {
     int docid = doc_ids[i];
-    if (bitmap::test(docids_bitmap_, docid)) {
+    if (docids_bitmap_.GetN(docid)) {
       continue;
     }
     ++delete_num_;
-    bitmap::set(docids_bitmap_, docid);
+    docids_bitmap_.SetN(docid);
+    docids_bitmap_.DumpBitmap(docid, 1);
   }
 #endif  // BUILD_GPU
   is_dirty_ = true;
+  return 0;
+}
+
+int GammaEngine::DelDocByFilter(Request &request, char **del_ids, int *str_len) {
+#ifndef BUILD_GPU
+  *str_len = 0;
+  MultiRangeQueryResults range_query_result;
+  std::vector<FilterInfo> filters;
+  std::vector<struct RangeFilter> &range_filters = request.RangeFilters();
+  std::vector<struct TermFilter> &term_filters = request.TermFilters();
+
+  int range_filters_size = range_filters.size();
+  int term_filters_size = term_filters.size();
+
+  filters.resize(range_filters_size + term_filters_size);
+  int idx = 0;
+
+  for (int i = 0; i < range_filters_size; ++i) {
+    struct RangeFilter &filter = range_filters[i];
+
+    filters[idx].field = table_->GetAttrIdx(filter.field);
+    filters[idx].lower_value = filter.lower_value;
+    filters[idx].upper_value = filter.upper_value;
+
+    ++idx;
+  }
+
+  for (int i = 0; i < term_filters_size; ++i) {
+    struct TermFilter &filter = term_filters[i];
+
+    filters[idx].field = table_->GetAttrIdx(filter.field);
+    filters[idx].lower_value = filter.value;
+    filters[idx].is_union = static_cast<FilterOperator>(filter.is_union);
+
+    ++idx;
+  }
+
+  int retval = field_range_index_->Search(filters, &range_query_result);
+
+  int del_num = 0;
+  cJSON *root = cJSON_CreateArray();
+  if (retval > 0) {
+    for (int del_docid = 0; del_docid < max_docid_; ++del_docid) {
+      if (range_query_result.Has(del_docid) == true) {
+        std::string key;
+        if (table_->GetKeyByDocid(del_docid, key) != 0) {  // docid can be deleted.
+          continue;
+        }
+        if (docids_bitmap_.GetN(del_docid)) continue;
+        
+        docids_bitmap_.SetN(del_docid);
+        docids_bitmap_.DumpBitmap(del_docid, 1);
+        table_->Delete(key);
+        vec_manager_->Delete(del_docid);
+        if (table_->IdType() == 0) {
+          cJSON_AddItemToArray(root, cJSON_CreateString(key.c_str()));
+        } else {
+          long key_long;
+          memcpy(&key_long, key.c_str(), sizeof(key_long));
+          cJSON_AddItemToArray(root, cJSON_CreateNumber(key_long));
+        }
+        ++delete_num_;
+        ++del_num;
+      }
+    }
+  }
+  LOG(INFO) << "DelDocByFilter(), Delete doc num: " << del_num;
+  
+  *del_ids = cJSON_PrintUnformatted(root);
+  *str_len = strlen(*del_ids);
+  if (root) cJSON_Delete(root);
+  is_dirty_ = true;
+#endif  // BUILD_GPU
   return 0;
 }
 
@@ -883,7 +962,7 @@ int GammaEngine::GetDoc(std::string &key, Doc &doc) {
 
 int GammaEngine::GetDoc(int docid, Doc &doc) {
   int ret = 0;
-  if (bitmap::test(docids_bitmap_, docid)) {
+  if (docids_bitmap_.GetN(docid)) {
     LOG(INFO) << "docid [" << docid << "] is deleted!";
     return -1;
   }
@@ -1012,7 +1091,7 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
   engine_status.SetIndexMem(index_mem_bytes);
   engine_status.SetVectorMem(vec_mem_bytes);
   engine_status.SetFieldRangeMem(total_mem_b);
-  engine_status.SetBitmapMem(bitmap_bytes_size_);
+  engine_status.SetBitmapMem(docids_bitmap_.BytesSize());
   engine_status.SetDocNum(GetDocsNum());
   engine_status.SetMaxDocID(max_docid_ - 1);
   engine_status.SetMinIndexedNum(vec_manager_->MinIndexedNum());
@@ -1042,23 +1121,6 @@ int GammaEngine::Dump() {
       LOG(ERROR) << "dump vector error, ret=" << ret;
       return -1;
     }
-
-    const string bm_name = path + "/" + "bitmap";
-    FILE *fp_output = fopen(bm_name.c_str(), "wb");
-    if (fp_output == nullptr) {
-      LOG(ERROR) << "Cannot write file " << bm_name;
-      return -1;
-    }
-
-    size_t bitmap_write_size = fwrite((void *)(docids_bitmap_), sizeof(char),
-                                      bitmap_bytes_size_, fp_output);
-    if ((size_t)bitmap_bytes_size_ != bitmap_write_size) {
-      LOG(ERROR) << "write bitmap error";
-      fclose(fp_output);
-      return -2;
-    }
-
-    fclose(fp_output);
 
     const string dump_done_file = path + "/dump.done";
     std::ofstream f_done;
@@ -1159,13 +1221,27 @@ int GammaEngine::Load() {
     assert(lines.size() == 2);
     std::vector<string> items = utils::split(lines[1], " ");
     assert(items.size() == 2);
-    max_docid_ = (int)std::strtol(items[1].c_str(), nullptr, 10) + 1;
-    LOG(INFO) << "read doc num=" << max_docid_ << " from " << dump_done_file;
+    int index_dump_num = (int)std::strtol(items[1].c_str(), nullptr, 10) + 1;
+    LOG(INFO) << "read index_dump_num=" << index_dump_num << " from "
+              << dump_done_file;
     delete[] buf;
   }
 
-  int ret = 0;
+  max_docid_ = table_->GetStorageManagerSize();
+
+  string last_dir = "";
   std::vector<string> dirs;
+  if (folders_tm.size() > 0) {
+    last_dir = folders_tm[folders_tm.size() - 1].second;
+    LOG(INFO) << "Loading from " << last_dir;
+    dirs.push_back(last_dir);
+  }
+  int ret = vec_manager_->Load(dirs, max_docid_);
+  if (ret != 0) {
+    LOG(ERROR) << "load vector error, ret=" << ret << ", path=" << last_dir;
+    return ret;
+  }
+
   ret = table_->Load(max_docid_);
   if (ret != 0) {
     LOG(ERROR) << "load profile error, ret=" << ret;
@@ -1181,39 +1257,16 @@ int GammaEngine::Load() {
   }
 #endif
 
-  string last_dir = "";
-  if (folders_tm.size() > 0) {
-    last_dir = folders_tm[folders_tm.size() - 1].second;
-    LOG(INFO) << "Loading from " << last_dir;
-    dirs.push_back(last_dir);
-    // load bitmap
-    string bitmap_file_name = last_dir + "/bitmap";
-    FILE *fp_bm = fopen(bitmap_file_name.c_str(), "rb");
-    if (fp_bm == nullptr) {
-      LOG(ERROR) << "Cannot open file " << bitmap_file_name;
-      return IO_ERR;
+  delete_num_ = 0;
+  for (int i = 0; i < max_docid_; ++i) {
+    if (docids_bitmap_.GetN(i)) {
+      ++delete_num_;
     }
-    long bm_file_size = utils::get_file_size(bitmap_file_name.c_str());
-    fread((void *)(docids_bitmap_), sizeof(char), bm_file_size, fp_bm);
-    fclose(fp_bm);
-    // compatiable with v3.1.0
-    assert(bm_file_size <= bitmap_bytes_size_);
+  }
 
-    delete_num_ = 0;
-    for (int i = 0; i < max_docid_; ++i) {
-      if (bitmap::test(docids_bitmap_, i)) {
-        ++delete_num_;
-      }
-    }
-  }
-  ret = vec_manager_->Load(dirs, max_docid_);
-  if (ret != 0) {
-    LOG(ERROR) << "load vector error, ret=" << ret << ", path=" << last_dir;
-    return ret;
-  }
   if (not b_running_ and index_status_ == UNINDEXED) {
     if (max_docid_ >= indexing_size_) {
-      LOG(INFO) << "Begin indexing.";
+      LOG(INFO) << "Begin indexing. indexing_size=" << indexing_size_;
       this->BuildIndex();
     }
   }

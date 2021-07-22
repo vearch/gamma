@@ -18,6 +18,7 @@ struct RocksDBRawVectorIO : public RawVectorIO {
   ~RocksDBRawVectorIO() {}
   int Init() override { return 0; };
   int Dump(int start_vid, int end_vid) override { return 0; };
+  int GetDiskVecNum(int &vec_num) override;
   int Load(int vec_num) override;
   int Update(int vid) override { return 0; };
 };

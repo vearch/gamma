@@ -17,6 +17,8 @@
 #include "range_query_result.h"
 #include "table.h"
 
+#define    STR_MAX_INDEX_LEN    255
+
 namespace tig_gamma {
 
 enum class FilterOperator : uint8_t { And = 0, Or, Not };

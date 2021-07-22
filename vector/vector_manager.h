@@ -46,7 +46,7 @@ class VectorManager {
                         long &vector_total_mem_bytes);
 
   int Dump(const std::string &path, int dump_docid, int max_docid);
-  int Load(const std::vector<std::string> &path, int doc_num);
+  int Load(const std::vector<std::string> &path, int &doc_num);
 
   bool Contains(std::string &field_name);
 

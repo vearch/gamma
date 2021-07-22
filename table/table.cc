@@ -15,6 +15,7 @@
 #include <string>
 
 #include "utils.h"
+#include "field_range_index.h"
 
 using std::move;
 using std::string;
@@ -137,8 +138,7 @@ int Table::CreateTable(TableInfo &table, TableParams &table_params) {
       new StorageManager(root_path_, BlockType::TableBlockType, options);
   int cache_size = 512;  // unit : M
   int str_cache_size = 512;
-  int ret = storage_mgr_->Init(cache_size, name_ + "_table", str_cache_size,
-                               name_ + "_string");
+  int ret = storage_mgr_->Init(name_ + "_table", cache_size, str_cache_size);
   if (ret) {
     LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;
@@ -161,7 +161,7 @@ int Table::FTypeSize(DataType fType) {
     length = sizeof(double);
   } else if (fType == DataType::STRING) {
     // block_id, in_block_pos, str_len
-    length = sizeof(uint32_t) + sizeof(uint32_t) + sizeof(str_len_t);
+    length = sizeof(uint32_t) + sizeof(in_block_pos_t) + sizeof(str_len_t);
   }
   return length;
 }
@@ -207,6 +207,28 @@ int Table::GetDocIDByKey(std::string &key, int &docid) {
   return -1;
 }
 
+int Table::GetKeyByDocid(int docid, std::string &key) {
+  if (docid > last_docid_) {
+    LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
+    return -1;
+  }
+  const uint8_t *doc_value;
+  if (0 != storage_mgr_->Get(docid, doc_value)) {
+    return -1;
+  }
+  int field_id = attr_idx_map_["_id"];
+  GetFieldRawValue(docid, field_id, key, doc_value);
+  delete[] doc_value;
+
+  int check_docid;
+  GetDocIDByKey(key, check_docid);
+  if (check_docid != docid) {      // docid can be deleted.
+    key = "";
+    return -1;
+  }
+  return 0;
+}
+
 int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
                int docid) {
   if (fields.size() != attr_idx_map_.size()) {
@@ -242,10 +264,19 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
       int type_size = FTypeSize(attr);
       memcpy(doc_value + offset, field_value.value.c_str(), type_size);
     } else {
-      size_t ofst = sizeof(str_offset_t);
       str_len_t len = field_value.value.size();
-      int str_field_id = str_field_id_[attr_idx_map_[name]];
-      uint32_t block_id, in_block_pos;
+      if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
+        LOG(ERROR) << "String length[" << len << "] greater than STR_MAX_INDEX_LEN[" 
+                   << STR_MAX_INDEX_LEN << "] does not support indexing.";
+        len = STR_MAX_INDEX_LEN;
+      }
+      if (len > MAX_STRING_LEN) {
+        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
+                    << "]. Truncation occurs.";
+        len = MAX_STRING_LEN;
+      }
+      uint32_t block_id;
+      in_block_pos_t in_block_pos;
       str_offset_t str_offset = storage_mgr_->AddString(
           field_value.value.c_str(), len, block_id, in_block_pos);
 
@@ -319,9 +350,20 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
         int type_size = FTypeSize(attr);
         memcpy(doc_value + offset, field_value.value.c_str(), type_size);
       } else {
-        size_t ofst = sizeof(str_offset_t);
         str_len_t len = field_value.value.size();
-        uint32_t block_id, in_block_pos;
+        if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
+          LOG(ERROR) << "String length[" << len << "] greater than STR_MAX_INDEX_LEN[" 
+                     << STR_MAX_INDEX_LEN << "] does not support indexing.";
+          len = STR_MAX_INDEX_LEN;
+        }
+        if (len > MAX_STRING_LEN) {
+          LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
+                     << "]. Truncation occurs.";
+          len = MAX_STRING_LEN;
+        }
+
+        uint32_t block_id;
+        in_block_pos_t in_block_pos;
         str_offset_t str_offset = storage_mgr_->AddString(
             field_value.value.c_str(), len, block_id, in_block_pos);
 
@@ -380,10 +422,20 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
     int offset = idx_attr_offset_[field_id];
 
     if (field_value.datatype == DataType::STRING) {
-      int offset = idx_attr_offset_[field_id];
-
       str_len_t len = field_value.value.size();
-      uint32_t block_id, in_block_pos;
+      if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
+        LOG(ERROR) << "String length[" << len << "] greater than STR_MAX_INDEX_LEN[" 
+                   << STR_MAX_INDEX_LEN << "] does not support indexing.";
+        len = STR_MAX_INDEX_LEN;
+      }
+      if (len > MAX_STRING_LEN) {
+        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
+                    << "]. Truncation occurs.";
+        len = MAX_STRING_LEN;
+      }
+      
+      uint32_t block_id;
+      in_block_pos_t in_block_pos;
       str_offset_t res = storage_mgr_->UpdateString(
           docid, field_value.value.c_str(), len, block_id, in_block_pos);
       memcpy(doc_value + offset, &block_id, sizeof(block_id));
@@ -506,7 +558,7 @@ int Table::GetFieldRawValue(int docid, int field_id, std::string &value,
     uint32_t block_id = 0;
     memcpy(&block_id, doc_value + offset, sizeof(block_id));
 
-    uint32_t in_block_pos = 0;
+    in_block_pos_t in_block_pos = 0;
     memcpy(&in_block_pos, doc_value + offset + sizeof(block_id),
            sizeof(in_block_pos));
 
@@ -563,6 +615,15 @@ bool Table::AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size) {
 
 void Table::GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size) {
   storage_mgr_->GetCacheSize(cache_size, str_cache_size);
+}
+
+int Table::GetStorageManagerSize() {
+  int table_doc_num = 0;
+  if (storage_mgr_) {
+    table_doc_num = storage_mgr_->Size();
+  }
+  LOG(INFO) << "read doc_num=" << table_doc_num << " in table storage_mgr.";
+  return table_doc_num;
 }
 
 }  // namespace table

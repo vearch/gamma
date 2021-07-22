@@ -21,6 +21,7 @@
 #include "field_range_index.h"
 #include "table.h"
 #include "vector_manager.h"
+#include "bitmap_manager.h"
 
 namespace tig_gamma {
 
@@ -59,6 +60,8 @@ class GammaEngine {
    * @return 0 if successed
    */
   int DelDocByQuery(Request &request);
+
+  int DelDocByFilter(Request &request, char **del_ids, int *str_len);
 
   int GetDoc(std::string &key, Doc &doc);
 
@@ -117,7 +120,7 @@ class GammaEngine {
 
   MultiFieldsRangeIndex *field_range_index_;
 
-  char *docids_bitmap_;
+  bitmap::BitmapManager<int> docids_bitmap_;
   table::Table *table_;
   VectorManager *vec_manager_;
 
@@ -146,7 +149,6 @@ class GammaEngine {
 
   enum IndexStatus index_status_;
 
-  int bitmap_bytes_size_;
   const std::string date_time_format_;
   std::string last_dump_dir_;  // it should be delete after next dump
 
