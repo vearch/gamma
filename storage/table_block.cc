@@ -14,9 +14,9 @@ namespace tig_gamma {
 
 TableBlock::TableBlock(int fd, int per_block_size, int length,
                        uint32_t header_size, uint32_t seg_id,
-                       uint32_t seg_block_capacity,
+                       std::string name, uint32_t seg_block_capacity,
                        const std::atomic<uint32_t> *cur_size, int max_size)
-    : Block(fd, per_block_size, length, header_size, seg_id,
+    : Block(fd, per_block_size, length, header_size, seg_id, name,
             seg_block_capacity, cur_size, max_size) {}
 
 int TableBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
@@ -27,7 +27,7 @@ int TableBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
   return 0;
 }
 
-int TableBlock::WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
+int TableBlock::WriteContent(const uint8_t *value, uint32_t n_bytes, uint32_t start,
                              disk_io::AsyncWriter *disk_io,
                              std::atomic<uint32_t> *cur_size) {
   disk_io->Set(header_size_, item_length_);

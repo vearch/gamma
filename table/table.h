@@ -81,6 +81,8 @@ class Table {
    */
   int GetDocIDByKey(std::string &key, int &docid);
 
+  int GetKeyByDocid(int docid, std::string &key);
+
   /** dump datas to disk
    *
    * @return ResultCode
@@ -118,11 +120,15 @@ class Table {
 
   DumpConfig *GetDumpConfig() { return table_params_; }
 
+  uint8_t IdType() { return id_type_; }
+
   bool IsCompress() { return b_compress_; }
 
   bool AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size);
 
   void GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size);
+
+  int GetStorageManagerSize();
 
   std::string root_path_;
   int last_docid_;

@@ -19,6 +19,7 @@ struct MemoryRawVectorIO : public RawVectorIO, public AsyncFlusher {
   ~MemoryRawVectorIO() {}
   int Init() override;
   int Dump(int start_vid, int end_vid) override;
+  int GetDiskVecNum(int &vec_num) override;
   int Load(int vec_num) override;
   int Update(int vid) override;
 

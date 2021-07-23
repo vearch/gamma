@@ -14,6 +14,17 @@ int MmapRawVectorIO::Dump(int start_vid, int end_vid) {
   return ret;
 }
 
+int MmapRawVectorIO::GetDiskVecNum(int &vec_num) {
+  if (raw_vector->storage_mgr_ == nullptr) {
+    vec_num = 0;
+    LOG(ERROR) << "Mmap_raw_vector storage_mgr_ = nullptr";
+    return 0;
+  }
+  vec_num = raw_vector->storage_mgr_->Size();
+  LOG(INFO) << "Mmap_raw_vector storage_mgr_ vec_num=" << vec_num;
+  return 0;
+}
+
 int MmapRawVectorIO::Load(int vec_num) {
   if (raw_vector->storage_mgr_->Truncate(vec_num)) {
     LOG(ERROR) << "truncate gamma db error, vec_num=" << vec_num;

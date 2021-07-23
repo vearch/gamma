@@ -68,7 +68,7 @@ int MmapRawVector::InitStore(std::string &vec_name) {
     LOG(INFO) << "store_params_.compress.IsEmpty() is true, not use zfp";
   }
 #endif
-  int ret = storage_mgr_->Init(store_params_.cache_size, vec_name);
+  int ret = storage_mgr_->Init(vec_name, store_params_.cache_size);
   if (ret) {
     LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;

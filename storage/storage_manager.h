@@ -60,26 +60,25 @@ class StorageManager {
   StorageManager(const std::string &root_path, BlockType block_type,
                  const StorageManagerOptions &options);
   ~StorageManager();
-  int Init(int cache_size, std::string cache_name, int str_cache_size = 0,
-           std::string str_cache_name = "");
+  int Init(std::string name, int cache_size, int str_cache_size = 0);
 
   int Add(const uint8_t *value, int len);
 
-  str_offset_t AddString(const char *value, int len, uint32_t &block_id,
-                         uint32_t &in_block_pos);
+  str_offset_t AddString(const char *value, str_len_t len, uint32_t &block_id,
+                         in_block_pos_t &in_block_pos);
 
   int Update(int id, uint8_t *value, int len);
 
-  str_offset_t UpdateString(int id, const char *value, int len,
-                            uint32_t &block_id, uint32_t &in_block_pos);
+  str_offset_t UpdateString(int id, const char *value, str_len_t len,
+                            uint32_t &block_id, in_block_pos_t &in_block_pos);
 
   // warning: vec can't be free
-  int Get(long id, const uint8_t *&value);
+  int Get(int id, const uint8_t *&value);
 
-  int GetString(long id, std::string &value, uint32_t blocck_id,
-                uint32_t in_block_pos, str_len_t len);
+  int GetString(int id, std::string &value, uint32_t block_id,
+                in_block_pos_t in_block_pos, str_len_t len);
 
-  int GetHeaders(int start, int n, std::vector<const uint8_t *> &values,
+  int GetHeaders(int start_id, int n, std::vector<const uint8_t *> &values,
                  std::vector<int> &lens);
 
   // currently it must call truncate after loading to set size of gamma db
@@ -106,6 +105,7 @@ class StorageManager {
 
  private:
   std::string root_path_;
+  std::string name_;
   StorageManagerOptions options_;
   size_t size_;  // The total number of doc.
   // tbb::concurrent_vector<Segment *> segments_;

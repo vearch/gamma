@@ -29,6 +29,24 @@ int MemoryRawVectorIO::Dump(int start_vid, int end_vid) {
   return 0;
 }
 
+int MemoryRawVectorIO::GetDiskVecNum(int &vec_num) {
+  if (vec_num <= 0) return 0;
+  int disk_vec_num = vec_num - 1;
+  string key, value;
+  for (int i = disk_vec_num; i >= 0; --i) {
+    rdb.ToRowKey(i, key);
+    Status s = rdb.db_->Get(ReadOptions(), Slice(key), &value);
+    if (s.ok()) {
+      vec_num = i + 1;
+      LOG(INFO) << "In the disk rocksdb vec_num=" << vec_num;
+      return 0;
+    }
+  }
+  vec_num = 0;
+  LOG(INFO) << "In the disk rocksdb vec_num=" << vec_num;
+  return 0;
+}
+
 int MemoryRawVectorIO::Load(int vec_num) {
   rocksdb::Iterator *it = rdb.db_->NewIterator(rocksdb::ReadOptions());
   utils::ScopeDeleter1<rocksdb::Iterator> del1(it);

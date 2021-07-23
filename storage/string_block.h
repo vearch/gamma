@@ -20,7 +20,7 @@ namespace tig_gamma {
 class StringBlock : public Block {
  public:
   StringBlock(int fd, int per_block_size, int length, uint32_t header_size,
-              uint32_t seg_id, uint32_t seg_block_capacity_);
+              uint32_t seg_id, std::string name, uint32_t seg_block_capacity_);
 
   ~StringBlock();
 
@@ -33,7 +33,7 @@ class StringBlock : public Block {
 
   int CloseBlockPosFile();
 
-  int WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
+  int WriteContent(const uint8_t *value, uint32_t n_bytes, uint32_t start,
                    disk_io::AsyncWriter *disk_io,
                    std::atomic<uint32_t> *cur_size) override;
 
@@ -42,9 +42,9 @@ class StringBlock : public Block {
   int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) override;
 
   int WriteString(const char *value, str_len_t n_bytes, str_offset_t start,
-                  uint32_t &block_id, uint32_t &in_block_pos);
+                  uint32_t &block_id, in_block_pos_t &in_block_pos);
 
-  int Read(uint32_t block_id, uint32_t in_block_pos, str_len_t n_bytes,
+  int Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t n_bytes,
            std::string &str_out);
 
   static bool ReadString(uint32_t key, char *block, ReadFunParameter *param);
