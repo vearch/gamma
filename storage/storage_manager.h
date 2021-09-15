@@ -106,12 +106,12 @@ class StorageManager {
  private:
   std::string root_path_;
   std::string name_;
-  StorageManagerOptions options_;
   size_t size_;  // The total number of doc.
   // tbb::concurrent_vector<Segment *> segments_;
   tig_gamma::ConcurrentVector<uint8_t, Segment *> segments_;
   disk_io::AsyncWriter *disk_io_;
   BlockType block_type_;
+  StorageManagerOptions options_;
   LRUCache<uint32_t, ReadFunParameter *> *cache_;
   LRUCache<uint32_t, ReadFunParameter *> *str_cache_;
   Compressor *compressor_;

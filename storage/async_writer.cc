@@ -39,12 +39,7 @@ int AsyncWriter::Init() {
   }
   auto func_operate = std::bind(&AsyncWriter::WriterHandler, this);
   handler_thread_ = std::thread(func_operate);
-}
-
-static uint32_t WritenSize(int fd) {
-  uint32_t size;
-  pread(fd, &size, sizeof(size), sizeof(uint8_t) + sizeof(uint32_t));
-  return size;
+  return 0;
 }
 
 static void UpdateSize(int fd, std::atomic<uint32_t> *cur_size, int num) {
@@ -55,7 +50,7 @@ static void UpdateSize(int fd, std::atomic<uint32_t> *cur_size, int num) {
 
 int AsyncWriter::WriterHandler() {
   int bulk_size = 1000;
-  int bulk_bytes = 1 * 1024 * 1024;  // TODO check overflow
+  size_t bulk_bytes = 1 * 1024 * 1024;  // TODO check overflow
   uint8_t *buffer = new uint8_t[bulk_bytes];
 
   while (running_) {
@@ -84,7 +79,7 @@ int AsyncWriter::WriterHandler() {
       delete[] writer_structs[0]->data;
       delete writer_structs[0];
 
-      for (size_t i = 1; i < size; ++i) {
+      for (int i = 1; i < size; ++i) {
         int fd = writer_structs[i]->fd;
         uint8_t *data = writer_structs[i]->data;
         uint32_t len = writer_structs[i]->len;

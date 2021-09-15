@@ -307,7 +307,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
 
   if ((not brute_force_search) && (index_status_ != IndexStatus::INDEXED)) {
     string msg = "index not trained!";
-    LOG(ERROR) << msg;
+    LOG(WARNING) << msg;
     for (int i = 0; i < req_num; ++i) {
       SearchResult result;
       result.msg = msg;
@@ -533,7 +533,7 @@ int GammaEngine::CreateTable(TableInfo &table) {
       }
       char *buf = new char[len + 1];
       buf[len] = '\0';
-      if (len != fio.Read(buf, 1, len)) {
+      if ((size_t)len != fio.Read(buf, 1, (size_t)len)) {
         LOG(ERROR) << "read file error, path=" << dump_meta_path;
         return IO_ERR;
       }
@@ -1050,7 +1050,6 @@ int GammaEngine::BuildFieldIndex() {
       usleep(5000 * 1000);  // sleep 5000ms
       continue;
     }
-    int lastest_num = max_docid_;
 
 #pragma omp parallel for
     for (int i = 0; i < field_num; ++i) {
@@ -1320,7 +1319,6 @@ int GammaEngine::PackResults(const GammaResult *gamma_results,
     result.result_items.resize(gamma_results[i].results_count);
 
     for (int j = 0; j < gamma_results[i].results_count; ++j) {
-      int docid = gamma_results[i].docs[j]->docid;
       VectorDoc *vec_doc = gamma_results[i].docs[j];
       struct ResultItem result_item;
       PackResultItem(vec_doc, request, result_item);

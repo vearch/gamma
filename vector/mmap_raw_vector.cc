@@ -36,11 +36,10 @@ MmapRawVector::~MmapRawVector() { CHECK_DELETE(storage_mgr_); }
 
 int MmapRawVector::InitStore(std::string &vec_name) {
   std::string vec_dir = root_path_ + "/" + meta_info_->Name();
-  uint32_t var = 0;
-  --var;
+  uint32_t var = std::numeric_limits<uint32_t>::max();
   uint32_t max_seg_size = var / vector_byte_size_;
   uint32_t seg_block_capacity = 2000000;
-  if (max_seg_size < store_params_.segment_size) {
+  if ((int)max_seg_size < store_params_.segment_size) {
     store_params_.segment_size = max_seg_size;
     seg_block_capacity = 4000000000 / (1000000000 / max_seg_size + 1) - 1;
     LOG(INFO) << "Because the vector length is too long, segment_size becomes "
@@ -112,3 +111,4 @@ int MmapRawVector::GetVector(long vid, const uint8_t *&vec,
 }
 
 }  // namespace tig_gamma
+

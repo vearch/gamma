@@ -92,7 +92,7 @@ class GammaEngine {
   }
 
   int BatchDocsPrepare(char *doc_str, int idx) {
-    if (idx >= batch_docs_.size()) {
+    if (idx >= (int)batch_docs_.size()) {
       LOG(ERROR) << "idx [" << idx << "] > batch_docs size ["
                  << batch_docs_.size() << "]";
       return -1;

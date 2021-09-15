@@ -399,7 +399,7 @@ class LRUCache {
       bool res = GetImpl(key, value);
       if (res) {
         // pthread_rwlock_unlock(&rw_lock_);
-        ++set_hits_;
+        ++hits_;
         return true;
       }
 
@@ -412,6 +412,7 @@ class LRUCache {
       // pthread_rwlock_unlock(&rw_lock_);
     }
 
+    ++misses_;
     InsertInfo *insert = ptr_insert.get();
     std::lock_guard<std::mutex> insert_lck(insert->mtx_);
 
@@ -496,6 +497,16 @@ class LRUCache {
     --cur_size_;
     ++evict_num_;
     // pthread_rwlock_unlock(&rw_lock_);
+  }
+
+  void Update(Key key, const char *buffer, int len, int begin_pos) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    auto ite = cells_.find(key);
+    if (ite == cells_.end()) {
+      return;
+    }
+    Cell &cell = ite->second;
+    memcpy(cell.value + begin_pos, buffer, len);
   }
 
   void AlterCacheSize(size_t cache_size) {

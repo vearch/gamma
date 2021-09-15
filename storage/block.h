@@ -77,11 +77,9 @@ class Block {
 
   uint32_t per_block_size_;
 
-  const std::atomic<uint32_t> *cur_size_;
-
-  uint32_t max_size_;
-
   uint32_t item_length_;
+
+  uint32_t header_size_;
 
   uint32_t seg_block_capacity_;
 
@@ -89,7 +87,9 @@ class Block {
 
   std::string name_;
 
-  uint32_t header_size_;
+  const std::atomic<uint32_t> *cur_size_;
+
+  uint32_t max_size_;
 
   uint32_t last_bid_in_disk_;
 };

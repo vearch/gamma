@@ -90,7 +90,9 @@ int StringBlock::WriteString(const char *value, str_len_t n_bytes,
   if (block_pos_.Size() == 0) {
     AddBlockPos(0);
   }
-  in_block_pos = start - block_pos_.GetLastData();
+  uint32_t block_pos = 0;
+  block_pos_.GetLastData(block_pos);
+  in_block_pos = start - block_pos;
   uint32_t block_len = (uint32_t)in_block_pos;
   block_len += (uint32_t)n_bytes;
   if (block_len >= per_block_size_) {
@@ -105,7 +107,9 @@ int StringBlock::WriteString(const char *value, str_len_t n_bytes,
 int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t n_bytes,
                       std::string &str_out) {
   if (str_lru_cache_ == nullptr) {
-    uint32_t off = block_pos_.GetData(block_id) + in_block_pos;
+    uint32_t block_pos = 0;
+    block_pos_.GetData(block_id, block_pos);
+    uint32_t off = block_pos + in_block_pos;
     char *tmp_buf = new char[n_bytes];
     pread(fd_, tmp_buf, n_bytes, off);
     str_out = std::string(tmp_buf, n_bytes);
@@ -113,7 +117,8 @@ int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t 
     return 0;
   }
 
-  uint32_t block_pos = block_pos_.GetData(block_id);
+  uint32_t block_pos = 0;
+  block_pos_.GetData(block_id, block_pos);
   uint32_t block_num = block_pos_.Size();
 
   // The last block of each segment does not enter the cache.
@@ -127,9 +132,14 @@ int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t 
     char *block = nullptr;
     uint32_t cache_bid = GetCacheBlockId(block_id);
     ReadFunParameter parameter;
-    parameter.fd = fd_;      
-    parameter.len = block_pos_.GetData(block_id + 1) - block_pos_.GetData(block_id);
-    parameter.offset = block_pos_.GetData(block_id);
+    parameter.fd = fd_;
+    uint32_t front_b_pos = 0;
+    uint32_t back_b_pos = 0;
+    block_pos_.GetData(block_id + 1, back_b_pos);
+    block_pos_.GetData(block_id, front_b_pos);
+
+    parameter.len = back_b_pos - front_b_pos;
+    parameter.offset = front_b_pos;
     bool res = str_lru_cache_->SetOrGet(cache_bid, block, &parameter);
 
     if (not res || block == nullptr) {

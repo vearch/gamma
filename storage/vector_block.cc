@@ -71,7 +71,7 @@ int VectorBlock::WriteContent(const uint8_t *value, uint32_t n_bytes,
 #endif
 
   disk_io->Set(header_size_, vec_item_len_);
-  struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct;
+  struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct();
   write_struct->fd = fd_;
   write_struct->data = new uint8_t[vec_item_len_];
   memcpy(write_struct->data, value, vec_item_len_);
@@ -229,6 +229,7 @@ int VectorBlock::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) 
   if (lru_cache_ == nullptr) {
     return 0;
   }
+  uint32_t update_len = 0;
   while (n_bytes) {
     uint32_t len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;
@@ -239,11 +240,12 @@ int VectorBlock::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) 
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
 
-    uint32_t cache_block_id = seg_id_ * seg_block_capacity_ + block_id;
-    lru_cache_->Evict(cache_block_id);
+    uint32_t cache_block_id = GetCacheBlockId(block_id);
+    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len, block_offset);
 
     start += len;
     n_bytes -= len;
+    update_len += len;
   }
   return 0;
 }
