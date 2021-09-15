@@ -20,7 +20,7 @@ namespace tig_gamma {
 class StringBlock : public Block {
  public:
   StringBlock(int fd, int per_block_size, int length, uint32_t header_size,
-              uint32_t seg_id, std::string name, uint32_t seg_block_capacity_);
+              uint32_t seg_id, std::string name, uint32_t seg_block_capacity);
 
   ~StringBlock();
 

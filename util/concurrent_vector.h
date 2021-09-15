@@ -120,14 +120,26 @@ class ConcurrentVector {
     return grp[id % grp_gap_];
   }
 
-  Value GetLastData() {
+  bool GetData(uint32_t id, Value &value) {
+    if (id  >= size_) {
+      LOG(ERROR) << "ConcurrentVector[" << name_ << "], id[" << id
+                 << "] >= size[" << size_ << "]";
+      return false;
+    }
+    Value *grp = grps_[id / grp_gap_];
+    value = grp[id % grp_gap_];
+    return true;
+  }
+
+  bool GetLastData(Value &value) {
     if (grp_num_ == 0) {
       LOG(WARNING) << "ConcurrentVector[" << name_
                    << "] is empty, GetLastData failed.";
-      return 0;
+      return false;
     }
     Value *grp = grps_[(size_ - 1) / grp_gap_];
-    return grp[(size_ - 1) % grp_gap_];
+    value = grp[(size_ - 1) % grp_gap_];
+    return true;
   }
 
   bool Resize(uint32_t size) {

@@ -105,6 +105,7 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
 int Block::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) {
   pwrite(fd_, value, n_bytes, header_size_ + start);
 
+  uint32_t update_len = 0;
   while (n_bytes) {
     uint32_t len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;
@@ -115,18 +116,20 @@ int Block::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) {
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
 
-    uint32_t cache_block_id = seg_id_ * seg_block_capacity_ + block_id;
-    lru_cache_->Evict(cache_block_id);
+    uint32_t cache_block_id = GetCacheBlockId(block_id);
+    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len, block_offset);
+
 
     start += len;
     n_bytes -= len;
+    update_len += len;
   }
   return 0;
 }
 
 void Block::SegmentIsFull() {
-  last_bid_in_disk_ = (*cur_size_) * item_length_ / per_block_size_;
-  ++last_bid_in_disk_;
+  // last_bid_in_disk_ = (*cur_size_) * item_length_ / per_block_size_;
+  // ++last_bid_in_disk_;
 }
 
 int32_t Block::GetCacheBlockId(uint32_t block_id) {

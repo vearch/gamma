@@ -31,7 +31,7 @@ class VectorBlock : public Block {
   static bool ReadBlock(uint32_t key, char *block,
                         ReadFunParameter *param);
 
-  int WriteContent(const uint8_t *data, uint32_t n_types, uint32_t start,
+  int WriteContent(const uint8_t *data, uint32_t n_bytes, uint32_t start,
                    disk_io::AsyncWriter *disk_io,
                    std::atomic<uint32_t> *cur_size) override;
 

@@ -34,7 +34,7 @@ class Segment {
 
   int Add(const uint8_t *vec, int len);
 
-  str_offset_t AddString(const char *vec, str_len_t len, uint32_t &block_id,
+  str_offset_t AddString(const char *str, str_len_t len, uint32_t &block_id,
                          in_block_pos_t &in_block_pos);
 
   int GetValues(uint8_t *value, int id, int size);
@@ -86,11 +86,12 @@ class Segment {
   int InitBlock(std::string name, BlockType block_type, Compressor *compressor);
 
  private:
-  uint32_t seg_id_;
   std::string file_path_;
+  uint32_t seg_id_;
+  uint32_t max_size_;                    // a segment max docs num
+  uint32_t item_length_;
   uint32_t seg_block_capacity_;
 
-  int max_size_;                        // a segment max docs num
   std::atomic<uint32_t> cur_size_ {0};  // For this segment, the number of docs written to disk.
                                         // Block can read it. Async_write can write/read it.
 
@@ -101,8 +102,6 @@ class Segment {
 
   uint64_t seg_header_size_;
   uint8_t version_;
-
-  uint32_t item_length_;
 
   int base_fd_;
   int str_fd_;

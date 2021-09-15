@@ -58,7 +58,7 @@ int MemoryRawVector::AddToStore(uint8_t *v, int len) {
   }
 
   AddToMem((uint8_t *)svec.Get(), vector_byte_size_);
-  int total = meta_info_->Size();
+  // int total = meta_info_->Size();
   // rdb_.Put(total, (const char *)v, vector_byte_size_);
   return SUCC;
 }

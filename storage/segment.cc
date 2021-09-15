@@ -67,10 +67,10 @@ Segment::Segment(const std::string &file_path, uint32_t seg_id, int max_size,
       seg_id_(seg_id),
       max_size_(max_size),
       item_length_(vec_byte_size),
+      seg_block_capacity_(seg_block_capacity),
       disk_io_(disk_io),
       cache_(cache),
-      str_cache_(str_cache),
-      seg_block_capacity_(seg_block_capacity) {
+      str_cache_(str_cache) {
   base_fd_ = -1;
   str_fd_ = -1;
 
@@ -212,7 +212,11 @@ void Segment::SetStrCompressedSize(str_offset_t str_compressed_size) {
 int Segment::Init(std::string name, BlockType block_type,
                   Compressor *compressor) {
   OpenFile(block_type);
-  if (ftruncate(base_fd_, seg_header_size_ + item_length_ * max_size_)) {
+  uint32_t item_len = item_length_;
+  if (block_type == BlockType::VectorBlockType && compressor) {
+    item_len = compressor->GetCompressLen();
+  }
+  if (ftruncate(base_fd_, seg_header_size_ + item_len * max_size_)) {
     close(base_fd_);
     LOG(ERROR) << "truncate file error:" << strerror(errno);
     return IO_ERR;
@@ -310,9 +314,9 @@ int Segment::Add(const uint8_t *data, int len) {
 str_offset_t Segment::AddString(const char *str, str_len_t len, uint32_t &block_id,
                                 in_block_pos_t &in_block_pos) {
   if (str_offset_ + len >= str_capacity_) {
-    uint64_t extend_capacity = str_capacity_ << 1;
+    uint64_t extend_capacity = str_capacity_ * 1.3;
     while (str_offset_ + len >= extend_capacity) {
-      extend_capacity = extend_capacity << 1;
+      extend_capacity *= 1.3;
     }
 
     int ret = 0;

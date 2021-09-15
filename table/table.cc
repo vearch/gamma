@@ -277,8 +277,7 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
       }
       uint32_t block_id;
       in_block_pos_t in_block_pos;
-      str_offset_t str_offset = storage_mgr_->AddString(
-          field_value.value.c_str(), len, block_id, in_block_pos);
+      storage_mgr_->AddString(field_value.value.c_str(), len, block_id, in_block_pos);
 
       memcpy(doc_value + offset, &block_id, sizeof(block_id));
       memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
@@ -310,7 +309,7 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
 #endif
 
 #pragma omp parallel for
-  for (size_t i = 0; i < batch_size; ++i) {
+  for (int i = 0; i < batch_size; ++i) {
     int id = docid + i;
     Doc &doc = doc_vec[start_id + i];
 
@@ -333,7 +332,7 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
     }
   }
 
-  for (size_t i = 0; i < batch_size; ++i) {
+  for (int i = 0; i < batch_size; ++i) {
     int id = docid + i;
     Doc &doc = doc_vec[start_id + i];
     std::vector<Field> &fields = doc.TableFields();
@@ -364,8 +363,7 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
 
         uint32_t block_id;
         in_block_pos_t in_block_pos;
-        str_offset_t str_offset = storage_mgr_->AddString(
-            field_value.value.c_str(), len, block_id, in_block_pos);
+        storage_mgr_->AddString(field_value.value.c_str(), len, block_id, in_block_pos);
 
         memcpy(doc_value + offset, &block_id, sizeof(block_id));
         memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
@@ -436,8 +434,7 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
       
       uint32_t block_id;
       in_block_pos_t in_block_pos;
-      str_offset_t res = storage_mgr_->UpdateString(
-          docid, field_value.value.c_str(), len, block_id, in_block_pos);
+      storage_mgr_->UpdateString(docid, field_value.value.c_str(), len, block_id, in_block_pos);
       memcpy(doc_value + offset, &block_id, sizeof(block_id));
       memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
              sizeof(in_block_pos));
@@ -538,6 +535,7 @@ int Table::GetFieldRawValue(int docid, const std::string &field_name,
     return -1;
   }
   GetFieldRawValue(docid, iter->second, value, doc_v);
+  return 0;
 }
 
 int Table::GetFieldRawValue(int docid, int field_id, std::string &value,

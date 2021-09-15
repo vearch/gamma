@@ -651,6 +651,7 @@ int BuildEngineIndex() {
   string docid = "1";
   GetDocByID(opt.engine, docid.c_str(), docid.size(), &doc_str, &doc_str_len);
   tig_gamma::Doc doc;
+  doc.SetEngine((tig_gamma::GammaEngine *)opt.engine);
   doc.Deserialize(doc_str, doc_str_len);
   LOG(INFO) << "Doc fields [" << doc.TableFields().size() << "]";
   free(doc_str);

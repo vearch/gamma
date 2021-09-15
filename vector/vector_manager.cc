@@ -797,8 +797,7 @@ int VectorManager::AlterCacheSize(struct CacheInfo &cache_info) {
 }
 
 int VectorManager::GetAllCacheSize(Config &conf) {
-  auto ite = raw_vectors_.begin();
-  for (ite; ite != raw_vectors_.end(); ++ite) {
+  for (auto ite = raw_vectors_.begin(); ite != raw_vectors_.end(); ++ite) {
     RawVector *raw_vec = ite->second;
     uint32_t cache_size = 0;
     if (0 != raw_vec->GetCacheSize(cache_size)) continue;

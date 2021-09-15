@@ -28,7 +28,8 @@ StorageManager::StorageManager(const std::string &root_path,
 
 StorageManager::~StorageManager() {
   for (size_t i = 0; i < segments_.Size(); i++) {
-    Segment *seg = segments_.GetData(i);
+    Segment *seg = nullptr;
+    segments_.GetData(i, seg);
     CHECK_DELETE(seg);
   }
   CHECK_DELETE(disk_io_);
@@ -192,7 +193,8 @@ int StorageManager::Add(const uint8_t *value, int len) {
     return PARAM_ERR;
   }
 
-  Segment *segment = segments_.GetLastData();
+  Segment *segment = nullptr;
+  segments_.GetLastData(segment);
   int ret = segment->Add(value, len);
   if (ret) {
     LOG(ERROR) << "Storage[" << name_ << "] segment add error[" << ret << "]";
@@ -210,7 +212,8 @@ int StorageManager::Add(const uint8_t *value, int len) {
 str_offset_t StorageManager::AddString(const char *value, str_len_t len,
                                        uint32_t &block_id,
                                        in_block_pos_t &in_block_pos) {
-  Segment *segment = segments_.GetLastData();
+  Segment *segment = nullptr;
+  segments_.GetLastData(segment);
   str_offset_t ret = segment->AddString(value, len, block_id, in_block_pos);
   return ret;
 }
@@ -227,7 +230,8 @@ int StorageManager::GetHeaders(int start_id, int n,
     int id = start_id % options_.segment_size;
     int len = options_.segment_size - id;
     if (len > n) len = n;
-    Segment *segment = segments_.GetData(start_id / options_.segment_size);
+    Segment *segment = nullptr;
+    segments_.GetData(start_id / options_.segment_size, segment);
     if (segment == nullptr) {
       LOG(ERROR) << "Storage[" << name_ << "], segments_size["
                  << segments_.Size() << "], seg_id[" << start_id / options_.segment_size
@@ -258,7 +262,8 @@ int StorageManager::Update(int id, uint8_t *value, int len) {
                << "] >= size_ [" << size_ << "]";
     return PARAM_ERR;
   }
-  Segment *segment = segments_.GetData(id / options_.segment_size);
+  Segment *segment = nullptr;
+  segments_.GetData(id / options_.segment_size, segment);
   if (segment == nullptr) {
     LOG(ERROR) << "Storage[" << name_ << "], segments_size["
                << segments_.Size() << "], seg_id[" << id / options_.segment_size
@@ -277,7 +282,8 @@ str_offset_t StorageManager::UpdateString(int id, const char *value, str_len_t l
     return PARAM_ERR;
   }
   int seg_id = id / options_.segment_size;
-  Segment *segment = segments_.GetData(seg_id);
+  Segment *segment = nullptr;
+  segments_.GetData(seg_id, segment);
   if (segment == nullptr) {
     LOG(ERROR) << "Storage[" << name_ << "], segments_size["
                << segments_.Size() << "], seg_id[" << seg_id
@@ -296,7 +302,8 @@ int StorageManager::Get(int id, const uint8_t *&value) {
   }
 
   int seg_id = id / options_.segment_size;
-  Segment *segment = segments_.GetData(seg_id);
+  Segment *segment = nullptr;
+  segments_.GetData(seg_id, segment);
   if (segment == nullptr) {
     LOG(ERROR) << "Storage[" << name_ << "], segments_size["
                << segments_.Size() << "], seg_id[" << seg_id
@@ -318,7 +325,8 @@ int StorageManager::GetString(int id, std::string &value, uint32_t block_id,
     return PARAM_ERR;
   }
   int seg_id = id / options_.segment_size;
-  Segment *segment = segments_.GetData(seg_id);
+  Segment *segment = nullptr;
+  segments_.GetData(seg_id, segment);
   if (segment == nullptr) {
     LOG(ERROR) << "Storage[" << name_ << "], segments_size["
                << segments_.Size() << "], seg_id[" << seg_id
@@ -347,14 +355,17 @@ int StorageManager::Truncate(size_t size) {
 
   if (segments_.Size() > seg_num) {
     for (size_t i = seg_num; i < segments_.Size(); ++i) {
-      delete segments_.GetData(i);
+      Segment *seg = nullptr;
+      segments_.GetData(i, seg);
+      if (seg) delete seg;
       segments_.ResetData(i, nullptr);
     }
   }
 
   segments_.Resize(seg_num);
   if (offset > 0) {
-    Segment *seg = segments_.GetLastData();
+    Segment *seg = nullptr;
+    segments_.GetLastData(seg);
     seg->SetBaseSize((uint32_t)offset);
   }
   size_ = size;
@@ -363,7 +374,8 @@ int StorageManager::Truncate(size_t size) {
     return INTERNAL_ERR;
   }
 
-  Segment *segment = segments_.GetLastData();
+  Segment *segment = nullptr;
+  segments_.GetLastData(segment);
   if (segment && segment->IsFull() && Extend()) {
     LOG(ERROR) << "Storage[" << name_ << "] extend error";
     return INTERNAL_ERR;
@@ -379,7 +391,8 @@ void StorageManager::CountByteSize(uint64_t &base_size, uint64_t &str_size) {
   str_size = 0;
   int n = segments_.Size();
   for (int i = 0; i < n; ++i) {
-    Segment *seg = segments_.GetData(i);
+    Segment *seg = nullptr;
+    segments_.GetData(i, seg);
     uint32_t base_off = seg->BaseOffset();
     str_offset_t str_off = seg->StrOffset();
     base_size += base_off;

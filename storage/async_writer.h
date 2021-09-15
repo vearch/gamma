@@ -16,6 +16,7 @@ namespace tig_gamma {
 namespace disk_io {
 
 struct WriterStruct {
+  WriterStruct() {}
   int fd;
   uint8_t *data;
   uint32_t start;

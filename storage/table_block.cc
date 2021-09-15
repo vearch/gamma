@@ -31,7 +31,7 @@ int TableBlock::WriteContent(const uint8_t *value, uint32_t n_bytes, uint32_t st
                              disk_io::AsyncWriter *disk_io,
                              std::atomic<uint32_t> *cur_size) {
   disk_io->Set(header_size_, item_length_);
-  struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct;
+  struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct();
   write_struct->fd = fd_;
   write_struct->data = new uint8_t[n_bytes];
   memcpy(write_struct->data, value, n_bytes);
