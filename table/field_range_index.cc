@@ -175,14 +175,6 @@ class Node {
 
   int AddSparse(int val, ResourceQueue *res_q) {
     int op_len = sizeof(BM_OPERATE_TYPE) * 8;
-    min_ = std::min(min_, val);
-    max_ = std::max(max_, val);
-    if (val < min_aligned_) {
-      min_aligned_ = (val / op_len) * op_len;
-    }
-    if (val > max_aligned_) {
-      max_aligned_ = (val / op_len + 1) * op_len - 1;
-    }
 
     if (capacity_ == 0) {
       capacity_ = 1;
@@ -206,6 +198,14 @@ class Node {
     data_sparse_[size_] = val;
 
     ++size_;
+    min_ = std::min(min_, val);
+    max_ = std::max(max_, val);
+    if (val < min_aligned_) {
+      min_aligned_ = (val / op_len) * op_len;
+    }
+    if (val > max_aligned_) {
+      max_aligned_ = (val / op_len + 1) * op_len - 1;
+    }
     return 0;
   }
 
@@ -407,6 +407,7 @@ class FieldRangeIndex {
   bool is_numeric_;
   char *kDelim_;
   std::string path_;
+  pthread_rwlock_t rw_lock_;
 };
 
 FieldRangeIndex::FieldRangeIndex(std::string &path, int field_idx,
@@ -439,6 +440,11 @@ FieldRangeIndex::FieldRangeIndex(std::string &path, int field_idx,
     is_numeric_ = true;
   }
   kDelim_ = const_cast<char *>(bt_param.kDelim);
+
+  int ret = pthread_rwlock_init(&rw_lock_, nullptr);
+  if (ret != 0) {
+    LOG(ERROR) << "init lock failed[";
+  }
 }
 
 FieldRangeIndex::~FieldRangeIndex() {
@@ -510,6 +516,7 @@ FieldRangeIndex::~FieldRangeIndex() {
     bt_mgrclose(main_mgr_);
     main_mgr_ = nullptr;
   }
+  pthread_rwlock_destroy(&rw_lock_);
 }
 
 static int ReverseEndian(const unsigned char *in, unsigned char *out,
@@ -540,6 +547,7 @@ int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
 
         if (ret < 0) {
           p_node = new Node;
+          p_node->Add(value, res_q);
 #ifdef __APPLE__
           BTERR bterr = bt_insertkey(bt, key_to_add, key_len, 0,
                                      static_cast<void *>(&p_node),
@@ -555,8 +563,11 @@ int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
             LOG(ERROR) << "Error " << bt->mgr->err;
           }
 #endif
+        } else {
+          pthread_rwlock_wrlock(&rw_lock_);
+          p_node->Add(value, res_q);
+          pthread_rwlock_unlock(&rw_lock_);
         }
-        p_node->Add(value, res_q);
       };
 
   if (is_numeric_) {
@@ -599,7 +610,9 @@ int FieldRangeIndex::Delete(std::string &key, int value, ResourceQueue *res_q) {
           LOG(ERROR) << "Cannot find docid [" << value << "] in range index";
           return;
         }
+        pthread_rwlock_wrlock(&rw_lock_);
         p_node->Delete(value, res_q);
+        pthread_rwlock_unlock(&rw_lock_);
       };
 
   if (is_numeric_) {
@@ -650,6 +663,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
   int min_aligned = std::numeric_limits<int>::max();
   int max_doc = 0;
   int max_aligned = 0;
+  pthread_rwlock_rdlock(&rw_lock_);
 #ifdef __APPLE__
   uint slot = bt_startkey(bt, key_l, lower.length());
   while (slot) {
@@ -701,6 +715,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
   double search_bt = utils::getmillisecs();
 #endif
   if (max_doc - min_doc + 1 <= 0) {
+    pthread_rwlock_unlock(&rw_lock_);
     return 0;
   }
 
@@ -753,6 +768,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
       }
     }
   }
+  pthread_rwlock_unlock(&rw_lock_);
 
   result->SetDocNum(total);
 
@@ -804,6 +820,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   double fend = utils::getmillisecs();
 #endif
 
+  pthread_rwlock_rdlock(&rw_lock_);
   int min_doc = std::numeric_limits<int>::max();
   int max_doc = 0;
   for (size_t i = 0; i < items.size(); ++i) {
@@ -813,6 +830,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   }
 
   if (max_doc - min_doc + 1 <= 0) {
+    pthread_rwlock_unlock(&rw_lock_);
     return 0;
   }
 
@@ -846,6 +864,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
     }
     total += p_node->Size();
   }
+  pthread_rwlock_unlock(&rw_lock_);
   result->SetDocNum(total);
 
 #ifdef DEBUG
@@ -1016,6 +1035,10 @@ int MultiFieldsRangeIndex::Delete(int docid, int field) {
   }
   FieldOperate *field_op = new FieldOperate(FieldOperate::DELETE, docid, field);
   table_->GetFieldRawValue(docid, field, field_op->value);
+
+  while (field_operate_q_->size()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
 
   field_operate_q_->push(field_op);
 
