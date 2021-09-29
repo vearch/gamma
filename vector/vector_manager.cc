@@ -5,10 +5,10 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#include "vector_manager.h"
+#include "vector/vector_manager.h"
 
 #include "raw_vector_factory.h"
-#include "utils.h"
+#include "util/utils.h"
 
 using namespace std;
 

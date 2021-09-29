@@ -19,7 +19,7 @@
 #include <vector>
 #include <random>
 
-#include "cJSON.h"
+#include "cjson/cJSON.h"
 
 #define CHECK_DELETE(ptr) \
   {                       \

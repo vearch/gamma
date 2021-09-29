@@ -22,7 +22,7 @@
 #include "c_api/api_data/gamma_table.h"
 #include "c_api/api_data/gamma_config.h"
 #include "test.h"
-#include "utils.h"
+#include "util/utils.h"
 
 /**
  * To run this demo, please download the ANN_SIFT10K dataset from

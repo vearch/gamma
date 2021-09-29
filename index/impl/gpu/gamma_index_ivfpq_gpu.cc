@@ -25,7 +25,7 @@
 #include <set>
 #include <vector>
 
-#include "bitmap.h"
+#include "util/bitmap.h"
 #include "gamma_api.h"
 #include "gamma_gpu_cloner.h"
 #include "gamma_index_ivfpq.h"

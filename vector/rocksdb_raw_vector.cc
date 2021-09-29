@@ -11,10 +11,10 @@
 
 #include <stdio.h>
 
-#include "error_code.h"
-#include "log.h"
+#include "search/error_code.h"
+#include "util/log.h"
 #include "rocksdb/table.h"
-#include "utils.h"
+#include "util/utils.h"
 
 using namespace rocksdb;
 

@@ -26,10 +26,10 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/utils/Heap.h>
 #include <faiss/utils/utils.h>
-#include "error_code.h"
-#include "gamma_common_data.h"
+#include "search/error_code.h"
+#include "common/gamma_common_data.h"
 #include "gamma_index_ivfflat.h"
-#include "rocksdb_raw_vector.h"
+#include "vector/rocksdb_raw_vector.h"
 
 namespace tig_gamma {
 

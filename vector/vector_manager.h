@@ -12,11 +12,11 @@
 #include <map>
 #include <string>
 
-#include "api_data/gamma_config.h"
-#include "gamma_common_data.h"
-#include "log.h"
-#include "raw_vector.h"
-#include "retrieval_model.h"
+#include "c_api/api_data/gamma_config.h"
+#include "common/gamma_common_data.h"
+#include "util/log.h"
+#include "vector/raw_vector.h"
+#include "index/retrieval_model.h"
 
 namespace tig_gamma {
 

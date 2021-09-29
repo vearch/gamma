@@ -10,18 +10,18 @@
 #include <condition_variable>
 #include <string>
 
-#include "api_data/gamma_batch_result.h"
-#include "api_data/gamma_doc.h"
-#include "api_data/gamma_docs.h"
-#include "api_data/gamma_engine_status.h"
-#include "api_data/gamma_request.h"
-#include "api_data/gamma_response.h"
-#include "api_data/gamma_table.h"
-#include "async_flush.h"
-#include "field_range_index.h"
-#include "table.h"
-#include "vector_manager.h"
-#include "bitmap_manager.h"
+#include "c_api/api_data/gamma_batch_result.h"
+#include "c_api/api_data/gamma_doc.h"
+#include "c_api/api_data/gamma_docs.h"
+#include "c_api/api_data/gamma_engine_status.h"
+#include "c_api/api_data/gamma_request.h"
+#include "c_api/api_data/gamma_response.h"
+#include "c_api/api_data/gamma_table.h"
+#include "common/async_flush.h"
+#include "table/field_range_index.h"
+#include "table/table.h"
+#include "vector/vector_manager.h"
+#include "util/bitmap_manager.h"
 
 namespace tig_gamma {
 

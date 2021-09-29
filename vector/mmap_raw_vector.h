@@ -11,8 +11,8 @@
 #include <string>
 #include <thread>
 
-#include "raw_vector.h"
-#include "storage_manager.h"
+#include "vector/raw_vector.h"
+#include "storage/storage_manager.h"
 
 namespace tig_gamma {
 

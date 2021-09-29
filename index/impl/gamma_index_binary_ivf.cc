@@ -7,7 +7,7 @@
 
 #include "gamma_index_binary_ivf.h"
 
-#include "error_code.h"
+#include "search/error_code.h"
 #include "faiss/IndexBinaryFlat.h"
 #include "faiss/utils/hamming.h"
 

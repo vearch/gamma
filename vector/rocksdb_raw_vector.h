@@ -11,7 +11,7 @@
 
 #include <string>
 #include <vector>
-#include "raw_vector.h"
+#include "vector/raw_vector.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"

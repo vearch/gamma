@@ -12,10 +12,10 @@
 #include "field_range_index.h"
 #include "gamma_gpu_cloner.h"
 #include "gamma_index_ivfpq.h"
-#include "log.h"
-#include "raw_vector.h"
-#include "retrieval_model.h"
-#include "utils.h"
+#include "util/log.h"
+#include "vector/raw_vector.h"
+#include "index/retrieval_model.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 namespace gamma_gpu {

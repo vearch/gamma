@@ -9,9 +9,9 @@
 
 #include <vector>
 
-#include "gamma_common_data.h"
+#include "common/gamma_common_data.h"
 #include "gamma_raw_data.h"
-#include "response_generated.h"
+#include "idl/fbs-gen/c/response_generated.h"
 
 namespace tig_gamma {
 

@@ -13,7 +13,7 @@
 #include <map>
 #include <vector>
 
-#include "bitmap.h"
+#include "util/bitmap.h"
 #include "faiss/Index.h"
 #include "faiss/IndexIVF.h"
 #include "realtime_mem_data.h"

@@ -12,15 +12,15 @@
 #include "raw_vector.h"
 
 #ifdef WITH_ROCKSDB
-#include "rocksdb_raw_vector.h"
-#include "rocksdb_raw_vector_io.h"
+#include "vector/rocksdb_raw_vector.h"
+#include "io/rocksdb_raw_vector_io.h"
 #endif  // WITH_ROCKSDB
 
 #include <string>
-#include "gamma_common_data.h"
+#include "common/gamma_common_data.h"
 
-#include "memory_raw_vector_io.h"
-#include "mmap_raw_vector_io.h"
+#include "io/memory_raw_vector_io.h"
+#include "io/mmap_raw_vector_io.h"
 
 namespace tig_gamma {
 

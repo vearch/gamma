@@ -5,9 +5,9 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "error_code.h"
-#include "log.h"
-#include "utils.h"
+#include "search/error_code.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 struct AsyncFlusher {
   AsyncFlusher(std::string name) : name_(name) { nflushed_ = 0; }

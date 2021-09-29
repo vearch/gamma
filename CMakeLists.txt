@@ -20,7 +20,6 @@ set(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 set(BTREE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/btree)
 set(CJSON ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson)
 set(EASYLOGGINGPP ${CMAKE_CURRENT_SOURCE_DIR}/third_party/easyloggingpp)
-set(HASHTABLE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libcuckoo)
 set(UTIL ${CMAKE_CURRENT_SOURCE_DIR}/util)
 set(COMMON ${CMAKE_CURRENT_SOURCE_DIR}/common)
 set(GAMMA_SEARCH ${CMAKE_CURRENT_SOURCE_DIR}/search)
@@ -35,7 +34,6 @@ set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
 set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
 set(GAMMA_C_API ${CMAKE_CURRENT_SOURCE_DIR}/c_api)
 set(GAMMA_IO ${CMAKE_CURRENT_SOURCE_DIR}/io)
-set(FLATBUFFERS_OUT ${CMAKE_CURRENT_SOURCE_DIR}/idl/fbs-gen)
 
 if(APPLE)
     set(CMAKE_C_COMPILER "/usr/local/opt/llvm/bin/clang")
@@ -71,28 +69,11 @@ ENDIF (DEFINED ENV{ZFP_HOME})
 
 #INCLUDE DIR
 include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${THIRDPARTY}
     ${BTREE}
-    ${CJSON}
-    ${EASYLOGGINGPP}
-    ${HASHTABLE}
-    ${UTIL}
-    ${COMMON}
-    ${GAMMA_TABLE}
-    ${GAMMA_SEARCH}
-    ${GAMMA_INDEX}
-    ${GAMMA_INDEX_IMPL}
-    ${GAMMA_INDEX_IMPL_HNSWLIB}
-    ${GAMMA_INDEX_IMPL_SSG}
-    ${GAMMA_VECTOR}
-    ${STORAGE}
-    ${STORAGE_COMPRESS}
-    ${GAMMA_REALTIME}
-    ${GAMMA_C_API}
-    ${GAMMA_IO}
     ${THIRDPARTY}/faiss/include
     ${RocksDB_INCLUDE_DIR}
-    ${FLATBUFFERS_OUT}/c
     ${ZFP_INCLUDE_DIR}
 )
 

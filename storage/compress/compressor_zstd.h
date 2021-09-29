@@ -10,7 +10,7 @@
 #include <zstd.h>
 
 #include "compressor.h"
-#include "log.h"
+#include "util/log.h"
 
 namespace tig_gamma {
 

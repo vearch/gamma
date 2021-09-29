@@ -26,8 +26,8 @@
 #include <sstream>
 #include <typeinfo>
 
-#include "bitmap.h"
-#include "log.h"
+#include "util/bitmap.h"
+#include "util/log.h"
 
 #ifdef __APPLE__
 #include "threadskv8.h"
@@ -35,8 +35,8 @@
 #include "threadskv10h.h"
 #endif
 
-#include "error_code.h"
-#include "utils.h"
+#include "search/error_code.h"
+#include "util/utils.h"
 
 using std::string;
 using std::vector;

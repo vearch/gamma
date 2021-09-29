@@ -3,8 +3,8 @@
 #pragma once
 
 #include <string>
-#include "async_flush.h"
-#include "memory_raw_vector.h"
+#include "common/async_flush.h"
+#include "vector/memory_raw_vector.h"
 #include "raw_vector_io.h"
 
 namespace tig_gamma {

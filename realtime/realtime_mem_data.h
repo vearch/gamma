@@ -13,7 +13,7 @@
 #include <atomic>
 #include <string>
 #include <vector>
-#include "raw_vector_common.h"
+#include "vector/raw_vector_common.h"
 
 namespace tig_gamma {
 

@@ -7,17 +7,17 @@
 
 #pragma once
 
-#include <cuckoohash_map.hh>
+#include <libcuckoo/cuckoohash_map.hh>
 #include <map>
 #include <string>
 #include <vector>
 
-#include "api_data/gamma_batch_result.h"
-#include "api_data/gamma_doc.h"
-#include "api_data/gamma_table.h"
-#include "io_common.h"
-#include "log.h"
-#include "storage_manager.h"
+#include "c_api/api_data/gamma_batch_result.h"
+#include "c_api/api_data/gamma_doc.h"
+#include "c_api/api_data/gamma_table.h"
+#include "io/io_common.h"
+#include "util/log.h"
+#include "storage/storage_manager.h"
 #include "table_define.h"
 
 using namespace tig_gamma::table;
@@ -94,8 +94,8 @@ class Table {
   int GetDocInfo(std::string &id, Doc &doc, std::vector<std::string> &fields);
   int GetDocInfo(const int docid, Doc &doc, std::vector<std::string> &fields);
 
-  int GetFieldRawValue(int docid, const std::string &field_name, std::string &value,
-                       const uint8_t *doc_v = nullptr);
+  int GetFieldRawValue(int docid, const std::string &field_name,
+                       std::string &value, const uint8_t *doc_v = nullptr);
 
   int GetFieldRawValue(int docid, int field_id, std::string &value,
                        const uint8_t *doc_v = nullptr);
@@ -144,13 +144,13 @@ class Table {
   uint8_t string_field_num_;
   int key_idx_;  // key postion
 
-  std::map<int, std::string> idx_attr_map_; // <field_id, field_name>
-  std::map<std::string, int> attr_idx_map_; // <field_name, field_id>
-  std::map<std::string, DataType> attr_type_map_; // <field_name, field_type>
-  std::map<std::string, bool> attr_is_index_map_; // <field_name, is index>
+  std::map<int, std::string> idx_attr_map_;        // <field_id, field_name>
+  std::map<std::string, int> attr_idx_map_;        // <field_name, field_id>
+  std::map<std::string, DataType> attr_type_map_;  // <field_name, field_type>
+  std::map<std::string, bool> attr_is_index_map_;  // <field_name, is index>
   std::vector<int> idx_attr_offset_;
   std::vector<DataType> attrs_;
-  std::map<int, int> str_field_id_; // <field_id, str_field_id>
+  std::map<int, int> str_field_id_;  // <field_id, str_field_id>
 
   uint8_t id_type_;  // 0 string, 1 long, default 1
   bool b_compress_;

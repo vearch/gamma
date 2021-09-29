@@ -7,13 +7,13 @@
 
 #pragma once
 
-#include "field_range_index.h"
-#include "log.h"
-#include "online_logger.h"
-#include "raw_vector.h"
-#include "retrieval_model.h"
-#include "table.h"
-#include "utils.h"
+#include "table/field_range_index.h"
+#include "util/log.h"
+#include "util/online_logger.h"
+#include "vector/raw_vector.h"
+#include "index/retrieval_model.h"
+#include "table/table.h"
+#include "util/utils.h"
 #include <algorithm>
 
 namespace tig_gamma {

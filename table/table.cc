@@ -14,7 +14,7 @@
 #include <fstream>
 #include <string>
 
-#include "utils.h"
+#include "util/utils.h"
 #include "field_range_index.h"
 
 using std::move;

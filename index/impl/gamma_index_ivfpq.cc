@@ -23,13 +23,13 @@
 #include <stdexcept>
 #include <vector>
 
-#include "bitmap.h"
-#include "error_code.h"
+#include "util/bitmap.h"
+#include "search/error_code.h"
 #include "faiss/IndexFlat.h"
-#include "gamma_index_io.h"
-#include "mmap_raw_vector.h"
+#include "index/gamma_index_io.h"
+#include "vector/mmap_raw_vector.h"
 #include "omp.h"
-#include "utils.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include "mmap_raw_vector.h"
+#include "vector/mmap_raw_vector.h"
 #include "raw_vector_io.h"
 
 namespace tig_gamma {

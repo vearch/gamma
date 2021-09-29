@@ -25,15 +25,15 @@
 #include <thread>
 #include <vector>
 
-#include "bitmap.h"
-#include "cJSON.h"
-#include "error_code.h"
-#include "gamma_common_data.h"
+#include "util/bitmap.h"
+#include "cjson/cJSON.h"
+#include "search/error_code.h"
+#include "common/gamma_common_data.h"
 #include "gamma_table_io.h"
-#include "log.h"
+#include "util/log.h"
 #include "omp.h"
-#include "raw_vector_io.h"
-#include "utils.h"
+#include "io/raw_vector_io.h"
+#include "util/utils.h"
 
 using std::string;
 using namespace tig_gamma::table;

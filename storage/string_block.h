@@ -10,7 +10,7 @@
 #include <string>
 
 #include "block.h"
-#include "concurrent_vector.h"
+#include "util/concurrent_vector.h"
 
 #define BEGIN_GRP_OF_BLOCK_POS 50
 #define GRP_GAP_OF_BLOCK_POS   1000

@@ -12,11 +12,11 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "bitmap.h"
-#include "error_code.h"
+#include "util/bitmap.h"
+#include "search/error_code.h"
 #include "faiss/impl/io.h"
-#include "log.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 namespace realtime {

@@ -13,8 +13,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "log.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 using namespace std;
 

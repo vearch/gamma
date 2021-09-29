@@ -23,11 +23,11 @@
 #include <utility>
 #include <vector>
 
-#include "api_data/gamma_config.h"
-#include "bitmap.h"
+#include "c_api/api_data/gamma_config.h"
+#include "util/bitmap.h"
 #include "c_api/api_data/gamma_response.h"
 #include "c_api/gamma_api.h"
-#include "log.h"
+#include "util/log.h"
 #include "util/utils.h"
 
 using std::string;

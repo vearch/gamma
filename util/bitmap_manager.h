@@ -20,7 +20,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "log.h"
+#include "util/log.h"
 
 namespace bitmap {
 

@@ -7,10 +7,10 @@
 
 #include "storage_manager.h"
 
-#include "error_code.h"
-#include "log.h"
+#include "search/error_code.h"
+#include "util/log.h"
 #include "table_block.h"
-#include "utils.h"
+#include "util/utils.h"
 #include "vector_block.h"
 
 namespace tig_gamma {

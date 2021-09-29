@@ -14,8 +14,8 @@
 #include <string>
 #include <vector>
 
-#include "bitmap.h"
-#include "log.h"
+#include "util/bitmap.h"
+#include "util/log.h"
 
 #define BM_OPERATE_TYPE long
 
