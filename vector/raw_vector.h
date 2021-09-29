@@ -12,12 +12,12 @@
 #include <string>
 #include <vector>
 
-#include "api_data/gamma_doc.h"
-#include "io_common.h"
-#include "log.h"
-#include "raw_vector_common.h"
-#include "retrieval_model.h"
-#include "utils.h"
+#include "c_api/api_data/gamma_doc.h"
+#include "io/io_common.h"
+#include "util/log.h"
+#include "vector/raw_vector_common.h"
+#include "index/retrieval_model.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

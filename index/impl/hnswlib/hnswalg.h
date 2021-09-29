@@ -26,9 +26,9 @@
 #include <unordered_set>
 
 #include "hnswlib.h"
-#include "thread_util.h"
+#include "util/thread_util.h"
 #include "visited_list_pool.h"
-#include "log.h"
+#include "util/log.h"
 
 namespace hnswlib {
 typedef unsigned int tableint;

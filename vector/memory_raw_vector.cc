@@ -9,7 +9,7 @@
 
 #include <unistd.h>
 
-#include "error_code.h"
+#include "search/error_code.h"
 
 using std::string;
 #ifdef WITH_ROCKSDB

@@ -12,10 +12,10 @@
 
 #include <atomic>
 
-#include "api_data/gamma_request.h"
-#include "raw_vector.h"
-#include "realtime_invert_index.h"
-#include "retrieval_model.h"
+#include "c_api/api_data/gamma_request.h"
+#include "vector/raw_vector.h"
+#include "realtime/realtime_invert_index.h"
+#include "index/retrieval_model.h"
 
 namespace tig_gamma {
 

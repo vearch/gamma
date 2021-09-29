@@ -6,8 +6,8 @@
  */
 
 #include "gamma_docs.h"
-#include "utils.h"
-#include "log.h"
+#include "util/utils.h"
+#include "util/log.h"
 
 namespace tig_gamma {
 

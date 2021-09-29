@@ -14,12 +14,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "error_code.h"
-#include "log.h"
+#include "search/error_code.h"
+#include "util/log.h"
 #include "table_block.h"
 #include "vector_block.h"
-#include "thread_util.h"
-#include "utils.h"
+#include "util/thread_util.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

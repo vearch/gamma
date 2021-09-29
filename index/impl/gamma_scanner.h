@@ -3,7 +3,7 @@
 
 #include <stdexcept>
 #include "faiss/IndexIVF.h"
-#include "retrieval_model.h"
+#include "index/retrieval_model.h"
 
 namespace tig_gamma {
 

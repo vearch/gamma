@@ -14,7 +14,7 @@
 #include <omp.h>
 
 #include "compressor.h"
-#include "log.h"
+#include "util/log.h"
 #include "zfp.h"
 
 namespace tig_gamma {

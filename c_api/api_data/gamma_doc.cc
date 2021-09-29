@@ -7,8 +7,8 @@
 
 #include "gamma_doc.h"
 
-#include "gamma_engine.h"
-#include "table.h"
+#include "search/gamma_engine.h"
+#include "table/table.h"
 
 namespace tig_gamma {
 

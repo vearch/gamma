@@ -9,8 +9,8 @@
 
 #include <numeric>
 
-#include "error_code.h"
-#include "log.h"
+#include "search/error_code.h"
+#include "util/log.h"
 
 namespace tig_gamma {
 void write_index_header(const faiss::Index *idx, faiss::IOWriter *f) {

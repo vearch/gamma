@@ -13,15 +13,15 @@
 #include <string>
 #include <vector>
 
-#include "bitmap.h"
-#include "field_range_index.h"
-#include "gamma_common_data.h"
-#include "gamma_index_flat.h"
+#include "util/bitmap.h"
+#include "table/field_range_index.h"
+#include "common/gamma_common_data.h"
+#include "index/impl/gamma_index_flat.h"
 #include "hnswlib.h"
-#include "log.h"
-#include "raw_vector.h"
-#include "retrieval_model.h"
-#include "memory_raw_vector.h"
+#include "util/log.h"
+#include "vector/raw_vector.h"
+#include "index/retrieval_model.h"
+#include "vector/memory_raw_vector.h"
 
 using namespace hnswlib;
 

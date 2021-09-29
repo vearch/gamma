@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "api_data/gamma_raw_data.h"
-#include "engine_status_generated.h"
+#include "gamma_raw_data.h"
+#include "idl/fbs-gen/c/engine_status_generated.h"
 
 namespace tig_gamma {
 

@@ -6,7 +6,7 @@
  */
 
 #include "utils.h"
-#include "log.h"
+#include "util/log.h"
 
 #include <dirent.h>
 #include <string.h>

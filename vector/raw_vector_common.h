@@ -8,10 +8,10 @@
 #pragma once
 
 #include <string.h>
-#include "error_code.h"
+#include "search/error_code.h"
 #include "gamma_zfp.h"
-#include "log.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 const static int MAX_VECTOR_NUM_PER_DOC = 10;
 const static int MAX_CACHE_SIZE = 1024 * 1024;  // M bytes, it is equal to 1T

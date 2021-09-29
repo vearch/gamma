@@ -15,9 +15,9 @@
 #include <iostream>
 #include <stdexcept>
 
-#include "log.h"
-#include "thread_util.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/thread_util.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

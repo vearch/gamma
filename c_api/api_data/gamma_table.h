@@ -9,11 +9,11 @@
 
 #include <vector>
 
-#include "config_generated.h"
-#include "doc_generated.h"
+#include "idl/fbs-gen/c/config_generated.h"
+#include "idl/fbs-gen/c/doc_generated.h"
 #include "gamma_raw_data.h"
-#include "response_generated.h"
-#include "table_generated.h"
+#include "idl/fbs-gen/c/response_generated.h"
+#include "idl/fbs-gen/c/table_generated.h"
 
 namespace tig_gamma {
 

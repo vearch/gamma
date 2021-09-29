@@ -14,7 +14,7 @@
 #include "faiss/impl/FaissAssert.h"
 #include "faiss/impl/io.h"
 #include "faiss/index_io.h"
-#include "realtime_invert_index.h"
+#include "realtime/realtime_invert_index.h"
 
 namespace tig_gamma {
 /*************************************************************

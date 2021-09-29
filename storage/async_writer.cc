@@ -9,7 +9,7 @@
 
 #include <unistd.h>
 
-#include "log.h"
+#include "util/log.h"
 
 namespace tig_gamma {
 namespace disk_io {

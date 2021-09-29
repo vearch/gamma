@@ -20,9 +20,9 @@
 #include "api_data/gamma_engine_status.h"
 #include "api_data/gamma_response.h"
 #include "api_data/gamma_table.h"
-#include "gamma_engine.h"
-#include "log.h"
-#include "utils.h"
+#include "search/gamma_engine.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 INITIALIZE_EASYLOGGINGPP
 

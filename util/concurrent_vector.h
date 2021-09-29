@@ -10,7 +10,7 @@
 #include <atomic>
 #include <string>
 
-#include "log.h"
+#include "util/log.h"
 
 /**
  * It is thread-safe for single write and concurrent read.

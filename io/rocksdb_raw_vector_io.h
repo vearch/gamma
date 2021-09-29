@@ -7,7 +7,7 @@
 
 #include <string>
 #include "raw_vector_io.h"
-#include "rocksdb_raw_vector.h"
+#include "vector/rocksdb_raw_vector.h"
 
 namespace tig_gamma {
 

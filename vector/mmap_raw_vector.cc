@@ -15,9 +15,9 @@
 #include <unistd.h>
 
 #include <exception>
-#include "error_code.h"
-#include "log.h"
-#include "utils.h"
+#include "search/error_code.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 using namespace std;
 

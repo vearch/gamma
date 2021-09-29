@@ -17,8 +17,8 @@
 
 #include "gamma_index_flat.h"
 
-#include "memory_raw_vector.h"
-#include "mmap_raw_vector.h"
+#include "vector/memory_raw_vector.h"
+#include "vector/mmap_raw_vector.h"
 #include "omp.h"
 
 using idx_t = faiss::Index::idx_t;
