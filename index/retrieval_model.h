@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <vector>
 #include <tbb/concurrent_queue.h>
 
+#include <vector>
 
 // #include "concurrentqueue/concurrentqueue.h"
 #include "reflector.h"
@@ -189,7 +189,7 @@ class VectorReader {
  public:
   VectorReader(VectorMetaInfo *meta_info) : meta_info_(meta_info) {}
 
-  virtual ~VectorReader(){};
+  virtual ~VectorReader() { delete meta_info_; };
 
   /** Get vectors by vecotor id list
    *

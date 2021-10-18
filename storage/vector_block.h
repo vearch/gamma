@@ -9,18 +9,16 @@
 
 #include <stdint.h>
 #include <unistd.h>
+
 #include <vector>
 
 #include "block.h"
 #include "lru_cache.h"
 
-
-
 typedef uint32_t str_offset_t;
 typedef uint16_t str_len_t;
 
 namespace tig_gamma {
-
 
 class VectorBlock : public Block {
  public:
@@ -28,8 +26,7 @@ class VectorBlock : public Block {
               uint32_t seg_id, std::string name, uint32_t seg_block_capacity,
               const std::atomic<uint32_t> *cur_size, int max_size);
 
-  static bool ReadBlock(uint32_t key, char *block,
-                        ReadFunParameter *param);
+  static bool ReadBlock(uint32_t key, char *block, ReadFunParameter *param);
 
   int WriteContent(const uint8_t *data, uint32_t n_bytes, uint32_t start,
                    disk_io::AsyncWriter *disk_io,

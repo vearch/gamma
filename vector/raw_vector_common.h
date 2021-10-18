@@ -8,8 +8,9 @@
 #pragma once
 
 #include <string.h>
-#include "search/error_code.h"
+
 #include "gamma_zfp.h"
+#include "search/error_code.h"
 #include "util/log.h"
 #include "util/utils.h"
 

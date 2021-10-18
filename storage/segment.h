@@ -16,21 +16,21 @@
 
 namespace tig_gamma {
 
-const static int MAX_SEGMENT_NUM = 102400;     // max segment num
+const static int MAX_SEGMENT_NUM = 102400;  // max segment num
 
 class Segment {
  public:
   Segment(const std::string &file_path, uint32_t seg_id, int max_size,
           int vec_byte_size, uint32_t seg_block_capacity,
-          disk_io::AsyncWriter *disk_io,
-          void *cache, void *str_cache);
+          disk_io::AsyncWriter *disk_io, void *cache, void *str_cache);
 
   ~Segment();
 
   int Init(std::string name, BlockType block_type,
            Compressor *compressor = nullptr);
 
-  int Load(std::string name, BlockType block_type, Compressor *compressor = nullptr);
+  int Load(std::string name, BlockType block_type,
+           Compressor *compressor = nullptr);
 
   int Add(const uint8_t *vec, int len);
 
@@ -47,7 +47,7 @@ class Segment {
   int Update(int id, uint8_t *data, int len);
 
   uint32_t BaseOffset();
-  
+
   void SetBaseSize(uint32_t size);
 
   str_offset_t StrOffset();
@@ -88,17 +88,18 @@ class Segment {
  private:
   std::string file_path_;
   uint32_t seg_id_;
-  uint32_t max_size_;                    // a segment max docs num
+  uint32_t max_size_;  // a segment max docs num
   uint32_t item_length_;
   uint32_t seg_block_capacity_;
 
-  std::atomic<uint32_t> cur_size_ {0};  // For this segment, the number of docs written to disk.
-                                        // Block can read it. Async_write can write/read it.
+  std::atomic<uint32_t> cur_size_{
+      0};  // For this segment, the number of docs written to disk.
+           // Block can read it. Async_write can write/read it.
 
-  uint32_t buffered_size_;              // For this segment, the number of docs is written. 
+  uint32_t buffered_size_;  // For this segment, the number of docs is written.
 
-  str_offset_t str_offset_;             // offset of string      
-  uint64_t str_capacity_;               // capacity of string file
+  str_offset_t str_offset_;  // offset of string
+  uint64_t str_capacity_;    // capacity of string file
 
   uint64_t seg_header_size_;
   uint8_t version_;

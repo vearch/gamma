@@ -11,10 +11,6 @@
 
 #include "search/error_code.h"
 
-using std::string;
-#ifdef WITH_ROCKSDB
-using namespace rocksdb;
-#endif
 namespace tig_gamma {
 
 MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
@@ -28,6 +24,7 @@ MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
   vector_byte_size_ = data_size_ * meta_info->Dimension();
   current_segment_ = nullptr;
   curr_idx_in_seg_ = 0;
+  storage_mgr_ = nullptr;
 }
 
 MemoryRawVector::~MemoryRawVector() {
@@ -35,19 +32,57 @@ MemoryRawVector::~MemoryRawVector() {
     CHECK_DELETE_ARRAY(segments_[i]);
   }
   CHECK_DELETE_ARRAY(segments_);
+  CHECK_DELETE(storage_mgr_);
 }
 
 int MemoryRawVector::InitStore(std::string &vec_name) {
-  // const std::string &name = meta_info_->Name();
-  // string db_path = this->root_path_ + "/" + name;
-  // if (rdb_.Open(db_path)) {
-  //   LOG(ERROR) << "open rocks db error, path=" << db_path;
-  //   return IO_ERR;
-  // }
   segments_ = new uint8_t *[kMaxSegments];
   std::fill_n(segments_, kMaxSegments, nullptr);
   if (ExtendSegments()) return -2;
   LOG(INFO) << "init success, segment_size=" << segment_size_;
+
+  std::string vec_dir = root_path_ + "/" + meta_info_->Name();
+  uint32_t var = std::numeric_limits<uint32_t>::max();
+  uint32_t max_seg_size = var / vector_byte_size_;
+  uint32_t seg_block_capacity = 2000000;
+  if ((int)max_seg_size < store_params_.segment_size) {
+    store_params_.segment_size = max_seg_size;
+    seg_block_capacity = 4000000000 / (1000000000 / max_seg_size + 1) - 1;
+    LOG(INFO) << "Because the vector length is too long, segment_size becomes "
+              << max_seg_size << " and seg_block_capacity becomes "
+              << seg_block_capacity;
+  }
+  StorageManagerOptions options;
+  options.segment_size = store_params_.segment_size;
+  options.fixed_value_bytes = vector_byte_size_;
+  options.seg_block_capacity = seg_block_capacity;
+  storage_mgr_ =
+      new StorageManager(vec_dir, BlockType::VectorBlockType, options);
+#ifdef WITH_ZFP
+  if (!store_params_.compress.IsEmpty()) {
+    if (meta_info_->DataType() != VectorValueType::FLOAT) {
+      LOG(ERROR) << "data type is not float, compress is unsupported";
+      return PARAM_ERR;
+    }
+    int res =
+        storage_mgr_->UseCompress(CompressType::Zfp, meta_info_->Dimension());
+    if (res == 0) {
+      LOG(INFO) << "Storage_manager use zfp compress vector";
+    } else {
+      LOG(INFO) << "ZFP initialization failed, not use zfp";
+    }
+  } else {
+    LOG(INFO) << "store_params_.compress.IsEmpty() is true, not use zfp";
+  }
+#endif
+  int ret = storage_mgr_->Init(vec_name, store_params_.cache_size);
+  if (ret) {
+    LOG(ERROR) << "init gamma db error, ret=" << ret;
+    return ret;
+  }
+
+  LOG(INFO) << "init mmap raw vector success! vector byte size="
+            << vector_byte_size_ << ", path=" << vec_dir;
   return SUCC;
 }
 
@@ -58,12 +93,10 @@ int MemoryRawVector::AddToStore(uint8_t *v, int len) {
   }
 
   AddToMem((uint8_t *)svec.Get(), vector_byte_size_);
-  // int total = meta_info_->Size();
-  // rdb_.Put(total, (const char *)v, vector_byte_size_);
-  return SUCC;
+  return storage_mgr_->Add((uint8_t *)svec.Get(), vector_byte_size_);
 }
 
-int MemoryRawVector::AddToMem(uint8_t *v, int len) {
+int MemoryRawVector::AddToMem(const uint8_t *v, int len) {
   assert(len == vector_byte_size_);
   if (curr_idx_in_seg_ == segment_size_ && ExtendSegments()) return -2;
   memcpy((void *)(current_segment_ + curr_idx_in_seg_ * vector_byte_size_),
@@ -125,8 +158,7 @@ int MemoryRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
   memcpy((void *)(segments_[vid / segment_size_] +
                   (size_t)vid % segment_size_ * vector_byte_size_),
          (void *)svec.Get(), vector_byte_size_);
-  // rdb_.Put(vid, (const char *)svec.Get(), vector_byte_size_);
-  return SUCC;
+  return storage_mgr_->Update(vid, v, len);
 }
 
 int MemoryRawVector::GetVector(long vid, const uint8_t *&vec,
@@ -146,24 +178,5 @@ uint8_t *MemoryRawVector::GetFromMem(long vid) const {
                      (size_t)vid % segment_size_ * vector_byte_size_;
   return cmprs_v;
 }
-
-// int MemoryRawVector::LoadVectors(int vec_num) {
-// rocksdb::Iterator *it = rdb_.db_->NewIterator(rocksdb::ReadOptions());
-// utils::ScopeDeleter1<rocksdb::Iterator> del1(it);
-// string start_key;
-// rdb_.ToRowKey(0, start_key);
-// it->Seek(Slice(start_key));
-// for (int c = 0; c < vec_num; c++, it->Next()) {
-//   if (!it->Valid()) {
-//     LOG(ERROR) << "load vectors error, expected num=" << vec_num
-//                << ", current=" << c;
-//     return INTERNAL_ERR;
-//   }
-//   Slice value = it->value();
-//   AddToMem((uint8_t *)value.data_, vector_byte_size_);
-// }
-
-// return SUCC;
-//}
 
 }  // namespace tig_gamma

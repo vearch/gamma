@@ -7,9 +7,9 @@
 
 #pragma once
 
+#include <iostream>
 #include <map>
 #include <mutex>
-#include <iostream>
 
 class RetrievalModel;
 

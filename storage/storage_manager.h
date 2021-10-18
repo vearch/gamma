@@ -16,9 +16,8 @@
 #include "lru_cache.h"
 #include "segment.h"
 
-
 #define BEGIN_GRP_CAPACITY_OF_SEGMENT 20
-#define GRP_GAP_OF_SEGMENT   50
+#define GRP_GAP_OF_SEGMENT 50
 
 namespace tig_gamma {
 

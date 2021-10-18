@@ -13,7 +13,7 @@
 #include "util/concurrent_vector.h"
 
 #define BEGIN_GRP_OF_BLOCK_POS 50
-#define GRP_GAP_OF_BLOCK_POS   1000
+#define GRP_GAP_OF_BLOCK_POS 1000
 
 namespace tig_gamma {
 

@@ -1,3 +1,10 @@
+/**
+ * Copyright 2019 The Gamma Authors.
+ *
+ * This source code is licensed under the Apache License, Version 2.0 license
+ * found in the LICENSE file in the root directory of this source tree.
+ */
+
 #pragma once
 
 #include <string>
@@ -7,9 +14,9 @@
 namespace tig_gamma {
 
 struct MmapRawVectorIO : public RawVectorIO {
-  MmapRawVector *raw_vector;
+  RawVector *raw_vector;
 
-  MmapRawVectorIO(MmapRawVector *raw_vector_) : raw_vector(raw_vector_) {}
+  MmapRawVectorIO(RawVector *raw_vector_) : raw_vector(raw_vector_) {}
   ~MmapRawVectorIO() {}
 
   int Init() override;

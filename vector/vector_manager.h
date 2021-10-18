@@ -6,17 +6,16 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef VECTOR_MANAGER_H_
-#define VECTOR_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <string>
 
 #include "c_api/api_data/gamma_config.h"
 #include "common/gamma_common_data.h"
+#include "index/retrieval_model.h"
 #include "util/log.h"
 #include "vector/raw_vector.h"
-#include "index/retrieval_model.h"
 
 namespace tig_gamma {
 
@@ -92,5 +91,3 @@ class VectorManager {
 };
 
 }  // namespace tig_gamma
-
-#endif

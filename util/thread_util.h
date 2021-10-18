@@ -1,10 +1,14 @@
-#ifndef THREAD_UTIL_H_
-#define THREAD_UTIL_H_
+/**
+ * Copyright 2019 The Gamma Authors.
+ *
+ * This source code is licensed under the Apache License, Version 2.0 license
+ * found in the LICENSE file in the root directory of this source tree.
+ */
+
+#pragma once
 
 #include <pthread.h>
-#include <map>
 
-/// 线程锁的定义
 class ThreadLock {
  private:
   pthread_mutex_t *m_pMutex;
@@ -17,7 +21,6 @@ class ThreadLock {
   }
 };
 
-/// 读写锁的读锁的定义
 class ReadThreadLock {
  private:
   pthread_rwlock_t *m_pLock;
@@ -28,10 +31,8 @@ class ReadThreadLock {
   virtual ~ReadThreadLock() {
     pthread_rwlock_unlock(m_pLock);
   }
-
 };
 
-/// 读写锁的写锁的定义
 class WriteThreadLock {
  private:
   pthread_rwlock_t *m_pLock;
@@ -43,5 +44,3 @@ class WriteThreadLock {
     pthread_rwlock_unlock(m_pLock);
   }
 };
-
-#endif

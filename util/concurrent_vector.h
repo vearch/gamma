@@ -84,8 +84,8 @@ class ConcurrentVector {
 
       grps_[grp_num_] = new Value[grp_gap_];
       if (not grps_[grp_num_]) {
-        LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value[" << grp_gap_
-                   << "] fail.";
+        LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value["
+                   << grp_gap_ << "] fail.";
         return false;
       }
       memset(grps_[grp_num_], 0, grp_gap_ * sizeof(Value));
@@ -101,8 +101,8 @@ class ConcurrentVector {
 
   bool ResetData(uint32_t id, Value val) {
     if (id >= size_) {
-      LOG(ERROR) << "ConcurrentVector[" << name_ << "], size[" << size_ << "], id["
-                 << id << "] is out of bounds";
+      LOG(ERROR) << "ConcurrentVector[" << name_ << "], size[" << size_
+                 << "], id[" << id << "] is out of bounds";
       return false;
     }
     Value *grp = grps_[id / grp_gap_];
@@ -121,7 +121,7 @@ class ConcurrentVector {
   }
 
   bool GetData(uint32_t id, Value &value) {
-    if (id  >= size_) {
+    if (id >= size_) {
       LOG(ERROR) << "ConcurrentVector[" << name_ << "], id[" << id
                  << "] >= size[" << size_ << "]";
       return false;
@@ -180,8 +180,8 @@ class ConcurrentVector {
       for (uint32_t i = 0; i < extend_grp_num; ++i) {
         grps_[grp_num_] = new Value[grp_gap_];
         if (not grps_[grp_num_]) {
-          LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value[" << grp_gap_
-                     << "] fail.";
+          LOG(ERROR) << "ConcurrentVector[" << name_ << "], new Value["
+                     << grp_gap_ << "] fail.";
           size_ = grp_num_ * grp_gap_;
           return false;
         }

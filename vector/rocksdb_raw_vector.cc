@@ -11,9 +11,9 @@
 
 #include <stdio.h>
 
+#include "rocksdb/table.h"
 #include "search/error_code.h"
 #include "util/log.h"
-#include "rocksdb/table.h"
 #include "util/utils.h"
 
 using namespace rocksdb;
@@ -227,7 +227,7 @@ int RocksDBRawVector::Decompress(std::string &cmprs_data, uint8_t *&vec) const {
 #ifdef WITH_ZFP
   if (zfp_compressor_) {
     if (zfp_compressor_->Decompress((const uint8_t *)cmprs_data.c_str(), 1,
-                                   (float *&)vec)) {
+                                    (float *&)vec)) {
       return INTERNAL_ERR;
     }
   } else

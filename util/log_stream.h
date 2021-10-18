@@ -5,18 +5,18 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef SRC_SEARCHER_UTIL_LOG_STREAM_H_
-#define SRC_SEARCHER_UTIL_LOG_STREAM_H_
+#pragma once
 
-#include <algorithm>
 #include <assert.h>
-#include <limits>
-#include <new>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <string>
 #include <sys/time.h>
+
+#include <algorithm>
+#include <limits>
+#include <new>
+#include <string>
 
 using std::string;
 
@@ -27,7 +27,7 @@ const static int FIX_BUFFER_SIZE = 1 << 23;
 const static int EXTEND_BUFFER_SIZE = 64;
 
 class LogStreamBuffer {
-public:
+ public:
   LogStreamBuffer() {
     data_ = nullptr;
     curr_ = nullptr;
@@ -47,8 +47,7 @@ public:
   int Create() {
     int size = FIX_BUFFER_SIZE + EXTEND_BUFFER_SIZE;
     data_ = new (std::nothrow) char[size];
-    if (data_ == nullptr)
-      return -1;
+    if (data_ == nullptr) return -1;
     memset(data_, 0, size);
 
     curr_ = data_;
@@ -75,8 +74,7 @@ public:
   }
 
   void Append(const char *buf, int len) {
-    if (len == 0 || data_ == nullptr)
-      return;
+    if (len == 0 || data_ == nullptr) return;
     if (is_newline_) {
       const static int MAX_TIME_SIZE = 64;
       char now_time[MAX_TIME_SIZE + 1];
@@ -118,7 +116,7 @@ public:
   int Length() const { return length_; }
   int Avail() const { return avail_; }
 
-private:
+ private:
   char *data_;
   char *curr_;
   char error_msg_[EXTEND_BUFFER_SIZE];
@@ -132,7 +130,7 @@ const static char LOG_LEVEL_STR[][16] = {"debug", "info", "warn", "error"};
 const static char LOG_LEVEL_OUTPUT[][16] = {"DEBUG", "INFO", "WARN", "ERROR"};
 
 class LogStream {
-public:
+ public:
   typedef LogStream self;
 
   enum LOG_LEVEL {
@@ -143,14 +141,13 @@ public:
     LOG_NONE,
   };
 
-public:
+ public:
   LogStream() : level_(LOG_NONE), output_(false) {}
 
   ~LogStream() {}
 
   self &operator<<(bool v) {
-    if (output_)
-      buffer_.Append(v ? "1" : "0", 1);
+    if (output_) buffer_.Append(v ? "1" : "0", 1);
     return *this;
   }
 
@@ -164,40 +161,34 @@ public:
   self &operator<<(unsigned long long);
 
   self &operator<<(float v) {
-    if (output_)
-      *this << static_cast<double>(v);
+    if (output_) *this << static_cast<double>(v);
     return *this;
   }
 
   self &operator<<(double);
 
   self &operator<<(char v) {
-    if (output_)
-      buffer_.Append(&v, 1);
+    if (output_) buffer_.Append(&v, 1);
     return *this;
   }
 
   self &operator<<(unsigned char v) {
-    if (output_)
-      *this << static_cast<char>(v);
+    if (output_) *this << static_cast<char>(v);
     return *this;
   }
 
   self &operator<<(const char *v) {
-    if (output_ && v != nullptr)
-      buffer_.Append(v, strlen(v));
+    if (output_ && v != nullptr) buffer_.Append(v, strlen(v));
     return *this;
   }
 
   self &operator<<(const string &v) {
-    if (output_)
-      buffer_.Append(v.c_str(), v.size());
+    if (output_) buffer_.Append(v.c_str(), v.size());
     return *this;
   }
 
   void Append(const char *str, int len) {
-    if (output_)
-      buffer_.Append(str, len);
+    if (output_) buffer_.Append(str, len);
   }
 
   self &operator()(int level, const char *file, int line) {
@@ -238,8 +229,7 @@ public:
 
   int SetLevel(LOG_LEVEL level) {
     level_ = level;
-    if (LOG_NONE == level)
-      return 0;
+    if (LOG_NONE == level) return 0;
     return buffer_.Create();
   }
 
@@ -248,10 +238,11 @@ public:
     return SetLevel(log_level);
   }
 
-private:
-  template <typename T> void formatInteger(T);
+ private:
+  template <typename T>
+  void formatInteger(T);
 
-private:
+ private:
   static const int MAX_NUMBER_SIZE = 32;
 
   LogStreamBuffer buffer_;
@@ -268,7 +259,10 @@ const static char digits[] = "9876543210123456789";
 const static char *zero = digits + 9;
 const static char digitsHex[] = "0123456789abcdef";
 
-template <typename T> inline bool lt0(T v) { return v < 0; }
+template <typename T>
+inline bool lt0(T v) {
+  return v < 0;
+}
 
 inline bool lt0(unsigned char) { return false; }
 inline bool lt0(unsigned short) { return false; }
@@ -277,7 +271,8 @@ inline bool lt0(unsigned long) { return false; }
 inline bool lt0(unsigned long long) { return false; }
 
 // Efficient Integer to String Conversions, by Matthew Wilson.
-template <typename T> inline size_t convert(char buf[], T value) {
+template <typename T>
+inline size_t convert(char buf[], T value) {
   T i = value;
   char *p = buf;
 
@@ -311,57 +306,50 @@ inline size_t convertHex(char buf[], uintptr_t value) {
   return p - buf;
 }
 
-template <typename T> inline void LogStream::formatInteger(T v) {
+template <typename T>
+inline void LogStream::formatInteger(T v) {
   char buf[MAX_NUMBER_SIZE];
   size_t len = convert(buf, v);
   buffer_.Append(buf, len);
 }
 
 inline LogStream &LogStream::operator<<(short v) {
-  if (output_)
-    *this << static_cast<int>(v);
+  if (output_) *this << static_cast<int>(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(unsigned short v) {
-  if (output_)
-    *this << static_cast<unsigned int>(v);
+  if (output_) *this << static_cast<unsigned int>(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(int v) {
-  if (output_)
-    formatInteger(v);
+  if (output_) formatInteger(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(unsigned int v) {
-  if (output_)
-    formatInteger(v);
+  if (output_) formatInteger(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(long v) {
-  if (output_)
-    formatInteger(v);
+  if (output_) formatInteger(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(unsigned long v) {
-  if (output_)
-    formatInteger(v);
+  if (output_) formatInteger(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(long long v) {
-  if (output_)
-    formatInteger(v);
+  if (output_) formatInteger(v);
   return *this;
 }
 
 inline LogStream &LogStream::operator<<(unsigned long long v) {
-  if (output_)
-    formatInteger(v);
+  if (output_) formatInteger(v);
   return *this;
 }
 
@@ -374,6 +362,4 @@ inline LogStream &LogStream::operator<<(double v) {
   return *this;
 }
 
-} // namespace framework
-
-#endif // SRC_SEARCHER_UTIL_LOG_STREAM_H_
+}  // namespace framework

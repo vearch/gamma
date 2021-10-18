@@ -27,11 +27,10 @@ Block::Block(int fd, int per_block_size, int length, uint32_t header_size,
   // size_ = 0;
   last_bid_in_disk_ = 0;
   lru_cache_ = nullptr;
-  LOG(INFO) << "Block[" << name_ + "_" << seg_id_
-            << "] info, per_block_size[" << per_block_size_
-            << "] item_length[" <<item_length_ 
-            << "] header_size[" << header_size_ 
-            << "] seg_block_capacity[" << seg_block_capacity_ << "]";
+  LOG(INFO) << "Block[" << name_ + "_" << seg_id_ << "] info, per_block_size["
+            << per_block_size_ << "] item_length[" << item_length_
+            << "] header_size[" << header_size_ << "] seg_block_capacity["
+            << seg_block_capacity_ << "]";
 }
 
 Block::~Block() {
@@ -40,8 +39,7 @@ Block::~Block() {
 }
 
 void Block::Init(void *lru, Compressor *compressor) {
-  lru_cache_ =
-      (LRUCache<uint32_t, ReadFunParameter *> *)lru;
+  lru_cache_ = (LRUCache<uint32_t, ReadFunParameter *> *)lru;
   compressor_ = compressor;
   InitSubclass();
 }
@@ -77,8 +75,7 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
     }
     if (last_bid_in_disk_ <= block_id) {
       ReadContent(value + read_num, len, block_pos + block_offset);
-    }
-    else {
+    } else {
       // std::shared_ptr<std::vector<uint8_t>> block;
       char *block = nullptr;
       uint32_t cache_bid = GetCacheBlockId(block_id);
@@ -87,7 +84,7 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
       bool res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
 
       if (not res || block == nullptr) {
-        LOG(ERROR) << "Read block fails from disk_file, block_id[" 
+        LOG(ERROR) << "Read block fails from disk_file, block_id["
                    << name_ + "_" << block_id << "]";
         ReadContent(value + read_num, len, block_pos + block_offset);
       } else {
@@ -117,8 +114,8 @@ int Block::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) {
       len = per_block_size_ - block_offset;
 
     uint32_t cache_block_id = GetCacheBlockId(block_id);
-    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len, block_offset);
-
+    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len,
+                       block_offset);
 
     start += len;
     n_bytes -= len;

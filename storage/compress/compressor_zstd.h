@@ -17,14 +17,16 @@ namespace tig_gamma {
 class CompressorZSTD : public Compressor {
  public:
   CompressorZSTD(CompressType type) : Compressor(type) {
-    LOG(INFO) << "CompressorZSTD construction!"; 
+    LOG(INFO) << "CompressorZSTD construction!";
   }
 
   ~CompressorZSTD() { LOG(INFO) << "CompressorZSTD destroyed successfully!"; }
 
-  void Init(int d, double r = DEFAULT_RATE, int t = 0) { }
+  void Init(int d, double r = DEFAULT_RATE, int t = 0) {}
 
-  size_t GetCompressLen(int data_len = 0) { return ZSTD_compressBound(data_len); }
+  size_t GetCompressLen(int data_len = 0) {
+    return ZSTD_compressBound(data_len);
+  }
 
   size_t Compress(char* data, char* output, int data_len) {
     if (data == nullptr || output == nullptr || 0 == data_len) {

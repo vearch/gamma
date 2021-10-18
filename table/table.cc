@@ -14,8 +14,8 @@
 #include <fstream>
 #include <string>
 
-#include "util/utils.h"
 #include "field_range_index.h"
+#include "util/utils.h"
 
 using std::move;
 using std::string;
@@ -222,7 +222,7 @@ int Table::GetKeyByDocid(int docid, std::string &key) {
 
   int check_docid;
   GetDocIDByKey(key, check_docid);
-  if (check_docid != docid) {      // docid can be deleted.
+  if (check_docid != docid) {  // docid can be deleted.
     key = "";
     return -1;
   }
@@ -266,18 +266,20 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
     } else {
       str_len_t len = field_value.value.size();
       if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
-        LOG(ERROR) << "String length[" << len << "] greater than STR_MAX_INDEX_LEN[" 
-                   << STR_MAX_INDEX_LEN << "] does not support indexing.";
+        LOG(ERROR) << "String length[" << len
+                   << "] greater than STR_MAX_INDEX_LEN[" << STR_MAX_INDEX_LEN
+                   << "] does not support indexing.";
         len = STR_MAX_INDEX_LEN;
       }
       if (len > MAX_STRING_LEN) {
-        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
-                    << "]. Truncation occurs.";
+        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN["
+                   << MAX_STRING_LEN << "]. Truncation occurs.";
         len = MAX_STRING_LEN;
       }
       uint32_t block_id;
       in_block_pos_t in_block_pos;
-      storage_mgr_->AddString(field_value.value.c_str(), len, block_id, in_block_pos);
+      storage_mgr_->AddString(field_value.value.c_str(), len, block_id,
+                              in_block_pos);
 
       memcpy(doc_value + offset, &block_id, sizeof(block_id));
       memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
@@ -351,19 +353,21 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
       } else {
         str_len_t len = field_value.value.size();
         if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
-          LOG(ERROR) << "String length[" << len << "] greater than STR_MAX_INDEX_LEN[" 
-                     << STR_MAX_INDEX_LEN << "] does not support indexing.";
+          LOG(ERROR) << "String length[" << len
+                     << "] greater than STR_MAX_INDEX_LEN[" << STR_MAX_INDEX_LEN
+                     << "] does not support indexing.";
           len = STR_MAX_INDEX_LEN;
         }
         if (len > MAX_STRING_LEN) {
-          LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
-                     << "]. Truncation occurs.";
+          LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN["
+                     << MAX_STRING_LEN << "]. Truncation occurs.";
           len = MAX_STRING_LEN;
         }
 
         uint32_t block_id;
         in_block_pos_t in_block_pos;
-        storage_mgr_->AddString(field_value.value.c_str(), len, block_id, in_block_pos);
+        storage_mgr_->AddString(field_value.value.c_str(), len, block_id,
+                                in_block_pos);
 
         memcpy(doc_value + offset, &block_id, sizeof(block_id));
         memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
@@ -422,19 +426,21 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
     if (field_value.datatype == DataType::STRING) {
       str_len_t len = field_value.value.size();
       if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
-        LOG(ERROR) << "String length[" << len << "] greater than STR_MAX_INDEX_LEN[" 
-                   << STR_MAX_INDEX_LEN << "] does not support indexing.";
+        LOG(ERROR) << "String length[" << len
+                   << "] greater than STR_MAX_INDEX_LEN[" << STR_MAX_INDEX_LEN
+                   << "] does not support indexing.";
         len = STR_MAX_INDEX_LEN;
       }
       if (len > MAX_STRING_LEN) {
-        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
-                    << "]. Truncation occurs.";
+        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN["
+                   << MAX_STRING_LEN << "]. Truncation occurs.";
         len = MAX_STRING_LEN;
       }
-      
+
       uint32_t block_id;
       in_block_pos_t in_block_pos;
-      storage_mgr_->UpdateString(docid, field_value.value.c_str(), len, block_id, in_block_pos);
+      storage_mgr_->UpdateString(docid, field_value.value.c_str(), len,
+                                 block_id, in_block_pos);
       memcpy(doc_value + offset, &block_id, sizeof(block_id));
       memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
              sizeof(in_block_pos));
