@@ -185,7 +185,6 @@ GammaEngine::GammaEngine(const string &index_root_path)
 #ifdef PERFORMANCE_TESTING
   search_num_ = 0;
 #endif
-  af_exector_ = nullptr;
 }
 
 GammaEngine::~GammaEngine() {
@@ -201,11 +200,6 @@ GammaEngine::~GammaEngine() {
     std::mutex running_mutex;
     std::unique_lock<std::mutex> lk(running_mutex);
     running_field_cv_.wait(lk);
-  }
-
-  if (af_exector_) {
-    af_exector_->Stop();
-    CHECK_DELETE(af_exector_);
   }
 
   if (vec_manager_) {
@@ -545,7 +539,10 @@ int GammaEngine::CreateTable(TableInfo &table) {
     }
   }
 
-  int ret_vec = vec_manager_->CreateVectorTable(table, meta_jp);
+  if (vec_manager_->CreateVectorTable(table, meta_jp) != 0) {
+    LOG(ERROR) << "Cannot create VectorTable!";
+    return -2;
+  }
   TableParams disk_table_params;
   if (meta_jp) {
     utils::JsonParser table_jp;
@@ -554,12 +551,10 @@ int GammaEngine::CreateTable(TableInfo &table) {
   }
   int ret_table = table_->CreateTable(table, disk_table_params);
   indexing_size_ = table.IndexingSize();
-  if (ret_vec != 0 || ret_table != 0) {
+  if (ret_table != 0) {
     LOG(ERROR) << "Cannot create table!";
     return -2;
   }
-
-  af_exector_ = new AsyncFlushExecutor();
 
   if (!meta_jp) {
     utils::JsonParser dump_meta_;
@@ -584,14 +579,6 @@ int GammaEngine::CreateTable(TableInfo &table) {
     fio.Open("w");
     string meta_str = dump_meta_.ToStr(true);
     fio.Write(meta_str.c_str(), 1, meta_str.size());
-  }
-  for (auto &it : vec_manager_->RawVectors()) {
-    RawVectorIO *rio = it.second->GetIO();
-    if (rio == nullptr) continue;
-    AsyncFlusher *flusher = dynamic_cast<AsyncFlusher *>(rio);
-    if (flusher) {
-      af_exector_->Add(flusher);
-    }
   }
 
 #ifndef BUILD_GPU
@@ -621,8 +608,6 @@ int GammaEngine::CreateTable(TableInfo &table) {
     docids_bitmap_.DumpBitmap();
     LOG(INFO) << "Full dump bitmap.";
   }
-
-  af_exector_->Start();
 
   LOG(INFO) << "create table [" << table_name << "] success!";
   created_table_ = true;
@@ -1180,7 +1165,6 @@ int GammaEngine::Load() {
     }
     LOG(INFO) << "create table from local success, table name=" << table_name;
   }
-  af_exector_->Stop();
 
   std::vector<std::pair<std::time_t, string>> folders_tm;
   std::vector<string> folders = utils::ls_folder(dump_path_);
@@ -1277,7 +1261,6 @@ int GammaEngine::Load() {
   }
 
   last_dump_dir_ = last_dir;
-  af_exector_->Start();
   LOG(INFO) << "load engine success! max docid=" << max_docid_
             << ", load directory=" << last_dir
             << ", clean directorys(not done)="

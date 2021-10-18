@@ -428,7 +428,7 @@ struct GammaIVFBinaryScannerL2 : GammaBinaryInvertedListScanner {
       if (retrieval_context_->IsValid(id) == false) {
         continue;
       }
-      uint32_t dis = hc.hamming(codes);
+      int32_t dis = hc.hamming(codes);
       if (!retrieval_context_->IsSimilarScoreValid(dis)) {
         continue;
       }

@@ -6,6 +6,7 @@
  */
 
 #include "bitmap.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,4 +30,4 @@ void set(char *bitmap, int id) { bitmap[id >> 3] |= (0x1 << (id & 0x7)); }
 
 void unset(char *bitmap, int id) { bitmap[id >> 3] &= ~(0x1 << (id & 0x7)); }
 
-} // namespace bitmap
+}  // namespace bitmap

@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef SRC_SEARCHER_UTIL_ONLINE_LOGGER_H_
-#define SRC_SEARCHER_UTIL_ONLINE_LOGGER_H_
+#pragma once
 
 #include "log_stream.h"
 
@@ -15,18 +14,18 @@ using framework::LogStream;
 namespace utils {
 
 // level: DEBUG, INFO, WARN, ERROR
-#define OLOG(plog, level, msg)                                                 \
-  do {                                                                         \
-    if (auto *ls = (plog)->GetLogStream()) {                                   \
-      level##_ONLINE(*ls) << msg << framework::endl;                           \
-    }                                                                          \
+#define OLOG(plog, level, msg)                       \
+  do {                                               \
+    if (auto *ls = (plog)->GetLogStream()) {         \
+      level##_ONLINE(*ls) << msg << framework::endl; \
+    }                                                \
   } while (0)
 
 /***
  * this is a *RAII* wrapper of online log stream.
  */
 class OnlineLogger {
-public:
+ public:
   OnlineLogger() : log_stream_(nullptr) {}
 
   ~OnlineLogger() {
@@ -61,13 +60,11 @@ public:
   }
 
   int Length() const {
-    return log_stream_ ? log_stream_->Length() : -1; // -1 instead of 0
+    return log_stream_ ? log_stream_->Length() : -1;  // -1 instead of 0
   }
 
-private:
+ private:
   framework::LogStream *log_stream_;
 };
 
-} // namespace utils
-
-#endif // SRC_SEARCHER_UTIL_ONLINE_LOGGER_H_
+}  // namespace utils

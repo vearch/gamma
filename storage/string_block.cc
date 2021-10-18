@@ -17,8 +17,7 @@ StringBlock::StringBlock(int fd, int per_block_size, int length,
                          uint32_t header_size, uint32_t seg_id,
                          std::string name, uint32_t seg_block_capacity)
     : Block(fd, per_block_size, length, header_size, seg_id, name,
-            seg_block_capacity, nullptr, -1){
-}
+            seg_block_capacity, nullptr, -1) {}
 
 StringBlock::~StringBlock() {
   if (block_pos_fp_ != nullptr) {
@@ -30,9 +29,9 @@ StringBlock::~StringBlock() {
 void StringBlock::InitStrBlock(void *lru) {
   str_lru_cache_ = (LRUCache<uint32_t, ReadFunParameter *> *)lru;
   bool res = block_pos_.Init(std::string("StrBlock_") + std::to_string(seg_id_),
-                  BEGIN_GRP_OF_BLOCK_POS, GRP_GAP_OF_BLOCK_POS);
+                             BEGIN_GRP_OF_BLOCK_POS, GRP_GAP_OF_BLOCK_POS);
   if (res == false) {
-    LOG(ERROR) << "StrBlock[" << name_ + "_" << seg_id_ 
+    LOG(ERROR) << "StrBlock[" << name_ + "_" << seg_id_
                << "]ConcurrentVector init failed.";
   }
 }
@@ -55,7 +54,7 @@ int StringBlock::LoadIndex(const std::string &file_path) {
 
   block_pos_fp_ = fopen(file_path.c_str(), "ab+");
   if (block_pos_fp_ == nullptr) {
-    LOG(ERROR) << "StrBlock[" << name_ + "_" << seg_id_ 
+    LOG(ERROR) << "StrBlock[" << name_ + "_" << seg_id_
                << "] open block pos file error, path=" << file_path;
     return -1;
   }
@@ -72,8 +71,8 @@ int StringBlock::CloseBlockPosFile() {
   return -1;
 }
 
-int StringBlock::WriteContent(const uint8_t *value, uint32_t n_bytes, uint32_t start,
-                              disk_io::AsyncWriter *disk_io,
+int StringBlock::WriteContent(const uint8_t *value, uint32_t n_bytes,
+                              uint32_t start, disk_io::AsyncWriter *disk_io,
                               std::atomic<uint32_t> *cur_size) {
   return 0;
 }
@@ -104,8 +103,8 @@ int StringBlock::WriteString(const char *value, str_len_t n_bytes,
   return 0;
 }
 
-int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t n_bytes,
-                      std::string &str_out) {
+int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos,
+                      str_len_t n_bytes, std::string &str_out) {
   if (str_lru_cache_ == nullptr) {
     uint32_t block_pos = 0;
     block_pos_.GetData(block_id, block_pos);
@@ -127,8 +126,7 @@ int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t 
     pread(fd_, str, n_bytes, block_pos + in_block_pos);
     str_out = std::string(str, n_bytes);
     delete[] str;
-  }
-  else {
+  } else {
     char *block = nullptr;
     uint32_t cache_bid = GetCacheBlockId(block_id);
     ReadFunParameter parameter;
@@ -144,8 +142,8 @@ int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t 
 
     if (not res || block == nullptr) {
       LOG(ERROR) << "StrBlock[" << name_ + "_" << seg_id_
-                 << "], Read block fails from disk_file, block_id["
-                 << block_id << "]";
+                 << "], Read block fails from disk_file, block_id[" << block_id
+                 << "]";
       char *str = new char[n_bytes];
       pread(fd_, str, n_bytes, block_pos + in_block_pos);
       str_out = std::string(str, n_bytes);
@@ -164,8 +162,9 @@ int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t 
   //   if (not res) {
   //     ReadFunParameter parameter;
   //     parameter.fd = fd_;              // TODO remove
-  //     parameter.len = block_pos_.GetData(block_id + 1) - block_pos_.GetData(block_id);
-  //     parameter.offset = block_pos_.GetData(block_id);
+  //     parameter.len = block_pos_.GetData(block_id + 1) -
+  //     block_pos_.GetData(block_id); parameter.offset =
+  //     block_pos_.GetData(block_id);
 
   //     ReadString(cache_bid, block, &parameter);
   //     str_lru_cache_->Set2(cache_bid, block);
@@ -179,10 +178,11 @@ int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t 
   return 0;
 }
 
-bool StringBlock::ReadString(uint32_t key, char *block, ReadFunParameter *param) {
+bool StringBlock::ReadString(uint32_t key, char *block,
+                             ReadFunParameter *param) {
   if (param->len > MAX_BLOCK_SIZE) {
-    LOG(ERROR) << "ReadString len[" << param->len << "] fd["
-               << param->fd << "] offset[" << param->offset << "]";
+    LOG(ERROR) << "ReadString len[" << param->len << "] fd[" << param->fd
+               << "] offset[" << param->offset << "]";
     return false;
   }
   if (block == nullptr) {

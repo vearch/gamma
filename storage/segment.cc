@@ -15,11 +15,11 @@
 #include <unistd.h>
 
 #include "search/error_code.h"
-#include "util/log.h"
 #include "table_block.h"
-#include "vector_block.h"
+#include "util/log.h"
 #include "util/thread_util.h"
 #include "util/utils.h"
+#include "vector_block.h"
 
 namespace tig_gamma {
 
@@ -61,8 +61,7 @@ inline size_t BCompressedOff() {
 
 Segment::Segment(const std::string &file_path, uint32_t seg_id, int max_size,
                  int vec_byte_size, uint32_t seg_block_capacity,
-                 disk_io::AsyncWriter *disk_io,
-                 void *cache, void *str_cache)
+                 disk_io::AsyncWriter *disk_io, void *cache, void *str_cache)
     : file_path_(file_path),
       seg_id_(seg_id),
       max_size_(max_size),
@@ -88,7 +87,7 @@ Segment::Segment(const std::string &file_path, uint32_t seg_id, int max_size,
                      sizeof(str_blocks_size) + sizeof(str_compressed_size) +
                      sizeof(b_compressed);
 
-  per_block_size_ = ((64 * 1024) / item_length_) * item_length_; // block~=64k
+  per_block_size_ = ((64 * 1024) / item_length_) * item_length_;  // block~=64k
   buffered_size_ = 0;
   str_blocks_ = nullptr;
   blocks_ = nullptr;
@@ -130,7 +129,7 @@ uint32_t Segment::BufferedSize() { return buffered_size_; }
 
 void Segment::PersistentedSize() {
   uint32_t capacity;
-  uint32_t size = 0; 
+  uint32_t size = 0;
   pread(base_fd_, &size, sizeof(size), sizeof(version_) + sizeof(capacity));
   cur_size_ = size;
   if (cur_size_ == max_size_) {
@@ -254,25 +253,25 @@ int Segment::OpenFile(BlockType block_type) {
   return 0;
 }
 
-int Segment::InitBlock(std::string name, BlockType block_type, Compressor *compressor) {
-  switch (block_type)
-  {
-  case BlockType::TableBlockType:
-    blocks_ =
-      new TableBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
-                     seg_id_, name, seg_block_capacity_, &cur_size_, max_size_);
-    str_blocks_ =
-      new StringBlock(str_fd_, per_block_size_, MAX_BLOCK_SIZE, seg_header_size_,
-                      seg_id_, name + "_str", seg_block_capacity_);
-    break;
-  case BlockType::VectorBlockType:
-    blocks_ =
-      new VectorBlock(base_fd_, per_block_size_, item_length_, seg_header_size_,
-                      seg_id_, name, seg_block_capacity_, &cur_size_, max_size_);
-    break;
-  default:
-    LOG(ERROR) << "Unknow BlockType [" << static_cast<int>(block_type) << "]";
-    break;
+int Segment::InitBlock(std::string name, BlockType block_type,
+                       Compressor *compressor) {
+  switch (block_type) {
+    case BlockType::TableBlockType:
+      blocks_ = new TableBlock(base_fd_, per_block_size_, item_length_,
+                               seg_header_size_, seg_id_, name,
+                               seg_block_capacity_, &cur_size_, max_size_);
+      str_blocks_ = new StringBlock(str_fd_, per_block_size_, MAX_BLOCK_SIZE,
+                                    seg_header_size_, seg_id_, name + "_str",
+                                    seg_block_capacity_);
+      break;
+    case BlockType::VectorBlockType:
+      blocks_ = new VectorBlock(base_fd_, per_block_size_, item_length_,
+                                seg_header_size_, seg_id_, name,
+                                seg_block_capacity_, &cur_size_, max_size_);
+      break;
+    default:
+      LOG(ERROR) << "Unknow BlockType [" << static_cast<int>(block_type) << "]";
+      break;
   }
 
   blocks_->Init(cache_, compressor);
@@ -288,7 +287,8 @@ int Segment::InitBlock(std::string name, BlockType block_type, Compressor *compr
 }
 
 // TODO: Load compressor
-int Segment::Load(std::string name, BlockType block_type, Compressor *compressor) {
+int Segment::Load(std::string name, BlockType block_type,
+                  Compressor *compressor) {
   OpenFile(block_type);
   InitBlock(name, block_type, compressor);
   str_capacity_ = StrCapacity();
@@ -297,8 +297,8 @@ int Segment::Load(std::string name, BlockType block_type, Compressor *compressor
   if (cur_size_ > max_size_) {
     cur_size_ = 0;
     LOG(ERROR) << "Segment[" << blocks_->GetName() + "_" << seg_id_
-              << "], load size[" << cur_size_ << "] > max_size[" << max_size_
-              << "]. File[" << file_path_ << "] error. cur_size_ change to 0.";
+               << "], load size[" << cur_size_ << "] > max_size[" << max_size_
+               << "]. File[" << file_path_ << "] error. cur_size_ change to 0.";
   }
   buffered_size_ = cur_size_;
   return cur_size_;
@@ -311,7 +311,8 @@ int Segment::Add(const uint8_t *data, int len) {
   return 0;
 }
 
-str_offset_t Segment::AddString(const char *str, str_len_t len, uint32_t &block_id,
+str_offset_t Segment::AddString(const char *str, str_len_t len,
+                                uint32_t &block_id,
                                 in_block_pos_t &in_block_pos) {
   if (str_offset_ + len >= str_capacity_) {
     uint64_t extend_capacity = str_capacity_ * 1.3;
@@ -346,7 +347,7 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
     if (id + n <= (int)cur_size_) {
       if (count > 5) {
         LOG(INFO) << "Segment[" << blocks_->GetName() + "_" << seg_id_
-                  << "]. Wait " << count * 20 
+                  << "]. Wait " << count * 20
                   << "ms because the data is not being brushed to disk.";
       }
       break;
@@ -356,9 +357,9 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
     if (count % 20 == 0) {
       LOG(WARNING) << "Waited " << count * 20
                    << "ms because the data is not being brushed to disk."
-                   << " segment[" << blocks_->GetName() + "_" << seg_id_ 
-                   << "], cur_size[" << cur_size_ << "], GetValue(id=" 
-                   << id << ", n=" << n << ")";
+                   << " segment[" << blocks_->GetName() + "_" << seg_id_
+                   << "], cur_size[" << cur_size_ << "], GetValue(id=" << id
+                   << ", n=" << n << ")";
     }
   }
   blocks_->Read(value, n_bytes, start);

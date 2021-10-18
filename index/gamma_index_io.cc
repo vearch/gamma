@@ -196,69 +196,69 @@ int ReadInvertedLists(faiss::IOReader *f,
 }
 
 void write_hnsw(const faiss::HNSW *hnsw, faiss::IOWriter *f) {
-  WRITEVECTOR (hnsw->assign_probas);
-  WRITEVECTOR (hnsw->cum_nneighbor_per_level);
-  WRITEVECTOR (hnsw->levels);
-  WRITEVECTOR (hnsw->offsets);
-  WRITEVECTOR (hnsw->neighbors);
+  WRITEVECTOR(hnsw->assign_probas);
+  WRITEVECTOR(hnsw->cum_nneighbor_per_level);
+  WRITEVECTOR(hnsw->levels);
+  WRITEVECTOR(hnsw->offsets);
+  WRITEVECTOR(hnsw->neighbors);
 
-  WRITE1 (hnsw->entry_point);
-  WRITE1 (hnsw->max_level);
-  WRITE1 (hnsw->efConstruction);
-  WRITE1 (hnsw->efSearch);
-  WRITE1 (hnsw->upper_beam);
+  WRITE1(hnsw->entry_point);
+  WRITE1(hnsw->max_level);
+  WRITE1(hnsw->efConstruction);
+  WRITE1(hnsw->efSearch);
+  WRITE1(hnsw->upper_beam);
 }
 
 void read_hnsw(faiss::HNSW *hnsw, faiss::IOReader *f) {
-  READVECTOR (hnsw->assign_probas);
-  READVECTOR (hnsw->cum_nneighbor_per_level);
-  READVECTOR (hnsw->levels);
-  READVECTOR (hnsw->offsets);
-  READVECTOR (hnsw->neighbors);
+  READVECTOR(hnsw->assign_probas);
+  READVECTOR(hnsw->cum_nneighbor_per_level);
+  READVECTOR(hnsw->levels);
+  READVECTOR(hnsw->offsets);
+  READVECTOR(hnsw->neighbors);
 
-  READ1 (hnsw->entry_point);
-  READ1 (hnsw->max_level);
-  READ1 (hnsw->efConstruction);
-  READ1 (hnsw->efSearch);
-  READ1 (hnsw->upper_beam);
+  READ1(hnsw->entry_point);
+  READ1(hnsw->max_level);
+  READ1(hnsw->efConstruction);
+  READ1(hnsw->efSearch);
+  READ1(hnsw->upper_beam);
 }
 
-void write_opq(const faiss::VectorTransform *vt, faiss::IOWriter *f) {  
-  const faiss::LinearTransform * lt =
-    dynamic_cast < const faiss::LinearTransform *> (vt);
+void write_opq(const faiss::VectorTransform *vt, faiss::IOWriter *f) {
+  const faiss::LinearTransform *lt =
+      dynamic_cast<const faiss::LinearTransform *>(vt);
   // generic LinearTransform (includes OPQ)
-  uint32_t h = faiss::fourcc ("LTra");
-  WRITE1 (h);
-        
-  WRITE1 (lt->have_bias);
-  WRITEVECTOR (lt->A);
-  WRITEVECTOR (lt->b);
-    
+  uint32_t h = faiss::fourcc("LTra");
+  WRITE1(h);
+
+  WRITE1(lt->have_bias);
+  WRITEVECTOR(lt->A);
+  WRITEVECTOR(lt->b);
+
   // common fields
-  WRITE1 (vt->d_in);
-  WRITE1 (vt->d_out);
-  WRITE1 (vt->is_trained);
+  WRITE1(vt->d_in);
+  WRITE1(vt->d_out);
+  WRITE1(vt->is_trained);
 }
 
 void read_opq(faiss::VectorTransform *vt, faiss::IOReader *f) {
   uint32_t h;
-  READ1 (h);
-  faiss::LinearTransform * lt = nullptr;
-  if (h == faiss::fourcc ("LTra")) {
+  READ1(h);
+  faiss::LinearTransform *lt = nullptr;
+  if (h == faiss::fourcc("LTra")) {
     lt = dynamic_cast<faiss::LinearTransform *>(vt);
   } else {
     return;
   }
-  READ1 (lt->have_bias);
-  READVECTOR (lt->A);
-  READVECTOR (lt->b);
-  FAISS_THROW_IF_NOT (lt->A.size() >= (size_t)lt->d_in * lt->d_out);
-  FAISS_THROW_IF_NOT (!lt->have_bias || lt->b.size() >= (size_t)lt->d_out);
+  READ1(lt->have_bias);
+  READVECTOR(lt->A);
+  READVECTOR(lt->b);
+  FAISS_THROW_IF_NOT(lt->A.size() >= (size_t)lt->d_in * lt->d_out);
+  FAISS_THROW_IF_NOT(!lt->have_bias || lt->b.size() >= (size_t)lt->d_out);
   lt->set_is_orthonormal();
 
-  READ1 (vt->d_in);
-  READ1 (vt->d_out);
-  READ1 (vt->is_trained);
+  READ1(vt->d_in);
+  READ1(vt->d_out);
+  READ1(vt->is_trained);
 }
 
 }  // namespace tig_gamma

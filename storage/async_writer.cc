@@ -57,7 +57,7 @@ int AsyncWriter::WriterHandler() {
     struct WriterStruct *writer_structs[bulk_size];
 
     int size = 0;
-    while(not writer_q_->empty() && size < bulk_size) {
+    while (not writer_q_->empty() && size < bulk_size) {
       struct WriterStruct *pop_val = nullptr;
       bool ret = writer_q_->try_pop(pop_val);
       if (ret) writer_structs[size++] = pop_val;
@@ -100,14 +100,13 @@ int AsyncWriter::WriterHandler() {
           memcpy(buffer + buffered_size, data, len);
           buffered_size += len;
         }
-        
+
         delete[] data;
         delete writer_structs[i];
       }
       pwrite(prev_fd, buffer, buffered_size, buffered_start);
       UpdateSize(prev_fd, prev_cur_size, buffered_size / item_length_);
-    }
-    else {
+    } else {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
   }
@@ -118,7 +117,8 @@ int AsyncWriter::WriterHandler() {
 int AsyncWriter::AsyncWrite(struct WriterStruct *writer_struct) {
   auto qu_size = writer_q_->size();
   while (qu_size > 10000) {
-    LOG(INFO) << "AsyncWriter queue size[" << qu_size << "] > 10000, sleep 10ms";
+    LOG(INFO) << "AsyncWriter queue size[" << qu_size
+              << "] > 10000, sleep 10ms";
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     qu_size = writer_q_->size();
   }

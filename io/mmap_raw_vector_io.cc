@@ -1,7 +1,15 @@
+/**
+ * Copyright 2019 The Gamma Authors.
+ *
+ * This source code is licensed under the Apache License, Version 2.0 license
+ * found in the LICENSE file in the root directory of this source tree.
+ */
+
 #include "mmap_raw_vector_io.h"
 
-#include "search/error_code.h"
 #include "io/io_common.h"
+#include "search/error_code.h"
+#include "vector/memory_raw_vector.h"
 
 namespace tig_gamma {
 
@@ -31,6 +39,22 @@ int MmapRawVectorIO::Load(int vec_num) {
     return INTERNAL_ERR;
   }
   raw_vector->MetaInfo()->size_ = vec_num;
+  if (dynamic_cast<MemoryRawVector *>(raw_vector)) {
+    MemoryRawVector *memory_vec = dynamic_cast<MemoryRawVector *>(raw_vector);
+    std::vector<const uint8_t *> values;
+    std::vector<int> lens;
+    int ret = memory_vec->storage_mgr_->GetHeaders(0, vec_num, values, lens);
+    if (ret != 0) {
+      LOG(ERROR) << "Load mmap vector failed";
+      return ret;
+    }
+    for (size_t i = 0; i < lens.size(); ++i) {
+      for (size_t j = 0; j < lens[i]; ++j) {
+        memory_vec->AddToMem(values[i] + j * memory_vec->VectorByteSize(),
+                             memory_vec->VectorByteSize());
+      }
+    }
+  }
   LOG(INFO) << "mmap load success! vec num=" << vec_num;
   return 0;
 }

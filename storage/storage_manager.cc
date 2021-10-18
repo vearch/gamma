@@ -8,8 +8,8 @@
 #include "storage_manager.h"
 
 #include "search/error_code.h"
-#include "util/log.h"
 #include "table_block.h"
+#include "util/log.h"
 #include "util/utils.h"
 #include "vector_block.h"
 
@@ -143,8 +143,9 @@ int StorageManager::Init(std::string name, int cache_size, int str_cache_size) {
   if (segments_.Size() == 0 && Extend()) {
     return INTERNAL_ERR;
   }
-  LOG(INFO) << "init storage[" << name_ << "] success! options="
-            << options_.ToStr() << ", segment num=" << segments_.Size();
+  LOG(INFO) << "init storage[" << name_
+            << "] success! options=" << options_.ToStr()
+            << ", segment num=" << segments_.Size();
   return 0;
 }
 
@@ -157,16 +158,17 @@ int StorageManager::Load() {
         (void *)cache_, (void *)str_cache_);
     int ret = segment->Load(name_, block_type_, compressor_);
     if (ret < 0) {
-      LOG(ERROR) << "Storage[" << name_ << "] extend file segment error, ret="
-                 << ret;
+      LOG(ERROR) << "Storage[" << name_
+                 << "] extend file segment error, ret=" << ret;
       return ret;
     }
     size_ += ret;
     segments_.PushBack(segment);
   }
 
-  LOG(INFO) << "load storage[" << name_ << "] success! options="
-            << options_.ToStr() << ", segment num=" << segments_.Size();
+  LOG(INFO) << "load storage[" << name_
+            << "] success! options=" << options_.ToStr()
+            << ", segment num=" << segments_.Size();
   return size_;
 }
 
@@ -178,8 +180,8 @@ int StorageManager::Extend() {
                   disk_io_, (void *)cache_, (void *)str_cache_);
   int ret = segment->Init(name_, block_type_, compressor_);
   if (ret) {
-    LOG(ERROR) << "Storage[" << name_ << "] extend file segment error, ret="
-               << ret;
+    LOG(ERROR) << "Storage[" << name_
+               << "] extend file segment error, ret=" << ret;
     return ret;
   }
   segments_.PushBack(segment);
@@ -234,8 +236,10 @@ int StorageManager::GetHeaders(int start_id, int n,
     segments_.GetData(start_id / options_.segment_size, segment);
     if (segment == nullptr) {
       LOG(ERROR) << "Storage[" << name_ << "], segments_size["
-                 << segments_.Size() << "], seg_id[" << start_id / options_.segment_size
-                 << "] cannot be used. GetHeaders(" << start_id << "," << n << ")";
+                 << segments_.Size() << "], seg_id["
+                 << start_id / options_.segment_size
+                 << "] cannot be used. GetHeaders(" << start_id << "," << n
+                 << ")";
       return -1;
     }
 
@@ -258,36 +262,36 @@ int StorageManager::GetHeaders(int start_id, int n,
 
 int StorageManager::Update(int id, uint8_t *value, int len) {
   if ((size_t)id >= size_ || id < 0 || len != options_.fixed_value_bytes) {
-    LOG(ERROR) << "Storage[" << name_ << "], id [" << id 
-               << "] >= size_ [" << size_ << "]";
+    LOG(ERROR) << "Storage[" << name_ << "], id [" << id << "] >= size_ ["
+               << size_ << "]";
     return PARAM_ERR;
   }
   Segment *segment = nullptr;
   segments_.GetData(id / options_.segment_size, segment);
   if (segment == nullptr) {
-    LOG(ERROR) << "Storage[" << name_ << "], segments_size["
-               << segments_.Size() << "], seg_id[" << id / options_.segment_size
+    LOG(ERROR) << "Storage[" << name_ << "], segments_size[" << segments_.Size()
+               << "], seg_id[" << id / options_.segment_size
                << "] cannot be used. Update(" << id << ") failed.";
     return -1;
   }
   return segment->Update(id % options_.segment_size, value, len);
 }
 
-str_offset_t StorageManager::UpdateString(int id, const char *value, str_len_t len,
-                                          uint32_t &block_id,
+str_offset_t StorageManager::UpdateString(int id, const char *value,
+                                          str_len_t len, uint32_t &block_id,
                                           in_block_pos_t &in_block_pos) {
   if ((size_t)id >= size_ || id < 0) {
-    LOG(ERROR) << "Storage[" << name_ << "], id [" << id
-               << "] >= size_ [" << size_ << "]";
+    LOG(ERROR) << "Storage[" << name_ << "], id [" << id << "] >= size_ ["
+               << size_ << "]";
     return PARAM_ERR;
   }
   int seg_id = id / options_.segment_size;
   Segment *segment = nullptr;
   segments_.GetData(seg_id, segment);
   if (segment == nullptr) {
-    LOG(ERROR) << "Storage[" << name_ << "], segments_size["
-               << segments_.Size() << "], seg_id[" << seg_id
-               << "] cannot be used. UpdateString(" << id << ") failed.";
+    LOG(ERROR) << "Storage[" << name_ << "], segments_size[" << segments_.Size()
+               << "], seg_id[" << seg_id << "] cannot be used. UpdateString("
+               << id << ") failed.";
     return -1;
   }
   str_offset_t ret = segment->AddString(value, len, block_id, in_block_pos);
@@ -296,8 +300,8 @@ str_offset_t StorageManager::UpdateString(int id, const char *value, str_len_t l
 
 int StorageManager::Get(int id, const uint8_t *&value) {
   if ((size_t)id >= size_ || id < 0) {
-    LOG(WARNING) << "Storage[" << name_ << "], id [" << id
-                 << "] >= size_ [" << size_ << "]";
+    LOG(WARNING) << "Storage[" << name_ << "], id [" << id << "] >= size_ ["
+                 << size_ << "]";
     return PARAM_ERR;
   }
 
@@ -305,9 +309,9 @@ int StorageManager::Get(int id, const uint8_t *&value) {
   Segment *segment = nullptr;
   segments_.GetData(seg_id, segment);
   if (segment == nullptr) {
-    LOG(ERROR) << "Storage[" << name_ << "], segments_size["
-               << segments_.Size() << "], seg_id[" << seg_id
-               << "] cannot be used. Get(" << id << ")";
+    LOG(ERROR) << "Storage[" << name_ << "], segments_size[" << segments_.Size()
+               << "], seg_id[" << seg_id << "] cannot be used. Get(" << id
+               << ")";
     return -1;
   }
 
@@ -320,17 +324,17 @@ int StorageManager::Get(int id, const uint8_t *&value) {
 int StorageManager::GetString(int id, std::string &value, uint32_t block_id,
                               in_block_pos_t in_block_pos, str_len_t len) {
   if ((size_t)id >= size_ || id < 0) {
-    LOG(ERROR) << "Storage[" << name_ << "], id [" << id
-               << "] >= size_ [" << size_ << "]";
+    LOG(ERROR) << "Storage[" << name_ << "], id [" << id << "] >= size_ ["
+               << size_ << "]";
     return PARAM_ERR;
   }
   int seg_id = id / options_.segment_size;
   Segment *segment = nullptr;
   segments_.GetData(seg_id, segment);
   if (segment == nullptr) {
-    LOG(ERROR) << "Storage[" << name_ << "], segments_size["
-               << segments_.Size() << "], seg_id[" << seg_id
-               << "] cannot be used. GetString(" << id << ") failed.";
+    LOG(ERROR) << "Storage[" << name_ << "], segments_size[" << segments_.Size()
+               << "], seg_id[" << seg_id << "] cannot be used. GetString(" << id
+               << ") failed.";
     return -1;
   }
 
@@ -340,7 +344,7 @@ int StorageManager::GetString(int id, std::string &value, uint32_t block_id,
 
 int StorageManager::Truncate(size_t size) {
   if (size > size_) {
-    LOG(ERROR) << "Storage_mgr[" << name_ << "] size[" << size_ 
+    LOG(ERROR) << "Storage_mgr[" << name_ << "] size[" << size_
                << "] < truncate size[" << size << "]";
   }
   size_t seg_num = size / options_.segment_size;

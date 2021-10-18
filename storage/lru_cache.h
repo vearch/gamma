@@ -13,9 +13,9 @@
 
 #include <atomic>
 #include <list>
-#include <queue>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -32,8 +32,6 @@ struct ReadFunParameter {
 #define THRESHOLD_OF_SWAP 250
 #define THRESHOLD_TYPE uint8_t
 #define MAP_GROUP_NUM 100
-
-
 
 template <typename Value>
 class CacheList {
@@ -206,7 +204,8 @@ class MemoryPool {
     } else {
       val = new char[cell_size_];
       if (val == nullptr) {
-        LOG(ERROR) << "lrucache GetBuffer failed, value size[" << cell_size_ << "]";
+        LOG(ERROR) << "lrucache GetBuffer failed, value size[" << cell_size_
+                   << "]";
         return nullptr;
       }
     }
@@ -298,7 +297,6 @@ class LRUCache {
     // }
   };
 
-
   struct InsertInfo {
     std::mutex mtx_;
     bool is_clean_ = false;
@@ -329,7 +327,8 @@ class LRUCache {
   // pthread_rwlock_t rw_lock_;
 
  public:
-  LRUCache(std::string name, size_t cache_size, size_t cell_size, LoadFunc func) {
+  LRUCache(std::string name, size_t cache_size, size_t cell_size,
+           LoadFunc func) {
     name_ = name;
     cell_size_ = cell_size;
     max_size_ = (cache_size * 1024 * 1024) / cell_size;
@@ -453,7 +452,8 @@ class LRUCache {
       if (res == false) {
         value = mem_pool_.GetBuffer();
         if (value == nullptr) {
-          LOG(ERROR) << "lrucache[" << name_ << "] mem_pool GetBuffer error, buffer is nullptr:";
+          LOG(ERROR) << "lrucache[" << name_
+                     << "] mem_pool GetBuffer error, buffer is nullptr:";
         }
       }
     }
@@ -475,7 +475,7 @@ class LRUCache {
   void Set2(Key key, char *buffer) {
     std::lock_guard<std::mutex> lock(mtx_);
     if (buffer == nullptr) {
-      LOG(ERROR) << "lrucache[" << name_ << "] Set2 buffer is nullptr"; 
+      LOG(ERROR) << "lrucache[" << name_ << "] Set2 buffer is nullptr";
     }
     SetImpl(key, buffer);
   }

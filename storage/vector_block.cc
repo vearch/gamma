@@ -21,10 +21,10 @@ VectorBlock::VectorBlock(int fd, int per_block_size, int length,
 }
 
 void VectorBlock::InitSubclass() {
-  if(compressor_) {
+  if (compressor_) {
     vec_item_len_ = compressor_->GetCompressLen();
     item_length_ = vec_item_len_;
-    LOG(INFO) << "VectorBlock[" << name_ + "_" << seg_id_ 
+    LOG(INFO) << "VectorBlock[" << name_ + "_" << seg_id_
               << "] use compress. vec_item_len_[" << vec_item_len_ << "]";
     if (compressor_->GetCompressType() != CompressType::Zfp) {
       LOG(ERROR) << "The compression method used by vec_block is not ZFP.";
@@ -44,8 +44,7 @@ int VectorBlock::GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
 bool VectorBlock::ReadBlock(uint32_t key, char *block,
                             ReadFunParameter *param) {
   if (param->len > MAX_BLOCK_SIZE) {
-    LOG(ERROR) << "vector ReadConten len is:" << param->len
-               << " key:" << key;
+    LOG(ERROR) << "vector ReadConten len is:" << param->len << " key:" << key;
     return false;
   }
   if (block == nullptr) {
@@ -57,7 +56,7 @@ bool VectorBlock::ReadBlock(uint32_t key, char *block,
 }
 
 int VectorBlock::WriteContent(const uint8_t *value, uint32_t n_bytes,
-                              uint32_t start, disk_io::AsyncWriter *disk_io, 
+                              uint32_t start, disk_io::AsyncWriter *disk_io,
                               std::atomic<uint32_t> *cur_size) {
 #ifdef WITH_ZFP
   std::vector<char> output;
@@ -71,7 +70,8 @@ int VectorBlock::WriteContent(const uint8_t *value, uint32_t n_bytes,
 #endif
 
   disk_io->Set(header_size_, vec_item_len_);
-  struct disk_io::WriterStruct *write_struct = new struct disk_io::WriterStruct();
+  struct disk_io::WriterStruct *write_struct =
+      new struct disk_io::WriterStruct();
   write_struct->fd = fd_;
   write_struct->data = new uint8_t[vec_item_len_];
   memcpy(write_struct->data, value, vec_item_len_);
@@ -147,19 +147,20 @@ int VectorBlock::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
       ReadFunParameter parameter;
       GetReadFunParameter(parameter, per_block_size_, block_pos);
       bool res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
-      
+
       if (not res || block == nullptr) {
-        LOG(ERROR) << "Read block fails from disk_file, block_id[" 
+        LOG(ERROR) << "Read block fails from disk_file, block_id["
                    << name_ + "_" << seg_id_ << "]";
       } else {
 #ifdef WITH_ZFP
         if (compressor_) {
           uint32_t batch_num = len / vec_item_len_;
-          char *output = (char*)value + (read_num / vec_item_len_) * raw_len;
+          char *output = (char *)value + (read_num / vec_item_len_) * raw_len;
           if (batch_num == 1) {
-            compressor_->Decompress(block + block_offset, output , 0);
+            compressor_->Decompress(block + block_offset, output, 0);
           } else {
-            compressor_->DecompressBatch(block + block_offset, output, batch_num, 0);
+            compressor_->DecompressBatch(block + block_offset, output,
+                                         batch_num, 0);
           }
         } else
 #endif
@@ -175,7 +176,8 @@ int VectorBlock::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
       if (compressor_) {
         uint8_t *output = value + (read_num / vec_item_len_) * raw_len;
         uint32_t read_len = (len / vec_item_len_) * raw_len;
-        uint32_t offset = ((block_pos + block_offset) / vec_item_len_) * raw_len;
+        uint32_t offset =
+            ((block_pos + block_offset) / vec_item_len_) * raw_len;
         ReadContent(output, read_len, offset);
       } else
 #endif
@@ -191,7 +193,8 @@ int VectorBlock::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
   return 0;
 }
 
-int VectorBlock::Compress(const uint8_t *data, uint32_t len, std::vector<char> &output) {
+int VectorBlock::Compress(const uint8_t *data, uint32_t len,
+                          std::vector<char> &output) {
 #ifdef WITH_ZFP
   if (compressor_) {
     uint32_t raw_len = compressor_->GetRawLen();
@@ -212,7 +215,8 @@ int VectorBlock::Compress(const uint8_t *data, uint32_t len, std::vector<char> &
   return -1;
 }
 
-int VectorBlock::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) {
+int VectorBlock::Update(const uint8_t *value, uint32_t n_bytes,
+                        uint32_t start) {
 #ifdef WITH_ZFP
   std::vector<char> output;
   if (compressor_) {
@@ -225,7 +229,7 @@ int VectorBlock::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) 
 #endif
 
   pwrite(fd_, value, n_bytes, header_size_ + start);
-  
+
   if (lru_cache_ == nullptr) {
     return 0;
   }
@@ -241,7 +245,8 @@ int VectorBlock::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) 
       len = per_block_size_ - block_offset;
 
     uint32_t cache_block_id = GetCacheBlockId(block_id);
-    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len, block_offset);
+    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len,
+                       block_offset);
 
     start += len;
     n_bytes -= len;

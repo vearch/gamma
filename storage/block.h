@@ -9,25 +9,29 @@
 
 #include <stdint.h>
 #include <unistd.h>
-#include <vector>
+
 #include <atomic>
+#include <vector>
 
 #include "async_writer.h"
-#include "lru_cache.h"
 #include "compress/compressor_zfp.h"
 #include "compress/compressor_zstd.h"
+#include "lru_cache.h"
 
-#define  MAX_BLOCK_SIZE  65536
-#define  MAX_STRING_LEN  65535
+#define MAX_BLOCK_SIZE 65536
+#define MAX_STRING_LEN 65535
 
 typedef uint32_t str_offset_t;
 typedef uint16_t str_len_t;
 typedef uint16_t in_block_pos_t;
 
-
 namespace tig_gamma {
 
-enum class BlockType : uint8_t {TableBlockType = 0, StringBlockType, VectorBlockType};
+enum class BlockType : uint8_t {
+  TableBlockType = 0,
+  StringBlockType,
+  VectorBlockType
+};
 
 class Block {
  public:
@@ -46,8 +50,8 @@ class Block {
 
   virtual int Update(const uint8_t *value, uint32_t n_bytes, uint32_t start);
 
-  void SegmentIsFull(); // Segment is full and all data is brushed to disk.
-  
+  void SegmentIsFull();  // Segment is full and all data is brushed to disk.
+
   int32_t GetCacheBlockId(uint32_t block_id);
 
   std::string &GetName() { return name_; }
@@ -59,11 +63,11 @@ class Block {
 
   virtual void InitSubclass() = 0;
 
-  virtual int WriteContent(const uint8_t *value, uint32_t n_bytes, uint32_t start,
-                           disk_io::AsyncWriter *disk_io,
+  virtual int WriteContent(const uint8_t *value, uint32_t n_bytes,
+                           uint32_t start, disk_io::AsyncWriter *disk_io,
                            std::atomic<uint32_t> *cur_size) = 0;
 
-  virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
+  virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
                                   uint32_t off) = 0;
 
   virtual int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) = 0;

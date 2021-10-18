@@ -17,8 +17,7 @@ class TableBlock : public Block {
              uint32_t seg_id, std::string name, uint32_t seg_block_capacity,
              const std::atomic<uint32_t> *cur_size, int max_size);
 
-  static bool ReadBlock(uint32_t key, char *block,
-                        ReadFunParameter *param);
+  static bool ReadBlock(uint32_t key, char *block, ReadFunParameter *param);
 
   int WriteContent(const uint8_t *value, uint32_t n_bytes, uint32_t start,
                    disk_io::AsyncWriter *disk_io,
@@ -27,11 +26,10 @@ class TableBlock : public Block {
   int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) override;
 
  private:
-  void InitSubclass() {};
+  void InitSubclass(){};
 
-  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
+  int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
                           uint32_t off) override;
- 
 };
 
 }  // namespace tig_gamma

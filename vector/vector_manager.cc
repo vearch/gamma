@@ -10,8 +10,6 @@
 #include "raw_vector_factory.h"
 #include "util/utils.h"
 
-using namespace std;
-
 namespace tig_gamma {
 
 static bool InnerProductCmp(const VectorDoc *a, const VectorDoc *b) {
@@ -56,7 +54,7 @@ int VectorManager::CreateVectorTable(TableInfo &table,
     meta_jp->GetObject("vectors", vectors_jp);
   }
 
-  vector<string> retrieval_params;
+  std::vector<std::string> retrieval_params;
   if (table.RetrievalType() != "") {
     retrieval_types_.push_back(table.RetrievalType());
     retrieval_params.push_back(table.RetrievalParam());
@@ -114,8 +112,10 @@ int VectorManager::CreateVectorTable(TableInfo &table,
 
     StoreParams store_params(meta_info->AbsoluteName());
     if (store_param != "" && store_params.Parse(store_param.c_str())) {
+      delete meta_info;
       return PARAM_ERR;
     }
+
     LOG(INFO) << "store params=" << store_params.ToJsonStr();
     if (vectors_jp.Contains(meta_info->AbsoluteName())) {
       utils::JsonParser vec_jp;
@@ -129,6 +129,7 @@ int VectorManager::CreateVectorTable(TableInfo &table,
 
     RawVector *vec = RawVectorFactory::Create(
         meta_info, store_type, vec_root_path, store_params, docids_bitmap_);
+
     if (vec == nullptr) {
       LOG(ERROR) << "create raw vector error";
       return -1;
@@ -141,6 +142,11 @@ int VectorManager::CreateVectorTable(TableInfo &table,
     if (ret != 0) {
       LOG(ERROR) << "Raw vector " << vec_name << " init error, code [" << ret
                  << "]!";
+      RawVectorIO *rio = vec->GetIO();
+      if (rio) {
+        delete rio;
+        rio = nullptr;
+      }
       delete vec;
       return -1;
     }
@@ -160,13 +166,24 @@ int VectorManager::CreateVectorTable(TableInfo &table,
       if (retrieval_model == nullptr) {
         LOG(ERROR) << "Cannot get model=" << retrieval_type_str
                    << ", vec_name=" << vec_name;
+        RawVectorIO *rio = vec->GetIO();
+        if (rio) {
+          delete rio;
+          rio = nullptr;
+        }
         delete vec;
         return -1;
       }
       retrieval_model->vector_ = vec;
 
-      if (retrieval_model->Init(retrieval_params[i], table.IndexingSize()) != 0) {
+      if (retrieval_model->Init(retrieval_params[i], table.IndexingSize()) !=
+          0) {
         LOG(ERROR) << "gamma index init " << vec_name << " error!";
+        RawVectorIO *rio = vec->GetIO();
+        if (rio) {
+          delete rio;
+          rio = nullptr;
+        }
         delete vec;
         delete retrieval_model;
         return -1;
@@ -724,8 +741,8 @@ int VectorManager::Load(const std::vector<std::string> &index_dirs,
         return -1;
       } else {
         if (load_num > min_vec_num) {
-          LOG(ERROR) << "load vec_index_num=" << load_num << " > raw_vec_num="
-                     << min_vec_num;
+          LOG(ERROR) << "load vec_index_num=" << load_num
+                     << " > raw_vec_num=" << min_vec_num;
           return -1;
         }
         iter.second->indexed_count_ = load_num;

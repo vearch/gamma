@@ -16,9 +16,9 @@
 #include "c_api/api_data/gamma_doc.h"
 #include "c_api/api_data/gamma_table.h"
 #include "io/io_common.h"
-#include "util/log.h"
 #include "storage/storage_manager.h"
 #include "table_define.h"
+#include "util/log.h"
 
 using namespace tig_gamma::table;
 

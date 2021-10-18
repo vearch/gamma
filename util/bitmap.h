@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef BITMAP_H_
-#define BITMAP_H_
+#pragma once
 
 namespace bitmap {
 
@@ -22,6 +21,4 @@ void set(char *bitmap, int id);
 /* assume id not exceed the total size of bitmap */
 void unset(char *bitmap, int id);
 
-} // namespace bitmap
-
-#endif
+}  // namespace bitmap

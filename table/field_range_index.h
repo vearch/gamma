@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef FIELD_RANGE_INDEX_H_
-#define FIELD_RANGE_INDEX_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -30,29 +29,6 @@ typedef struct {
   FilterOperator is_union;
 } FilterInfo;
 
-class ResourceToRecovery {
- public:
-  explicit ResourceToRecovery(void *data, int after = 1) {
-    deadline_ = std::chrono::system_clock::now() + std::chrono::seconds(after);
-    data_ = data;
-  }
-
-  ~ResourceToRecovery() {
-    free(data_);
-    data_ = nullptr;
-  }
-
-  std::chrono::time_point<std::chrono::system_clock> Deadline() {
-    return deadline_;
-  }
-
-  void *Data() { return data_; }
-
- private:
-  std::chrono::time_point<std::chrono::system_clock> deadline_;
-  void *data_;
-};
-
 class FieldOperate {
  public:
   typedef enum { ADD, DELETE } operate_type;
@@ -65,7 +41,6 @@ class FieldOperate {
   std::string value;
 };
 
-typedef moodycamel::BlockingConcurrentQueue<ResourceToRecovery *> ResourceQueue;
 typedef tbb::concurrent_bounded_queue<FieldOperate *> FieldOperateQueue;
 
 class FieldRangeIndex;
@@ -89,7 +64,6 @@ class MultiFieldsRangeIndex {
  private:
   int Intersect(std::vector<RangeQueryResult> &results, int shortest_idx,
                 RangeQueryResult *out);
-  void ResourceRecoveryWorker();
   void FieldOperateWorker();
 
   int AddDoc(int docid, int field);
@@ -99,12 +73,8 @@ class MultiFieldsRangeIndex {
   table::Table *table_;
   std::string path_;
   bool b_running_;
-  bool b_recovery_running_;
   bool b_operate_running_;
-  ResourceQueue *resource_recovery_q_;
   FieldOperateQueue *field_operate_q_;
 };
 
 }  // namespace tig_gamma
-
-#endif

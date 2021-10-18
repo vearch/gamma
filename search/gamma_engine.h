@@ -17,7 +17,6 @@
 #include "c_api/api_data/gamma_request.h"
 #include "c_api/api_data/gamma_response.h"
 #include "c_api/api_data/gamma_table.h"
-#include "common/async_flush.h"
 #include "table/field_range_index.h"
 #include "table/table.h"
 #include "vector/vector_manager.h"
@@ -163,8 +162,6 @@ class GammaEngine {
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;
 #endif
-
-  AsyncFlushExecutor *af_exector_;
 };
 
 
