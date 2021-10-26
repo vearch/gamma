@@ -441,7 +441,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
       top_candidates.pop();
     }
 
-    tableint next_closest_entry_point = selectedNeighbors[0];
+    tableint next_closest_entry_point = selectedNeighbors.back();
 
     {
       linklistsizeint *ll_cur;
