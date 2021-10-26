@@ -14,7 +14,7 @@
 //  http://muflihun.com
 //
 
-#include "log.h"
+#include "util/log.h"
 
 #if defined(AUTO_INITIALIZE_EASYLOGGINGPP)
 INITIALIZE_EASYLOGGINGPP

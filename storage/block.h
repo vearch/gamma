@@ -9,33 +9,34 @@
 
 #include <stdint.h>
 #include <unistd.h>
-#include <vector>
+
 #include <atomic>
+#include <vector>
 
 #include "async_writer.h"
-#include "lru_cache.h"
 #include "compress/compressor_zfp.h"
 #include "compress/compressor_zstd.h"
+#include "lru_cache.h"
 
-#define  MAX_BLOCK_SIZE  65536
+#define MAX_BLOCK_SIZE 65536
+#define MAX_STRING_LEN 65535
 
 typedef uint32_t str_offset_t;
 typedef uint16_t str_len_t;
+typedef uint16_t in_block_pos_t;
 
 namespace tig_gamma {
 
-// struct ReadFunParameter{
-//   int fd;
-//   uint32_t len;
-//   uint32_t offset;
-// };
-
-enum class BlockType : uint8_t {TableBlockType = 0, StringBlockType, VectorBlockType};
+enum class BlockType : uint8_t {
+  TableBlockType = 0,
+  StringBlockType,
+  VectorBlockType
+};
 
 class Block {
  public:
   Block(int fd, int per_block_size, int length, uint32_t header_size,
-        uint32_t seg_id, uint32_t seg_block_capacity,
+        uint32_t seg_id, std::string name, uint32_t seg_block_capacity,
         const std::atomic<uint32_t> *cur_size, int max_size);
 
   virtual ~Block();
@@ -47,11 +48,13 @@ class Block {
 
   virtual int Read(uint8_t *value, uint32_t n_bytes, uint32_t start);
 
-  virtual int Update(const uint8_t *value, int n_bytes, uint32_t start);
+  virtual int Update(const uint8_t *value, uint32_t n_bytes, uint32_t start);
 
-  void SegmentIsFull(); // Segment is full and all data is brushed to disk.
-  
+  void SegmentIsFull();  // Segment is full and all data is brushed to disk.
+
   int32_t GetCacheBlockId(uint32_t block_id);
+
+  std::string &GetName() { return name_; }
 
  protected:
   // virtual int Compress() = 0;
@@ -60,11 +63,11 @@ class Block {
 
   virtual void InitSubclass() = 0;
 
-  virtual int WriteContent(const uint8_t *value, int n_bytes, uint32_t start,
-                           disk_io::AsyncWriter *disk_io,
+  virtual int WriteContent(const uint8_t *value, uint32_t n_bytes,
+                           uint32_t start, disk_io::AsyncWriter *disk_io,
                            std::atomic<uint32_t> *cur_size) = 0;
 
-  virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len, 
+  virtual int GetReadFunParameter(ReadFunParameter &parameter, uint32_t len,
                                   uint32_t off) = 0;
 
   virtual int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) = 0;
@@ -78,17 +81,19 @@ class Block {
 
   uint32_t per_block_size_;
 
-  const std::atomic<uint32_t> *cur_size_;
+  uint32_t item_length_;
 
-  int max_size_;
-
-  int item_length_;
+  uint32_t header_size_;
 
   uint32_t seg_block_capacity_;
 
   uint32_t seg_id_;
 
-  uint32_t header_size_;
+  std::string name_;
+
+  const std::atomic<uint32_t> *cur_size_;
+
+  uint32_t max_size_;
 
   uint32_t last_bid_in_disk_;
 };

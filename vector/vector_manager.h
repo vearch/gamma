@@ -6,17 +6,16 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef VECTOR_MANAGER_H_
-#define VECTOR_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <string>
 
-#include "api_data/gamma_config.h"
-#include "gamma_common_data.h"
-#include "log.h"
-#include "raw_vector.h"
-#include "retrieval_model.h"
+#include "c_api/api_data/gamma_config.h"
+#include "common/gamma_common_data.h"
+#include "index/retrieval_model.h"
+#include "util/log.h"
+#include "vector/raw_vector.h"
 
 namespace tig_gamma {
 
@@ -46,7 +45,7 @@ class VectorManager {
                         long &vector_total_mem_bytes);
 
   int Dump(const std::string &path, int dump_docid, int max_docid);
-  int Load(const std::vector<std::string> &path, int doc_num);
+  int Load(const std::vector<std::string> &path, int &doc_num);
 
   bool Contains(std::string &field_name);
 
@@ -92,5 +91,3 @@ class VectorManager {
 };
 
 }  // namespace tig_gamma
-
-#endif

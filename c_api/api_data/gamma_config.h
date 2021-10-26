@@ -9,7 +9,7 @@
 
 #include <vector>
 
-#include "config_generated.h"
+#include "idl/fbs-gen/c/config_generated.h"
 #include "gamma_raw_data.h"
 
 

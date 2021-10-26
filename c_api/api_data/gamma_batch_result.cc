@@ -7,8 +7,8 @@
 
 #include "gamma_batch_result.h"
 
-#include "log.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

@@ -7,13 +7,13 @@
 
 #pragma once
 
-#include <vector>
 #include <tbb/concurrent_queue.h>
 
+#include <vector>
 
 // #include "concurrentqueue/concurrentqueue.h"
 #include "reflector.h"
-#include "utils.h"
+#include "util/utils.h"
 
 enum class VectorValueType : std::uint8_t { FLOAT = 0, BINARY = 1, INT8 = 2 };
 
@@ -189,7 +189,7 @@ class VectorReader {
  public:
   VectorReader(VectorMetaInfo *meta_info) : meta_info_(meta_info) {}
 
-  virtual ~VectorReader(){};
+  virtual ~VectorReader() { delete meta_info_; };
 
   /** Get vectors by vecotor id list
    *

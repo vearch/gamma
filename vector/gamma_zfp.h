@@ -1,5 +1,11 @@
-#ifndef GAMMA_ZFP_H_
-#define GAMMA_ZFP_H_
+/**
+ * Copyright 2019 The Gamma Authors.
+ *
+ * This source code is licensed under the Apache License, Version 2.0 license
+ * found in the LICENSE file in the root directory of this source tree.
+ */
+
+#pragma once
 
 #ifdef WITH_ZFP
 
@@ -38,6 +44,4 @@ struct GammaZFP {
 
 }  // namespace tig_gamma
 
-#endif // WITH_ZFP
-
-#endif
+#endif  // WITH_ZFP

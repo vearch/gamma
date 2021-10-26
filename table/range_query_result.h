@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef SRC_SEARCHER_INDEX_RANGE_QUERY_RESULT_H_
-#define SRC_SEARCHER_INDEX_RANGE_QUERY_RESULT_H_
+#pragma once
 
 #include <cassert>
 #include <iostream>
@@ -14,8 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "bitmap.h"
-#include "log.h"
+#include "util/bitmap.h"
+#include "util/log.h"
 
 #define BM_OPERATE_TYPE long
 
@@ -217,5 +216,3 @@ class MultiRangeQueryResults {
 };
 
 }  // namespace tig_gamma
-
-#endif  // SRC_SEARCHER_INDEX_RANGE_QUERY_RESULT_H_

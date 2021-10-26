@@ -11,10 +11,11 @@
 
 #include <string>
 #include <vector>
-#include "raw_vector.h"
+
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "vector/raw_vector.h"
 
 namespace tig_gamma {
 

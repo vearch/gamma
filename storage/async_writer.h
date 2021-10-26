@@ -8,14 +8,17 @@
 #pragma once
 
 #include <stdint.h>
-#include <atomic>
 #include <tbb/concurrent_queue.h>
+
+#include <atomic>
+
 #include "concurrentqueue/blockingconcurrentqueue.h"
 
 namespace tig_gamma {
 namespace disk_io {
 
 struct WriterStruct {
+  WriterStruct() {}
   int fd;
   uint8_t *data;
   uint32_t start;
@@ -23,7 +26,8 @@ struct WriterStruct {
   std::atomic<uint32_t> *cur_size;
 };
 
-//typedef moodycamel::BlockingConcurrentQueue<struct WriterStruct *> WriterQueue;
+// typedef moodycamel::BlockingConcurrentQueue<struct WriterStruct *>
+// WriterQueue;
 typedef tbb::concurrent_bounded_queue<struct WriterStruct *> WriterQueue;
 
 class AsyncWriter {
@@ -57,4 +61,4 @@ class AsyncWriter {
 };
 
 }  // namespace disk_io
-}
+}  // namespace tig_gamma

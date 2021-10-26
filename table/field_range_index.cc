@@ -26,8 +26,8 @@
 #include <sstream>
 #include <typeinfo>
 
-#include "bitmap.h"
-#include "log.h"
+#include "util/bitmap.h"
+#include "util/log.h"
 
 #ifdef __APPLE__
 #include "threadskv8.h"
@@ -35,8 +35,8 @@
 #include "threadskv10h.h"
 #endif
 
-#include "error_code.h"
-#include "utils.h"
+#include "search/error_code.h"
+#include "util/utils.h"
 
 using std::string;
 using std::vector;
@@ -74,7 +74,7 @@ class Node {
 
   typedef enum NodeType { Dense, Sparse } NodeType;
 
-  int AddDense(int val, ResourceQueue *res_q) {
+  int AddDense(int val) {
     int op_len = sizeof(BM_OPERATE_TYPE) * 8;
 
     if (size_ == 0) {
@@ -117,15 +117,10 @@ class Node {
       }
 
       bitmap::set(data, val - min_aligned);
-      auto old_data = data_dense_;
+      free(data_dense_);
       data_dense_ = data;
       min_ = val;
       min_aligned_ = min_aligned;
-      ResourceToRecovery *res = new ResourceToRecovery(old_data);
-      bool ret_q = res_q->enqueue(res);
-      if (not ret_q) {
-        LOG(ERROR) << "Enqueue failed!";
-      }
     } else if (val > max_aligned_) {
       // double k = 1 + exp(-1 * n_extend_ + 1);
       char *data = nullptr;
@@ -154,15 +149,10 @@ class Node {
       }
 
       bitmap::set(data, val - min_aligned_);
-      auto old_data = data_dense_;
+      free(data_dense_);
       data_dense_ = data;
       max_ = val;
       max_aligned_ = max_aligned;
-      ResourceToRecovery *res = new ResourceToRecovery(old_data);
-      bool ret_q = res_q->enqueue(res);
-      if (not ret_q) {
-        LOG(ERROR) << "Enqueue failed!";
-      }
     } else {
       bitmap::set(data_dense_, val - min_aligned_);
       min_ = std::min(min_, val);
@@ -173,16 +163,8 @@ class Node {
     return 0;
   }
 
-  int AddSparse(int val, ResourceQueue *res_q) {
+  int AddSparse(int val) {
     int op_len = sizeof(BM_OPERATE_TYPE) * 8;
-    min_ = std::min(min_, val);
-    max_ = std::max(max_, val);
-    if (val < min_aligned_) {
-      min_aligned_ = (val / op_len) * op_len;
-    }
-    if (val > max_aligned_) {
-      max_aligned_ = (val / op_len + 1) * op_len - 1;
-    }
 
     if (capacity_ == 0) {
       capacity_ = 1;
@@ -195,44 +177,47 @@ class Node {
         data[i] = data_sparse_[i];
       }
 
-      int *old_data = data_sparse_;
+      free(data_sparse_);
       data_sparse_ = data;
-      ResourceToRecovery *res = new ResourceToRecovery(old_data);
-      bool ret_q = res_q->enqueue(res);
-      if (not ret_q) {
-        LOG(ERROR) << "Enqueue failed!";
-      }
     }
     data_sparse_[size_] = val;
 
     ++size_;
+    min_ = std::min(min_, val);
+    max_ = std::max(max_, val);
+    if (val < min_aligned_) {
+      min_aligned_ = (val / op_len) * op_len;
+    }
+    if (val > max_aligned_) {
+      max_aligned_ = (val / op_len + 1) * op_len - 1;
+    }
     return 0;
   }
 
-  int Add(int val, ResourceQueue *res_q) {
+  int Add(int val) {
     int offset = max_ - min_;
     double density = (size_ * 1.) / offset;
 
     if (type_ == Dense) {
       if (offset > 100000) {
         if (density < 0.08) {
-          ConvertToSparse(res_q);
-          return AddSparse(val, res_q);
+          ConvertToSparse();
+          return AddSparse(val);
         }
       }
-      return AddDense(val, res_q);
+      return AddDense(val);
     } else {
       if (offset > 100000) {
         if (density > 0.1) {
-          ConvertToDense(res_q);
-          return AddDense(val, res_q);
+          ConvertToDense();
+          return AddDense(val);
         }
       }
-      return AddSparse(val, res_q);
+      return AddSparse(val);
     }
   }
 
-  int ConvertToSparse(ResourceQueue *res_q) {
+  int ConvertToSparse() {
     data_sparse_ = (int *)malloc(size_ * sizeof(int));
     int offset = max_aligned_ - min_aligned_ + 1;
     int idx = 0;
@@ -253,18 +238,14 @@ class Node {
                  << max_aligned_ << "] min_aligned_ [" << min_aligned_
                  << "] max [" << max_ << "] min [" << min_ << "]";
     }
-    ResourceToRecovery *res = new ResourceToRecovery(data_dense_);
-    bool ret_q = res_q->enqueue(res);
-    if (not ret_q) {
-      LOG(ERROR) << "Enqueue failed!";
-    }
     capacity_ = size_;
     type_ = Sparse;
+    free(data_dense_);
     data_dense_ = nullptr;
     return 0;
   }
 
-  int ConvertToDense(ResourceQueue *res_q) {
+  int ConvertToDense() {
     int bytes_count = -1;
     if (bitmap::create(data_dense_, bytes_count,
                        max_aligned_ - min_aligned_ + 1) != 0) {
@@ -282,17 +263,13 @@ class Node {
       bitmap::set(data_dense_, val - min_aligned_);
     }
 
-    ResourceToRecovery *res = new ResourceToRecovery(data_sparse_);
-    bool ret_q = res_q->enqueue(res);
-    if (not ret_q) {
-      LOG(ERROR) << "Enqueue failed!";
-    }
     type_ = Dense;
+    free(data_sparse_);
     data_sparse_ = nullptr;
     return 0;
   }
 
-  int DeleteDense(int val, ResourceQueue *res_q) {
+  int DeleteDense(int val) {
     int pos = val - min_aligned_;
     if (pos < 0 || val > max_aligned_) {
       LOG(ERROR) << "Cannot delete [" << val << "]";
@@ -303,7 +280,7 @@ class Node {
     return 0;
   }
 
-  int DeleteSparse(int val, ResourceQueue *res_q) {
+  int DeleteSparse(int val) {
     int i = 0;
     for (; i < size_; ++i) {
       if (data_sparse_[i] == val) {
@@ -323,11 +300,11 @@ class Node {
     return 0;
   }
 
-  int Delete(int val, ResourceQueue *res_q) {
+  int Delete(int val) {
     if (type_ == Dense) {
-      return DeleteDense(val, res_q);
+      return DeleteDense(val);
     } else {
-      return DeleteSparse(val, res_q);
+      return DeleteSparse(val);
     }
   }
 
@@ -384,9 +361,9 @@ class FieldRangeIndex {
                   BTreeParameters &bt_param);
   ~FieldRangeIndex();
 
-  int Add(std::string &key, int value, ResourceQueue *res_q);
+  int Add(std::string &key, int value);
 
-  int Delete(std::string &key, int value, ResourceQueue *res_q);
+  int Delete(std::string &key, int value);
 
   int Search(const string &low, const string &high, RangeQueryResult *result);
 
@@ -407,6 +384,7 @@ class FieldRangeIndex {
   bool is_numeric_;
   char *kDelim_;
   std::string path_;
+  pthread_rwlock_t rw_lock_;
 };
 
 FieldRangeIndex::FieldRangeIndex(std::string &path, int field_idx,
@@ -439,6 +417,11 @@ FieldRangeIndex::FieldRangeIndex(std::string &path, int field_idx,
     is_numeric_ = true;
   }
   kDelim_ = const_cast<char *>(bt_param.kDelim);
+
+  int ret = pthread_rwlock_init(&rw_lock_, nullptr);
+  if (ret != 0) {
+    LOG(ERROR) << "init lock failed[";
+  }
 }
 
 FieldRangeIndex::~FieldRangeIndex() {
@@ -510,6 +493,7 @@ FieldRangeIndex::~FieldRangeIndex() {
     bt_mgrclose(main_mgr_);
     main_mgr_ = nullptr;
   }
+  pthread_rwlock_destroy(&rw_lock_);
 }
 
 static int ReverseEndian(const unsigned char *in, unsigned char *out,
@@ -523,7 +507,7 @@ static int ReverseEndian(const unsigned char *in, unsigned char *out,
   return 0;
 }
 
-int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
+int FieldRangeIndex::Add(std::string &key, int value) {
 #ifdef __APPLE__
   BtDb *bt = bt_open(main_mgr_);
 #else
@@ -540,6 +524,7 @@ int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
 
         if (ret < 0) {
           p_node = new Node;
+          p_node->Add(value);
 #ifdef __APPLE__
           BTERR bterr = bt_insertkey(bt, key_to_add, key_len, 0,
                                      static_cast<void *>(&p_node),
@@ -555,8 +540,11 @@ int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
             LOG(ERROR) << "Error " << bt->mgr->err;
           }
 #endif
+        } else {
+          pthread_rwlock_wrlock(&rw_lock_);
+          p_node->Add(value);
+          pthread_rwlock_unlock(&rw_lock_);
         }
-        p_node->Add(value, res_q);
       };
 
   if (is_numeric_) {
@@ -580,7 +568,7 @@ int FieldRangeIndex::Add(std::string &key, int value, ResourceQueue *res_q) {
   return 0;
 }
 
-int FieldRangeIndex::Delete(std::string &key, int value, ResourceQueue *res_q) {
+int FieldRangeIndex::Delete(std::string &key, int value) {
 #ifdef __APPLE__
   BtDb *bt = bt_open(main_mgr_);
 #else
@@ -599,7 +587,9 @@ int FieldRangeIndex::Delete(std::string &key, int value, ResourceQueue *res_q) {
           LOG(ERROR) << "Cannot find docid [" << value << "] in range index";
           return;
         }
-        p_node->Delete(value, res_q);
+        pthread_rwlock_wrlock(&rw_lock_);
+        p_node->Delete(value);
+        pthread_rwlock_unlock(&rw_lock_);
       };
 
   if (is_numeric_) {
@@ -650,6 +640,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
   int min_aligned = std::numeric_limits<int>::max();
   int max_doc = 0;
   int max_aligned = 0;
+  pthread_rwlock_rdlock(&rw_lock_);
 #ifdef __APPLE__
   uint slot = bt_startkey(bt, key_l, lower.length());
   while (slot) {
@@ -701,6 +692,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
   double search_bt = utils::getmillisecs();
 #endif
   if (max_doc - min_doc + 1 <= 0) {
+    pthread_rwlock_unlock(&rw_lock_);
     return 0;
   }
 
@@ -753,6 +745,7 @@ int FieldRangeIndex::Search(const string &lower, const string &upper,
       }
     }
   }
+  pthread_rwlock_unlock(&rw_lock_);
 
   result->SetDocNum(total);
 
@@ -804,6 +797,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   double fend = utils::getmillisecs();
 #endif
 
+  pthread_rwlock_rdlock(&rw_lock_);
   int min_doc = std::numeric_limits<int>::max();
   int max_doc = 0;
   for (size_t i = 0; i < items.size(); ++i) {
@@ -813,6 +807,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
   }
 
   if (max_doc - min_doc + 1 <= 0) {
+    pthread_rwlock_unlock(&rw_lock_);
     return 0;
   }
 
@@ -846,6 +841,7 @@ int FieldRangeIndex::Search(const string &tags, RangeQueryResult *result) {
     }
     total += p_node->Size();
   }
+  pthread_rwlock_unlock(&rw_lock_);
   result->SetDocNum(total);
 
 #ifdef DEBUG
@@ -909,16 +905,8 @@ MultiFieldsRangeIndex::MultiFieldsRangeIndex(std::string &path,
   fields_.resize(table->FieldsNum());
   std::fill(fields_.begin(), fields_.end(), nullptr);
 
-  b_recovery_running_ = true;
   b_operate_running_ = true;
   b_running_ = true;
-  resource_recovery_q_ = new ResourceQueue;
-  {
-    auto func_recovery =
-        std::bind(&MultiFieldsRangeIndex::ResourceRecoveryWorker, this);
-    std::thread t(func_recovery);
-    t.detach();
-  }
   field_operate_q_ = new FieldOperateQueue;
   {
     auto func_operate =
@@ -940,34 +928,8 @@ MultiFieldsRangeIndex::~MultiFieldsRangeIndex() {
     }
   }
 
-  while (b_recovery_running_) {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-  }
-
-  delete resource_recovery_q_;
-  resource_recovery_q_ = nullptr;
-
   delete field_operate_q_;
   field_operate_q_ = nullptr;
-}
-
-void MultiFieldsRangeIndex::ResourceRecoveryWorker() {
-  bool ret = false;
-  while (b_running_ || b_operate_running_ || ret) {
-    ResourceToRecovery *res = nullptr;
-    ret = resource_recovery_q_->wait_dequeue_timed(res, 1000);
-    if (not ret) {
-      continue;
-    }
-    auto deadline = res->Deadline();
-    auto now = std::chrono::system_clock::now();
-    if (now < deadline) {
-      std::this_thread::sleep_for(deadline - now);
-    }
-    delete res;
-  }
-  LOG(INFO) << "ResourceRecoveryWorker exited!";
-  b_recovery_running_ = false;
 }
 
 void MultiFieldsRangeIndex::FieldOperateWorker() {
@@ -1017,6 +979,10 @@ int MultiFieldsRangeIndex::Delete(int docid, int field) {
   FieldOperate *field_op = new FieldOperate(FieldOperate::DELETE, docid, field);
   table_->GetFieldRawValue(docid, field, field_op->value);
 
+  while (field_operate_q_->size()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
   field_operate_q_->push(field_op);
 
   return 0;
@@ -1030,7 +996,7 @@ int MultiFieldsRangeIndex::AddDoc(int docid, int field) {
 
   std::string key;
   table_->GetFieldRawValue(docid, field, key);
-  index->Add(key, docid, resource_recovery_q_);
+  index->Add(key, docid);
 
   return 0;
 }
@@ -1041,7 +1007,7 @@ int MultiFieldsRangeIndex::DeleteDoc(int docid, int field, std::string &key) {
     return 0;
   }
 
-  index->Delete(key, docid, resource_recovery_q_);
+  index->Delete(key, docid);
 
   return 0;
 }

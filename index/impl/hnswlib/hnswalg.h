@@ -26,9 +26,9 @@
 #include <unordered_set>
 
 #include "hnswlib.h"
-#include "thread_util.h"
+#include "util/log.h"
+#include "util/thread_util.h"
 #include "visited_list_pool.h"
-#include "log.h"
 
 namespace hnswlib {
 typedef unsigned int tableint;
@@ -238,8 +238,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
   template <bool has_deletions, bool collect_metrics = false>
   std::priority_queue<std::pair<dist_t, tableint>,
                       std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
-  searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef, int efSearch,
-                    int do_efSearch_check, DISTFUNC<float> fstdistfunc,
+  searchBaseLayerST(tableint ep_id, const void *data_point, size_t ef,
+                    int efSearch, int do_efSearch_check,
+                    DISTFUNC<float> fstdistfunc,
                     const RetrievalContext *retrieval_context) {
     VisitedList *vl = visited_list_pool_->getFreeVisitedList();
     vl_type *visited_array = vl->mass;
@@ -297,9 +298,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 #ifdef USE_SSE
       _mm_prefetch((char *)(visited_array + *(data + 1)), _MM_HINT_T0);
       _mm_prefetch((char *)(visited_array + *(data + 1) + 64), _MM_HINT_T0);
-      _mm_prefetch(getDataByInternalId(*(data + 1)),
-                    _MM_HINT_T0);
-     // _mm_prefetch((char *)(data + 2), _MM_HINT_T0);
+      _mm_prefetch(getDataByInternalId(*(data + 1)), _MM_HINT_T0);
+      // _mm_prefetch((char *)(data + 2), _MM_HINT_T0);
 #endif
 
       for (size_t j = 1; j <= size; j++) {
@@ -307,7 +307,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 //                    if (candidate_id == 0) continue;
 #ifdef USE_SSE
         _mm_prefetch((char *)(visited_array + *(data + j + 1)), _MM_HINT_T0);
-        _mm_prefetch(getDataByInternalId(*(data + j + 1)),_MM_HINT_T0);  ////////////
+        _mm_prefetch(getDataByInternalId(*(data + j + 1)),
+                     _MM_HINT_T0);  ////////////
 #endif
         if (!(visited_array[candidate_id] == visited_array_tag)) {
           visited_array[candidate_id] = visited_array_tag;
@@ -318,13 +319,15 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
           if (top_candidates.size() < ef || lowerBound > dist) {
             candidate_set.emplace(-dist, candidate_id);
 #ifdef USE_SSE
-            _mm_prefetch(getDataByInternalId(candidate_set.top().second),  ///////////
-                 _MM_HINT_T0);       ////////////////////////
+            _mm_prefetch(
+                getDataByInternalId(candidate_set.top().second),  ///////////
+                _MM_HINT_T0);  ////////////////////////
 #endif
 
             if (!has_deletions || !isMarkedDeleted(candidate_id)) {
               dist_t fixed_dist = dist;
-              if (retrieval_context->retrieval_params_->GetDistanceComputeType() == 
+              if (retrieval_context->retrieval_params_
+                      ->GetDistanceComputeType() ==
                   DistanceComputeType::INNER_PRODUCT) {
                 fixed_dist = 1 - fixed_dist;
               }
@@ -876,7 +879,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
           dist_t distance =
               fstdistfunc_(getDataByInternalId(neigh),
                            getDataByInternalId(cand), dist_func_param_);
-          if (candidates.size() < elementsToKeep) {
+          if ((int)candidates.size() < elementsToKeep) {
             candidates.emplace(distance, cand);
           } else {
             if (distance < candidates.top().first) {
@@ -896,7 +899,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
           int candSize = candidates.size();
           setListCount(ll_cur, candSize);
           tableint *data = (tableint *)(ll_cur + 1);
-          for (size_t idx = 0; idx < candSize; idx++) {
+          for (int idx = 0; idx < candSize; idx++) {
             data[idx] = candidates.top().second;
             candidates.pop();
           }
@@ -1002,7 +1005,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     {
       // Checking cur_element_count
       std::unique_lock<std::mutex> templock_curr(cur_element_count_guard_);
-      
+
       cur_c = label;
       cur_element_count++;
       label_lookup_[label] = cur_c;
@@ -1104,7 +1107,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
   std::priority_queue<std::pair<dist_t, labeltype>> searchKnn(
       const void *query_data, size_t k, DISTFUNC<float> fstdistfunc,
-      size_t efSearch, int do_efSearch_check, const RetrievalContext *retrieval_context) {
+      size_t efSearch, int do_efSearch_check,
+      const RetrievalContext *retrieval_context) {
     std::priority_queue<std::pair<dist_t, labeltype>> result;
     if (cur_element_count == 0) return result;
 
@@ -1147,14 +1151,14 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     if (has_deletions_) {
       pthread_rwlock_rdlock(&shared_mutex_);
       top_candidates = searchBaseLayerST<true, true>(
-          currObj, query_data, std::max(efSearch, k), efSearch, do_efSearch_check, fstdistfunc,
-          retrieval_context);
+          currObj, query_data, std::max(efSearch, k), efSearch,
+          do_efSearch_check, fstdistfunc, retrieval_context);
       pthread_rwlock_unlock(&shared_mutex_);
     } else {
       pthread_rwlock_rdlock(&shared_mutex_);
       top_candidates = searchBaseLayerST<false, true>(
-          currObj, query_data, std::max(efSearch, k), efSearch, do_efSearch_check, fstdistfunc,
-          retrieval_context);
+          currObj, query_data, std::max(efSearch, k), efSearch,
+          do_efSearch_check, fstdistfunc, retrieval_context);
       pthread_rwlock_unlock(&shared_mutex_);
     }
 

@@ -5,8 +5,7 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef UTILS_H_
-#define UTILS_H_
+#pragma once
 
 #include <openssl/md5.h>
 #include <string.h>
@@ -19,7 +18,7 @@
 #include <vector>
 #include <random>
 
-#include "cJSON.h"
+#include "cjson/cJSON.h"
 
 #define CHECK_DELETE(ptr) \
   {                       \
@@ -204,5 +203,3 @@ struct ScopeDeleter1 {
 int64_t StringToInt64(const std::string &src);
 
 }  // namespace utils
-
-#endif /* UTILS_H_ */

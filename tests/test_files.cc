@@ -15,14 +15,15 @@
 #include <future>
 #include <iostream>
 
+#include "c_api/api_data/gamma_config.h"
 #include "c_api/api_data/gamma_docs.h"
 #include "c_api/api_data/gamma_engine_status.h"
 #include "c_api/api_data/gamma_request.h"
 #include "c_api/api_data/gamma_response.h"
 #include "c_api/api_data/gamma_table.h"
-#include "c_api/api_data/gamma_config.h"
+#include "gtest/gtest.h"
 #include "test.h"
-#include "utils.h"
+#include "util/utils.h"
 
 /**
  * To run this demo, please download the ANN_SIFT10K dataset from
@@ -306,7 +307,7 @@ int SearchThread(void *engine, size_t num) {
         std::vector<struct tig_gamma::ResultItem> &result_items =
             result.result_items;
         if (result_items.size() <= 0) {
-	        LOG(ERROR) << "search no result, id=" << ii; 
+          LOG(ERROR) << "search no result, id=" << ii;
           continue;
         }
         msg += string("total [") + std::to_string(result.total) + "], ";
@@ -442,7 +443,7 @@ void UpdateThread(void *engine) {
     std::stringstream ss;
     for (auto &f : fields) {
       if (f.datatype == tig_gamma::DataType::INT) {
-        int val = *(int*)(f.value.c_str());
+        int val = *(int *)(f.value.c_str());
         ss << val << ", ";
       } else {
         auto val = f.value;
@@ -452,7 +453,7 @@ void UpdateThread(void *engine) {
     res_str = ss.str();
   };
 
-  for (int i = 0; i < opt.add_doc_num; i+=1000) {
+  for (int i = 0; i < opt.add_doc_num; i += 1000) {
     int doc_id = i;
     std::string _id;
     tig_gamma::Doc doc;
@@ -490,11 +491,10 @@ void UpdateThread(void *engine) {
     }
     {
       float val = 0;
-      std::string data((char*)&val, sizeof(val));
-      DocAddField(doc, "float", "abc", data,
-                  tig_gamma::DataType::FLOAT);
+      std::string data((char *)&val, sizeof(val));
+      DocAddField(doc, "float", "abc", data, tig_gamma::DataType::FLOAT);
       data = std::string((char *)(opt.feature + (uint64_t)doc_id * opt.d),
-                              opt.d * sizeof(float));
+                         opt.d * sizeof(float));
       DocAddField(doc, opt.vector_name, "abc", data,
                   tig_gamma::DataType::VECTOR);
     }
@@ -504,7 +504,7 @@ void UpdateThread(void *engine) {
       int str_len = 0;
       GetDocByID(engine, _id.c_str(), _id.size(), &str_doc, &str_len);
       tig_gamma::Doc old_doc;
-      old_doc.SetEngine((tig_gamma::GammaEngine*)engine);
+      old_doc.SetEngine((tig_gamma::GammaEngine *)engine);
       old_doc.Deserialize(str_doc, str_len);
       std::string get_res;
       DocInfoToString(old_doc, get_res);
@@ -520,7 +520,7 @@ void UpdateThread(void *engine) {
     int str_len = 0;
     GetDocByID(engine, _id.c_str(), _id.size(), &str_doc, &str_len);
     tig_gamma::Doc get_doc;
-    get_doc.SetEngine((tig_gamma::GammaEngine*)engine);
+    get_doc.SetEngine((tig_gamma::GammaEngine *)engine);
     get_doc.Deserialize(str_doc, str_len);
     std::string get_res;
     DocInfoToString(get_doc, get_res);
@@ -529,7 +529,7 @@ void UpdateThread(void *engine) {
   }
 }
 
-int InitEngine() {
+void InitEngine() {
 #ifdef PERFORMANCE_TESTING
   int fd = open(opt.feature_file.c_str(), O_RDONLY, 0);
   size_t mmap_size = opt.add_doc_num * sizeof(float) * opt.d;
@@ -548,11 +548,9 @@ int InitEngine() {
   int bitmap_bytes_size = 0;
   int ret =
       bitmap::create(opt.docids_bitmap_, bitmap_bytes_size, opt.max_doc_size);
-  if (ret != 0) {
-    LOG(ERROR) << "Create bitmap failed!";
-  }
+  ASSERT_EQ(ret, 0);
 
-  assert(opt.docids_bitmap_ != nullptr);
+  ASSERT_NE(opt.docids_bitmap_, nullptr);
   tig_gamma::Config config;
   config.SetPath(opt.path);
   config.SetLogDir(opt.log_dir);
@@ -564,8 +562,7 @@ int InitEngine() {
   free(config_str);
   config_str = nullptr;
 
-  assert(opt.engine != nullptr);
-  return 0;
+  ASSERT_NE(opt.engine, nullptr);
 }
 
 int Create() {
@@ -651,6 +648,7 @@ int BuildEngineIndex() {
   string docid = "1";
   GetDocByID(opt.engine, docid.c_str(), docid.size(), &doc_str, &doc_str_len);
   tig_gamma::Doc doc;
+  doc.SetEngine((tig_gamma::GammaEngine *)opt.engine);
   doc.Deserialize(doc_str, doc_str_len);
   LOG(INFO) << "Doc fields [" << doc.TableFields().size() << "]";
   free(doc_str);
@@ -728,12 +726,6 @@ int GetCacheSizeTest() {
   return 0;
 }
 
-
-int DumpEngine() {
-  int ret = Dump(opt.engine);
-  return ret;
-}
-
 int LoadEngine() {
   int bitmap_bytes_size = 0;
   int ret =
@@ -766,6 +758,46 @@ int CloseEngine() {
   return 0;
 }
 
+class GammaTest : public ::testing::Test {
+ protected:
+  GammaTest() {}
+
+  ~GammaTest() override {}
+
+  void SetUp() override {}
+
+  void TearDown() override { CloseEngine(); }
+
+  void *engine;
+};
+
+TEST_F(GammaTest, TestGamma) {
+  InitEngine();
+  bool bLoad = false;
+  if (bLoad) {
+    LoadEngine();
+    opt.doc_id = 20000;
+  } else {
+    Create();
+    Add();
+  }
+  BuildEngineIndex();
+  // Add();
+  Search();
+
+  GetCacheSizeTest();
+  AlterCacheSizeTest();
+  GetCacheSizeTest();
+
+  UpdateThread(opt.engine);
+  if (not bLoad) {
+    ASSERT_EQ(Dump(opt.engine), 0);
+  }
+  // LoadEngine();
+  // BuildEngineIndex();
+  // Search();
+}
+
 }  // namespace test
 
 int main(int argc, char **argv) {
@@ -782,30 +814,7 @@ int main(int argc, char **argv) {
   test::opt.feature_file = argv[2];
   std::cout << test::opt.profile_file.c_str() << " "
             << test::opt.feature_file.c_str() << std::endl;
-  test::InitEngine();
-  if (bLoad) {
-    test::LoadEngine();
-    test::opt.doc_id = 20000;
-  } else {
-    test::Create();
-    test::Add();
-  }
-  test::BuildEngineIndex();
-  // test::Add();
-  test::Search();
-
-  test::GetCacheSizeTest();
-  test::AlterCacheSizeTest();
-  test::GetCacheSizeTest();
-
-  test::UpdateThread(test::opt.engine);
-  if (not bLoad) {
-    test::DumpEngine();
-  }
-  // test::LoadEngine();
-  // test::BuildEngineIndex();
-  // test::Search();
-  test::CloseEngine();
-
-  return 0;
+  ::testing::GTEST_FLAG(output) = "xml";
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

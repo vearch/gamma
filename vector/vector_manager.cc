@@ -5,12 +5,10 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#include "vector_manager.h"
+#include "vector/vector_manager.h"
 
 #include "raw_vector_factory.h"
-#include "utils.h"
-
-using namespace std;
+#include "util/utils.h"
 
 namespace tig_gamma {
 
@@ -56,7 +54,7 @@ int VectorManager::CreateVectorTable(TableInfo &table,
     meta_jp->GetObject("vectors", vectors_jp);
   }
 
-  vector<string> retrieval_params;
+  std::vector<std::string> retrieval_params;
   if (table.RetrievalType() != "") {
     retrieval_types_.push_back(table.RetrievalType());
     retrieval_params.push_back(table.RetrievalParam());
@@ -114,8 +112,10 @@ int VectorManager::CreateVectorTable(TableInfo &table,
 
     StoreParams store_params(meta_info->AbsoluteName());
     if (store_param != "" && store_params.Parse(store_param.c_str())) {
+      delete meta_info;
       return PARAM_ERR;
     }
+
     LOG(INFO) << "store params=" << store_params.ToJsonStr();
     if (vectors_jp.Contains(meta_info->AbsoluteName())) {
       utils::JsonParser vec_jp;
@@ -129,6 +129,7 @@ int VectorManager::CreateVectorTable(TableInfo &table,
 
     RawVector *vec = RawVectorFactory::Create(
         meta_info, store_type, vec_root_path, store_params, docids_bitmap_);
+
     if (vec == nullptr) {
       LOG(ERROR) << "create raw vector error";
       return -1;
@@ -141,6 +142,11 @@ int VectorManager::CreateVectorTable(TableInfo &table,
     if (ret != 0) {
       LOG(ERROR) << "Raw vector " << vec_name << " init error, code [" << ret
                  << "]!";
+      RawVectorIO *rio = vec->GetIO();
+      if (rio) {
+        delete rio;
+        rio = nullptr;
+      }
       delete vec;
       return -1;
     }
@@ -160,13 +166,24 @@ int VectorManager::CreateVectorTable(TableInfo &table,
       if (retrieval_model == nullptr) {
         LOG(ERROR) << "Cannot get model=" << retrieval_type_str
                    << ", vec_name=" << vec_name;
+        RawVectorIO *rio = vec->GetIO();
+        if (rio) {
+          delete rio;
+          rio = nullptr;
+        }
         delete vec;
         return -1;
       }
       retrieval_model->vector_ = vec;
 
-      if (retrieval_model->Init(retrieval_params[i], table.IndexingSize()) != 0) {
+      if (retrieval_model->Init(retrieval_params[i], table.IndexingSize()) !=
+          0) {
         LOG(ERROR) << "gamma index init " << vec_name << " error!";
+        RawVectorIO *rio = vec->GetIO();
+        if (rio) {
+          delete rio;
+          rio = nullptr;
+        }
         delete vec;
         delete retrieval_model;
         return -1;
@@ -694,11 +711,20 @@ int VectorManager::Dump(const string &path, int dump_docid, int max_docid) {
 }
 
 int VectorManager::Load(const std::vector<std::string> &index_dirs,
-                        int doc_num) {
+                        int &doc_num) {
+  int min_vec_num = doc_num;
+  for (const auto &iter : raw_vectors_) {
+    if (iter.second->GetIO()) {
+      int vector_num = min_vec_num;
+      iter.second->GetIO()->GetDiskVecNum(vector_num);
+      if (vector_num < min_vec_num) min_vec_num = vector_num;
+    }
+  }
+
   for (const auto &iter : raw_vectors_) {
     if (iter.second->GetIO()) {
       // TODO: doc num to vector num
-      int vec_num = doc_num;
+      int vec_num = min_vec_num;
       if (0 != iter.second->GetIO()->Load(vec_num)) {
         LOG(ERROR) << "vector [" << iter.first << "] load failed!";
         return -1;
@@ -714,12 +740,18 @@ int VectorManager::Load(const std::vector<std::string> &index_dirs,
         LOG(ERROR) << "vector [" << iter.first << "] load gamma index failed!";
         return -1;
       } else {
+        if (load_num > min_vec_num) {
+          LOG(ERROR) << "load vec_index_num=" << load_num
+                     << " > raw_vec_num=" << min_vec_num;
+          return -1;
+        }
         iter.second->indexed_count_ = load_num;
         LOG(INFO) << "vector [" << iter.first << "] load gamma index success!";
       }
     }
   }
-
+  doc_num = min_vec_num;
+  LOG(INFO) << "vector_mgr load vec_num=" << doc_num;
   return 0;
 }
 
@@ -782,8 +814,7 @@ int VectorManager::AlterCacheSize(struct CacheInfo &cache_info) {
 }
 
 int VectorManager::GetAllCacheSize(Config &conf) {
-  auto ite = raw_vectors_.begin();
-  for (ite; ite != raw_vectors_.end(); ++ite) {
+  for (auto ite = raw_vectors_.begin(); ite != raw_vectors_.end(); ++ite) {
     RawVector *raw_vec = ite->second;
     uint32_t cache_size = 0;
     if (0 != raw_vec->GetCacheSize(cache_size)) continue;

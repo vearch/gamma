@@ -5,14 +5,12 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef MMAP_RAW_VECTOR_H_
-#define MMAP_RAW_VECTOR_H_
+#pragma once
 
 #include <string>
-#include <thread>
 
-#include "raw_vector.h"
-#include "storage_manager.h"
+#include "storage/storage_manager.h"
+#include "vector/raw_vector.h"
 
 namespace tig_gamma {
 
@@ -42,9 +40,6 @@ class MmapRawVector : public RawVector {
 
  private:
   friend MmapRawVectorIO;
-  StorageManager *storage_mgr_;
 };
 
 }  // namespace tig_gamma
-
-#endif  // MMAP_RAW_VECTOR_H_

@@ -22,4 +22,4 @@ const static int DOCNUM_PER_SEGMENT = 1 << 20;  // 1048576
 const static int MAX_SEGMENT_NUM = 102400;      // max segment num
 
 }  // namespace table
-}
+}  // namespace tig_gamma

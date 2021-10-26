@@ -7,7 +7,7 @@
 #include <limits>
 
 //! The default maximum number of keys per bucket
-constexpr size_t LIBCUCKOO_DEFAULT_SLOT_PER_BUCKET = 4;
+constexpr size_t LIBCUCKOO_DEFAULT_SLOT_PER_BUCKET = 8;
 
 //! The default number of elements in an empty hash table
 constexpr size_t LIBCUCKOO_DEFAULT_SIZE =

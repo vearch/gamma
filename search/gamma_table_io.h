@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "api_data/gamma_table.h"
-#include "utils.h"
+#include "c_api/api_data/gamma_table.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

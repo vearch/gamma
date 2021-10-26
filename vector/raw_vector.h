@@ -5,19 +5,19 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef RAW_VECTOR_H_
-#define RAW_VECTOR_H_
+#pragma once
 
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "api_data/gamma_doc.h"
-#include "io_common.h"
-#include "log.h"
-#include "raw_vector_common.h"
-#include "retrieval_model.h"
-#include "utils.h"
+#include "c_api/api_data/gamma_doc.h"
+#include "index/retrieval_model.h"
+#include "io/io_common.h"
+#include "storage/storage_manager.h"
+#include "util/log.h"
+#include "util/utils.h"
+#include "vector/raw_vector_common.h"
 
 namespace tig_gamma {
 
@@ -144,9 +144,7 @@ class RawVector : public VectorReader {
 
   virtual size_t GetStoreMemUsage() { return 0; }
 
-  long GetTotalMemBytes() {
-    return total_mem_bytes_ + GetStoreMemUsage();
-  };
+  long GetTotalMemBytes() { return total_mem_bytes_ + GetStoreMemUsage(); };
 
   int GetVectorNum() const { return meta_info_->Size(); };
 
@@ -171,6 +169,8 @@ class RawVector : public VectorReader {
   std::string RootPath() { return root_path_; }
   DumpConfig *GetDumpConfig();
 
+  StorageManager *storage_mgr_;
+
  protected:
   /** get vector by id
    *
@@ -179,10 +179,6 @@ class RawVector : public VectorReader {
    */
   virtual int GetVector(long vid, const uint8_t *&vec,
                         bool &deletable) const = 0;
-
-  // virtual int DumpVectors(int dump_vid, int n) { return 0; }
-
-  // virtual int LoadVectors(int vec_num) { return 0; }
 
   virtual int InitStore(std::string &vec_name) = 0;
 
@@ -209,27 +205,4 @@ class RawVector : public VectorReader {
   RawVectorIO *vio_;
 };
 
-/* class RawVectorIO { */
-/*  public: */
-/*   RawVectorIO(RawVector *raw_vector); */
-
-/*   ~RawVectorIO(); */
-
-/*   int Init(); */
-
-/*   int Dump(int start, int n); */
-/*   int Load(int doc_num); */
-
-/*  private: */
-/*   RawVector *raw_vector_; */
-/*   int docid_fd_; */
-/*   int src_fd_; */
-/*   int src_pos_fd_; */
-/* }; */
-
-/* void StartFlushingIfNeed(RawVector *vec); */
-
-/* void StopFlushingIfNeed(RawVector *vec); */
-
 }  // namespace tig_gamma
-#endif /* RAW_VECTOR_H_ */

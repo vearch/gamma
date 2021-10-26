@@ -9,7 +9,7 @@
 
 #include <unistd.h>
 
-#include "log.h"
+#include "util/log.h"
 
 namespace tig_gamma {
 namespace disk_io {
@@ -39,12 +39,7 @@ int AsyncWriter::Init() {
   }
   auto func_operate = std::bind(&AsyncWriter::WriterHandler, this);
   handler_thread_ = std::thread(func_operate);
-}
-
-static uint32_t WritenSize(int fd) {
-  uint32_t size;
-  pread(fd, &size, sizeof(size), sizeof(uint8_t) + sizeof(uint32_t));
-  return size;
+  return 0;
 }
 
 static void UpdateSize(int fd, std::atomic<uint32_t> *cur_size, int num) {
@@ -55,14 +50,14 @@ static void UpdateSize(int fd, std::atomic<uint32_t> *cur_size, int num) {
 
 int AsyncWriter::WriterHandler() {
   int bulk_size = 1000;
-  int bulk_bytes = 1 * 1024 * 1024;  // TODO check overflow
+  size_t bulk_bytes = 1 * 1024 * 1024;  // TODO check overflow
   uint8_t *buffer = new uint8_t[bulk_bytes];
 
   while (running_) {
     struct WriterStruct *writer_structs[bulk_size];
 
     int size = 0;
-    while(not writer_q_->empty() && size < bulk_size) {
+    while (not writer_q_->empty() && size < bulk_size) {
       struct WriterStruct *pop_val = nullptr;
       bool ret = writer_q_->try_pop(pop_val);
       if (ret) writer_structs[size++] = pop_val;
@@ -84,7 +79,7 @@ int AsyncWriter::WriterHandler() {
       delete[] writer_structs[0]->data;
       delete writer_structs[0];
 
-      for (size_t i = 1; i < size; ++i) {
+      for (int i = 1; i < size; ++i) {
         int fd = writer_structs[i]->fd;
         uint8_t *data = writer_structs[i]->data;
         uint32_t len = writer_structs[i]->len;
@@ -105,14 +100,13 @@ int AsyncWriter::WriterHandler() {
           memcpy(buffer + buffered_size, data, len);
           buffered_size += len;
         }
-        
+
         delete[] data;
         delete writer_structs[i];
       }
       pwrite(prev_fd, buffer, buffered_size, buffered_start);
       UpdateSize(prev_fd, prev_cur_size, buffered_size / item_length_);
-    }
-    else {
+    } else {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
   }
@@ -123,7 +117,8 @@ int AsyncWriter::WriterHandler() {
 int AsyncWriter::AsyncWrite(struct WriterStruct *writer_struct) {
   auto qu_size = writer_q_->size();
   while (qu_size > 10000) {
-    LOG(INFO) << "AsyncWriter queue size[" << qu_size << "] > 10000, sleep 10ms";
+    LOG(INFO) << "AsyncWriter queue size[" << qu_size
+              << "] > 10000, sleep 10ms";
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     qu_size = writer_q_->size();
   }

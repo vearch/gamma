@@ -5,12 +5,12 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef SRC_SEARCHER_UTIL_TIMER_H_
-#define SRC_SEARCHER_UTIL_TIMER_H_
+#pragma once
 
-#include <string>
 #include <sys/time.h>
 #include <unistd.h>
+
+#include <string>
 #include <vector>
 
 namespace utils {
@@ -18,7 +18,7 @@ namespace utils {
 class Timer {
   struct StatInfo;
 
-public:
+ public:
   void Start(const std::string &tag) {
     // always override
     StatInfo si(tag);
@@ -63,27 +63,25 @@ public:
     }
   }
 
-private:
+ private:
   static long CurrentTime() {
     struct timeval t;
     gettimeofday(&t, NULL);
     return t.tv_sec * 1000 + t.tv_usec / 1000;
   }
 
-private:
+ private:
   struct StatInfo {
     explicit StatInfo(const std::string &tag) : tag(tag) {}
 
     std::string tag;
     int64_t sys_start;
     clock_t cpu_start;
-    int sys_cost; // change to double for more precison
-    int cpu_cost; // change to double for more precison
+    int sys_cost;  // change to double for more precison
+    int cpu_cost;  // change to double for more precison
   };
 
   std::vector<StatInfo> stats_;
 };
 
-} // namespace utils
-
-#endif // SRC_SEARCHER_UTIL_TIMER_H_
+}  // namespace utils

@@ -8,10 +8,11 @@
 #pragma once
 
 #include <string.h>
-#include "error_code.h"
+
 #include "gamma_zfp.h"
-#include "log.h"
-#include "utils.h"
+#include "search/error_code.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 const static int MAX_VECTOR_NUM_PER_DOC = 10;
 const static int MAX_CACHE_SIZE = 1024 * 1024;  // M bytes, it is equal to 1T
@@ -102,7 +103,7 @@ class VIDMgr {
     int *vid_list = docid2vid_[docid];
     int n_vids = vid_list[0];
     vids.resize(n_vids);
-    for (size_t i = 0; i < n_vids; ++i) {
+    for (int i = 0; i < n_vids; ++i) {
       vids[i] = *(vid_list + i + 1);
     }
     // memcpy((void *)vids.data(), (void *)(vid_list + 1), n_vids *

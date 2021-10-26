@@ -1,8 +1,8 @@
 #ifdef WITH_ROCKSDB
 
 #include "rocksdb_wrapper.h"
-#include "error_code.h"
-#include "log.h"
+#include "search/error_code.h"
+#include "util/log.h"
 
 using std::string;
 using namespace rocksdb;

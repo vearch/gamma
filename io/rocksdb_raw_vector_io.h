@@ -1,13 +1,17 @@
-#ifdef WITH_ROCKSDB
+/**
+ * Copyright 2019 The Gamma Authors.
+ *
+ * This source code is licensed under the Apache License, Version 2.0 license
+ * found in the LICENSE file in the root directory of this source tree.
+ */
 
-#ifndef ROCKSDB_RAW_VECTOR_IO_H_
-#define ROCKSDB_RAW_VECTOR_IO_H_
+#ifdef WITH_ROCKSDB
 
 #pragma once
 
 #include <string>
 #include "raw_vector_io.h"
-#include "rocksdb_raw_vector.h"
+#include "vector/rocksdb_raw_vector.h"
 
 namespace tig_gamma {
 
@@ -18,12 +22,11 @@ struct RocksDBRawVectorIO : public RawVectorIO {
   ~RocksDBRawVectorIO() {}
   int Init() override { return 0; };
   int Dump(int start_vid, int end_vid) override { return 0; };
+  int GetDiskVecNum(int &vec_num) override;
   int Load(int vec_num) override;
   int Update(int vid) override { return 0; };
 };
 
 }  // namespace tig_gamma
-
-#endif
 
 #endif // WITH_ROCKSDB

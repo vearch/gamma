@@ -20,18 +20,18 @@
 #include <string>
 #include <vector>
 
-#include "bitmap.h"
+#include "util/bitmap.h"
 #include "faiss/Index.h"
 #include "faiss/impl/FaissAssert.h"
 #include "faiss/utils/Heap.h"
 #include "faiss/utils/distances.h"
 #include "faiss/utils/hamming.h"
 #include "faiss/utils/utils.h"
-#include "field_range_index.h"
-#include "gamma_common_data.h"
-#include "retrieval_model.h"
-#include "log.h"
-#include "utils.h"
+#include "table/field_range_index.h"
+#include "common/gamma_common_data.h"
+#include "index/retrieval_model.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

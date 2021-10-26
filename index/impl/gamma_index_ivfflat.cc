@@ -26,10 +26,10 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/utils/Heap.h>
 #include <faiss/utils/utils.h>
-#include "error_code.h"
-#include "gamma_common_data.h"
+#include "search/error_code.h"
+#include "common/gamma_common_data.h"
 #include "gamma_index_ivfflat.h"
-#include "rocksdb_raw_vector.h"
+#include "vector/rocksdb_raw_vector.h"
 
 namespace tig_gamma {
 
@@ -226,12 +226,12 @@ int GammaIndexIVFFlat::Indexing() {
   size_t vectors_count = raw_vec->MetaInfo()->Size();
 
   size_t num;
-  if (indexing_size_ < nlist) {
+  if ((size_t)indexing_size_ < nlist) {
     num = nlist * 39;
     LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
                  << "], index_size becomes ncentroids * 39[" << num << "].";
-  } else if (indexing_size_ <= nlist * 265) {
-    if (indexing_size_ < nlist * 39) {
+  } else if ((size_t)indexing_size_ <= nlist * 265) {
+    if ((size_t)indexing_size_ < nlist * 39) {
       LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
                    << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
     }

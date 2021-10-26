@@ -7,8 +7,8 @@
 
 #include "gamma_doc.h"
 
-#include "gamma_engine.h"
-#include "table.h"
+#include "search/gamma_engine.h"
+#include "table/table.h"
 
 namespace tig_gamma {
 
@@ -52,7 +52,7 @@ void Doc::Deserialize(const char *data, int len) {
   int vector_field_num = vec_manager->RawVectors().size();
   size_t fields_num = doc_->fields()->size();
 
-  if (fields_num != table_field_num + vector_field_num) {
+  if (fields_num != (size_t)(table_field_num + vector_field_num)) {
     LOG(WARNING) << "Add Doc fields num [" << fields_num
                  << "], not equal to table_field_num [" << table_field_num
                  << "] + vector_field_num [" << vector_field_num << "]";

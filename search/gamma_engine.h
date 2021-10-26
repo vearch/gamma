@@ -10,17 +10,17 @@
 #include <condition_variable>
 #include <string>
 
-#include "api_data/gamma_batch_result.h"
-#include "api_data/gamma_doc.h"
-#include "api_data/gamma_docs.h"
-#include "api_data/gamma_engine_status.h"
-#include "api_data/gamma_request.h"
-#include "api_data/gamma_response.h"
-#include "api_data/gamma_table.h"
-#include "async_flush.h"
-#include "field_range_index.h"
-#include "table.h"
-#include "vector_manager.h"
+#include "c_api/api_data/gamma_batch_result.h"
+#include "c_api/api_data/gamma_doc.h"
+#include "c_api/api_data/gamma_docs.h"
+#include "c_api/api_data/gamma_engine_status.h"
+#include "c_api/api_data/gamma_request.h"
+#include "c_api/api_data/gamma_response.h"
+#include "c_api/api_data/gamma_table.h"
+#include "table/field_range_index.h"
+#include "table/table.h"
+#include "vector/vector_manager.h"
+#include "util/bitmap_manager.h"
 
 namespace tig_gamma {
 
@@ -60,6 +60,8 @@ class GammaEngine {
    */
   int DelDocByQuery(Request &request);
 
+  int DelDocByFilter(Request &request, char **del_ids, int *str_len);
+
   int GetDoc(std::string &key, Doc &doc);
 
   int GetDoc(int docid, Doc &doc);
@@ -89,7 +91,7 @@ class GammaEngine {
   }
 
   int BatchDocsPrepare(char *doc_str, int idx) {
-    if (idx >= batch_docs_.size()) {
+    if (idx >= (int)batch_docs_.size()) {
       LOG(ERROR) << "idx [" << idx << "] > batch_docs size ["
                  << batch_docs_.size() << "]";
       return -1;
@@ -117,7 +119,7 @@ class GammaEngine {
 
   MultiFieldsRangeIndex *field_range_index_;
 
-  char *docids_bitmap_;
+  bitmap::BitmapManager<int> docids_bitmap_;
   table::Table *table_;
   VectorManager *vec_manager_;
 
@@ -146,7 +148,6 @@ class GammaEngine {
 
   enum IndexStatus index_status_;
 
-  int bitmap_bytes_size_;
   const std::string date_time_format_;
   std::string last_dump_dir_;  // it should be delete after next dump
 
@@ -161,8 +162,6 @@ class GammaEngine {
 #ifdef PERFORMANCE_TESTING
   std::atomic<uint64_t> search_num_;
 #endif
-
-  AsyncFlushExecutor *af_exector_;
 };
 
 

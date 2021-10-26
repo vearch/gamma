@@ -12,11 +12,11 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "bitmap.h"
-#include "error_code.h"
+#include "util/bitmap.h"
+#include "search/error_code.h"
 #include "faiss/impl/io.h"
-#include "log.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 namespace realtime {
@@ -194,6 +194,9 @@ void RTInvertBucketData::Delete(int vid) {
   if (bucket_no_pos == -1) return;  // do nothing
   int bucket_no = bucket_no_pos >> 32;
   // only increase bucket's deleted counter
+  // int old_bucket_no = bucket_no_pos >> 32;
+  // int old_pos = bucket_no_pos & 0xffffffff;
+  // idx_array_[old_bucket_no][old_pos] |= kDelIdxMask;
   deleted_nums_[bucket_no]++;
 }
 
@@ -202,10 +205,11 @@ void FreeOldBucketPos(std::atomic<long> *old_ptr) { delete[] old_ptr; }
 void RTInvertBucketData::ExtendIDs() {
   std::atomic<long> *old_array = vid_bucket_no_pos_;
   std::atomic<long> *new_array = new std::atomic<long>[nids_ * 2];
-  memcpy((void *)new_array, (void *)old_array,
-         sizeof(std::atomic<long>) * nids_);
 #pragma omp parallel for
   for (size_t i = nids_; i < nids_ * 2; ++i) new_array[i] = -1;
+
+  memcpy((void *)new_array, (void *)old_array,
+         sizeof(std::atomic<long>) * nids_);
   
   vid_bucket_no_pos_ = new_array;
   nids_ *= 2;
@@ -302,7 +306,7 @@ bool RealTimeMemData::AddKeys(size_t list_no, size_t n, std::vector<long> &keys,
 
 int RealTimeMemData::Update(int bucket_no, int vid,
                             std::vector<uint8_t> &codes) {
-  if (vid >= cur_invert_ptr_->nids_) return 0;
+  if ((size_t)vid >= cur_invert_ptr_->nids_) return 0;
   long bucket_no_pos = cur_invert_ptr_->vid_bucket_no_pos_[vid];
   if (bucket_no_pos == -1) return 0;  // do nothing
   int old_bucket_no = bucket_no_pos >> 32;
@@ -327,7 +331,7 @@ int RealTimeMemData::Update(int bucket_no, int vid,
 int RealTimeMemData::Delete(int *vids, int n) {
   for (int i = 0; i < n; i++) {
     RTInvertBucketData *invert_ptr = cur_invert_ptr_;
-    if (invert_ptr->nids_ > vids[i]) invert_ptr->Delete(vids[i]);
+    if ((int)invert_ptr->nids_ > vids[i]) invert_ptr->Delete(vids[i]);
   }
   return 0;
 }

@@ -5,17 +5,15 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef MEMORY_RAW_VECTOR_H_
-#define MEMORY_RAW_VECTOR_H_
+#pragma once
 
 #include <string>
 
 #include "raw_vector.h"
-#include "rocksdb_wrapper.h"
 
 namespace tig_gamma {
 
-class MemoryRawVectorIO;
+class MmapRawVectorIO;
 
 class MemoryRawVector : public RawVector {
  public:
@@ -33,15 +31,13 @@ class MemoryRawVector : public RawVector {
 
   int UpdateToStore(int vid, uint8_t *v, int len) override;
 
-  // int LoadVectors(int vec_num) override;
-
  protected:
   int GetVector(long vid, const uint8_t *&vec, bool &deleteable) const override;
 
  private:
-  friend MemoryRawVectorIO;
+  friend MmapRawVectorIO;
   int ExtendSegments();
-  int AddToMem(uint8_t *v, int len);
+  int AddToMem(const uint8_t *v, int len);
   uint8_t *GetFromMem(long vid) const;
 
   uint8_t **segments_;
@@ -49,10 +45,6 @@ class MemoryRawVector : public RawVector {
   int segment_size_;
   uint8_t *current_segment_;
   int curr_idx_in_seg_;
-
-  // RocksDBWrapper rdb_;
 };
 
 }  // namespace tig_gamma
-
-#endif

@@ -15,9 +15,9 @@
 #include <string>
 #include <omp.h>
 
-#include "error_code.h"
-#include "memory_raw_vector.h"
-#include "utils.h"
+#include "search/error_code.h"
+#include "vector/memory_raw_vector.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 

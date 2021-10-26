@@ -24,7 +24,7 @@
 #include <faiss/IndexIVFFlat.h>
 #include <faiss/utils/distances.h>
 #include "gamma_scanner.h"
-#include "realtime_invert_index.h"
+#include "realtime/realtime_invert_index.h"
 
 namespace tig_gamma {
 

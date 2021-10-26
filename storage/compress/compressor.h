@@ -14,9 +14,7 @@ enum class CompressType : uint8_t { NotCompress, Zfp, Zstd };
 
 class Compressor {
  public:
-  Compressor(CompressType type) {
-    type_ = type;
-  }
+  Compressor(CompressType type) { type_ = type; }
 
   virtual ~Compressor() {}
 
@@ -35,7 +33,7 @@ class Compressor {
 
   virtual size_t DecompressBatch(char* datum, char* output, int n,
                                  int data_len) = 0;
-  
+
   CompressType GetCompressType() { return type_; }
 
  private:

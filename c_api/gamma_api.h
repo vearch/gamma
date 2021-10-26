@@ -161,6 +161,17 @@ int Search(void *engine, const char *request_str, int req_len,
  */
 int DelDocByQuery(void *engine, const char *request_str, int len);
 
+/** delete docs from table by filter
+ *
+ * @param engine  search engine pointer
+ * @param request delete request pointer
+ * @param deleted_ids json of the deleted ID
+ * @param deleted_num num of the deleted ID
+ * @return 0 successed, 1 failed
+ */
+int DelDocByFilter(void *engine, const char *request_str, int len,
+                   char **deleted_ids, int *str_len);
+
 /** alter all cache size by query
  *
  * @param engine  search engine pointer

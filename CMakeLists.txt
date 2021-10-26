@@ -9,6 +9,7 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
+option(ENABLE_COVERAGE "Use gcov" off)
 
 exec_program(
     "sh"
@@ -18,35 +19,18 @@ exec_program(
 #ENV VARs
 set(THIRDPARTY ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 set(BTREE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/btree)
-set(CJSON ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson)
-set(EASYLOGGINGPP ${CMAKE_CURRENT_SOURCE_DIR}/third_party/easyloggingpp)
-set(HASHTABLE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libcuckoo)
-set(UTIL ${CMAKE_CURRENT_SOURCE_DIR}/util)
-set(COMMON ${CMAKE_CURRENT_SOURCE_DIR}/common)
-set(GAMMA_SEARCH ${CMAKE_CURRENT_SOURCE_DIR}/search)
-set(GAMMA_INDEX ${CMAKE_CURRENT_SOURCE_DIR}/index)
-set(GAMMA_INDEX_IMPL ${CMAKE_CURRENT_SOURCE_DIR}/index/impl)
-set(GAMMA_INDEX_IMPL_HNSWLIB ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/hnswlib)
-set(GAMMA_INDEX_IMPL_SSG ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/ssg)
-set(GAMMA_VECTOR ${CMAKE_CURRENT_SOURCE_DIR}/vector)
-set(STORAGE ${CMAKE_CURRENT_SOURCE_DIR}/storage)
-set(STORAGE_COMPRESS ${CMAKE_CURRENT_SOURCE_DIR}/storage/compress)
-set(GAMMA_REALTIME ${CMAKE_CURRENT_SOURCE_DIR}/realtime)
-set(GAMMA_TABLE ${CMAKE_CURRENT_SOURCE_DIR}/table)
 set(GAMMA_C_API ${CMAKE_CURRENT_SOURCE_DIR}/c_api)
-set(GAMMA_IO ${CMAKE_CURRENT_SOURCE_DIR}/io)
-set(FLATBUFFERS_OUT ${CMAKE_CURRENT_SOURCE_DIR}/idl/fbs-gen)
 
 if(APPLE)
     set(CMAKE_C_COMPILER "/usr/local/opt/llvm/bin/clang")
     set(CMAKE_CXX_COMPILER "/usr/local/opt/llvm/bin/clang++")
     include_directories("/usr/local/include"
                         "/usr/local/opt/llvm/include" 
-                        "/usr/local/Cellar/openssl@1.1/1.1.1h/include"
+                        "/usr/local/Cellar/openssl@1.1/1.1.1k/include"
                         "/usr/local/opt/openblas/include")
     link_directories("/usr/local/lib"
                      "/usr/local/opt/llvm/lib"
-                     "/usr/local/Cellar/openssl@1.1/1.1.1h/lib/"
+                     "/usr/local/Cellar/openssl@1.1/1.1.1k/lib/"
                      "/usr/local/opt/openblas/lib")
 endif(APPLE)
 
@@ -61,38 +45,21 @@ else(DEFINED ENV{ROCKSDB_HOME})
     message(STATUS "RocksDB home isn't set, so store_type=RocksDB is not supported! ")
 endif(DEFINED ENV{ROCKSDB_HOME})
 
-IF (DEFINED ENV{ZFP_HOME})
+if(DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home is set=$ENV{ZFP_HOME}")
     ADD_DEFINITIONS(-DWITH_ZFP)
     FIND_PACKAGE(ZFP REQUIRED)
-ELSE (DEFINED ENV{ZFP_HOME})
+else(DEFINED ENV{ZFP_HOME})
     MESSAGE(STATUS "ZFP home isn't set, so COMPRESS is not supported! ")
-ENDIF (DEFINED ENV{ZFP_HOME})
+endif(DEFINED ENV{ZFP_HOME})
 
 #INCLUDE DIR
 include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${THIRDPARTY}
     ${BTREE}
-    ${CJSON}
-    ${EASYLOGGINGPP}
-    ${HASHTABLE}
-    ${UTIL}
-    ${COMMON}
-    ${GAMMA_TABLE}
-    ${GAMMA_SEARCH}
-    ${GAMMA_INDEX}
-    ${GAMMA_INDEX_IMPL}
-    ${GAMMA_INDEX_IMPL_HNSWLIB}
-    ${GAMMA_INDEX_IMPL_SSG}
-    ${GAMMA_VECTOR}
-    ${STORAGE}
-    ${STORAGE_COMPRESS}
-    ${GAMMA_REALTIME}
-    ${GAMMA_C_API}
-    ${GAMMA_IO}
     ${THIRDPARTY}/faiss/include
     ${RocksDB_INCLUDE_DIR}
-    ${FLATBUFFERS_OUT}/c
     ${ZFP_INCLUDE_DIR}
 )
 
@@ -111,26 +78,32 @@ set(LIBRARIES
     -ltbb
 )
 
+message(STATUS ENABLE_COVERAGE=${ENABLE_COVERAGE})
+if(ENABLE_COVERAGE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
+endif()
+
 #ADDITIONAL SOURCE DIR
 aux_source_directory(${THIRDPARTY} DIR_SRCS)
 aux_source_directory(${BTREE} DIR_SRCS)
-aux_source_directory(${CJSON} DIR_SRCS)
-aux_source_directory(${EASYLOGGINGPP} DIR_SRCS)
-aux_source_directory(${UTIL} DIR_SRCS)
-aux_source_directory(${COMMON} DIR_SRCS)
-aux_source_directory(${GAMMA_SEARCH} DIR_SRCS)
-aux_source_directory(${GAMMA_INDEX} DIR_SRCS)
-aux_source_directory(${STORAGE} DIR_SRCS)
-aux_source_directory(${STORAGE_COMPRESS} DIR_SRCS)
-aux_source_directory(${GAMMA_INDEX_IMPL} DIR_SRCS)
-aux_source_directory(${GAMMA_INDEX_IMPL_HNSWLIB} DIR_SRCS)
-aux_source_directory(${GAMMA_INDEX_IMPL_SSG} DIR_SRCS)
-aux_source_directory(${GAMMA_VECTOR} DIR_SRCS)
-aux_source_directory(${GAMMA_REALTIME} DIR_SRCS)
-aux_source_directory(${GAMMA_TABLE} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API} DIR_SRCS)
 aux_source_directory(${GAMMA_C_API}/api_data DIR_SRCS)
-aux_source_directory(${GAMMA_IO} DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cjson DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/easyloggingpp DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/util DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/common DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/search DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/storage DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/storage/compress DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/hnswlib DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/ssg DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/vector DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/realtime DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/table DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/io DIR_SRCS)
 
 add_definitions(-DHAVE_NETINET_IN_H)
 add_definitions(-DFINTEGER=int)

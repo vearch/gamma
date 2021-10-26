@@ -12,15 +12,14 @@
 #include "raw_vector.h"
 
 #ifdef WITH_ROCKSDB
-#include "rocksdb_raw_vector.h"
-#include "rocksdb_raw_vector_io.h"
+#include "io/rocksdb_raw_vector_io.h"
+#include "vector/rocksdb_raw_vector.h"
 #endif  // WITH_ROCKSDB
 
 #include <string>
-#include "gamma_common_data.h"
 
-#include "memory_raw_vector_io.h"
-#include "mmap_raw_vector_io.h"
+#include "common/gamma_common_data.h"
+#include "io/mmap_raw_vector_io.h"
 
 namespace tig_gamma {
 
@@ -42,14 +41,12 @@ class RawVectorFactory {
       case VectorStorageType::MemoryOnly:
         raw_vector = new MemoryRawVector(meta_info, root_path, store_params,
                                          docids_bitmap);
-#ifdef WITH_ROCKSDB
-        vio = new MemoryRawVectorIO((MemoryRawVector *)raw_vector);
-#endif
+        vio = new MmapRawVectorIO(raw_vector);
         break;
       case VectorStorageType::Mmap:
         raw_vector = new MmapRawVector(meta_info, root_path, store_params,
                                        docids_bitmap);
-        vio = new MmapRawVectorIO((MmapRawVector *)raw_vector);
+        vio = new MmapRawVectorIO(raw_vector);
         break;
 #ifdef WITH_ROCKSDB
       case VectorStorageType::RocksDB:
@@ -70,24 +67,5 @@ class RawVectorFactory {
     return raw_vector;
   }
 };
-
-/* void StartFlushingIfNeed(RawVector *vec) { */
-/*   AsyncFlusher *flusher = dynamic_cast<AsyncFlusher *>(vec->GetIO()); */
-/*   if (flusher) { */
-/*     flusher->Start(); */
-/*     const std::string &name = vec->MetaInfo()->Name(); */
-/*     LOG(INFO) << "start flushing, raw vector=" << name; */
-/*   } */
-/* } */
-
-/* void StopFlushingIfNeed(RawVector *vec) { */
-/*   AsyncFlusher *flusher = dynamic_cast<AsyncFlusher *>(vec->GetIO()); */
-/*   if (flusher) { */
-/*     flusher->Until(vec->GetVectorNum()); */
-/*     flusher->Stop(); */
-/*     const std::string &name = vec->MetaInfo()->Name(); */
-/*     LOG(INFO) << "stop flushing, raw vector=" << name; */
-/*   } */
-/* } */
 
 }  // namespace tig_gamma

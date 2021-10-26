@@ -16,8 +16,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "log.h"
-#include "utils.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 /**
  * To run this demo, please download the ANN_SIFT10K dataset from

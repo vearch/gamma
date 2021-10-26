@@ -7,7 +7,7 @@
 
 #include "gamma_table_io.h"
 
-#include "log.h"
+#include "util/log.h"
 
 namespace tig_gamma {
 

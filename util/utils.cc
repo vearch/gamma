@@ -6,7 +6,6 @@
  */
 
 #include "utils.h"
-#include "log.h"
 
 #include <dirent.h>
 #include <string.h>
@@ -18,6 +17,8 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+
+#include "util/log.h"
 
 namespace utils {
 

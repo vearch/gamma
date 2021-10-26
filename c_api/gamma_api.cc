@@ -20,9 +20,9 @@
 #include "api_data/gamma_engine_status.h"
 #include "api_data/gamma_response.h"
 #include "api_data/gamma_table.h"
-#include "gamma_engine.h"
-#include "log.h"
-#include "utils.h"
+#include "search/gamma_engine.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 INITIALIZE_EASYLOGGINGPP
 
@@ -209,6 +209,15 @@ int DelDocByQuery(void *engine, const char *request_str, int len) {
   request.Deserialize(request_str, len);
   int ret =
       static_cast<tig_gamma::GammaEngine *>(engine)->DelDocByQuery(request);
+  return ret;
+}
+
+int DelDocByFilter(void *engine, const char *request_str, int len,
+                   char **deleted_ids, int *str_len) {
+  tig_gamma::Request request;
+  request.Deserialize(request_str, len);
+  int ret = static_cast<tig_gamma::GammaEngine *>(engine)->DelDocByFilter(
+                                           request, deleted_ids, str_len);
   return ret;
 }
 

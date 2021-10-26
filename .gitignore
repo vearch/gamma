@@ -2,11 +2,11 @@ release
 debug
 build
 gtest
-flatbuffers
-flatbuffers-1.11.0
+flatbuffers*
 fbs-gen
 .vscode
 .idea
+.DS_Store
 GPATH
 GRTAGS
 GTAGS

@@ -12,7 +12,7 @@
 namespace tig_gamma {
 
 Block::Block(int fd, int per_block_size, int length, uint32_t header_size,
-             uint32_t seg_id, uint32_t seg_block_capacity,
+             uint32_t seg_id, std::string name, uint32_t seg_block_capacity,
              const std::atomic<uint32_t> *cur_size, int max_size)
     : fd_(fd),
       per_block_size_(per_block_size),
@@ -20,15 +20,16 @@ Block::Block(int fd, int per_block_size, int length, uint32_t header_size,
       header_size_(header_size),
       seg_block_capacity_(seg_block_capacity),
       seg_id_(seg_id),
+      name_(name),
       cur_size_(cur_size),
       max_size_(max_size) {
   compressor_ = nullptr;
   // size_ = 0;
   last_bid_in_disk_ = 0;
   lru_cache_ = nullptr;
-  LOG(INFO) << "Block info, seg_id[" << seg_id << "] per_block_size["
-            << per_block_size_ << "] item_length[" <<item_length_ 
-            << "] header_size[" << header_size_ << "] seg_block_capacity[" 
+  LOG(INFO) << "Block[" << name_ + "_" << seg_id_ << "] info, per_block_size["
+            << per_block_size_ << "] item_length[" << item_length_
+            << "] header_size[" << header_size_ << "] seg_block_capacity["
             << seg_block_capacity_ << "]";
 }
 
@@ -38,8 +39,7 @@ Block::~Block() {
 }
 
 void Block::Init(void *lru, Compressor *compressor) {
-  lru_cache_ =
-      (LRUCache<uint32_t, ReadFunParameter *> *)lru;
+  lru_cache_ = (LRUCache<uint32_t, ReadFunParameter *> *)lru;
   compressor_ = compressor;
   InitSubclass();
 }
@@ -56,9 +56,9 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
   if (lru_cache_ == nullptr) {
     return ReadContent(value, n_bytes, start);
   }
-  int read_num = 0;
+  uint32_t read_num = 0;
   while (n_bytes) {
-    int len = n_bytes;
+    uint32_t len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;
 
     uint32_t block_id = start / per_block_size_;
@@ -71,48 +71,26 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
 
     if (last_bid_in_disk_ <= block_id) {
       last_bid_in_disk_ = (*cur_size_) * item_length_ / per_block_size_;
-      if ((int)(*cur_size_) == max_size_) SegmentIsFull();
+      if ((*cur_size_) == max_size_) SegmentIsFull();
     }
     if (last_bid_in_disk_ <= block_id) {
       ReadContent(value + read_num, len, block_pos + block_offset);
-    }
-    else {
+    } else {
       // std::shared_ptr<std::vector<uint8_t>> block;
       char *block = nullptr;
       uint32_t cache_bid = GetCacheBlockId(block_id);
-      bool res = lru_cache_->Get(cache_bid, block);
-      if (not res) {
-        ReadFunParameter parameter;
-        GetReadFunParameter(parameter, per_block_size_, block_pos);
+      ReadFunParameter parameter;
+      GetReadFunParameter(parameter, per_block_size_, block_pos);
+      bool res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
 
-        res = lru_cache_->SetOrGet(cache_bid, block, &parameter);
-      }
       if (not res || block == nullptr) {
-        LOG(ERROR) << "Read block fails from disk_file, block_id[" << block_id
-                   << "]";
-        return -1;
+        LOG(ERROR) << "Read block fails from disk_file, block_id["
+                   << name_ + "_" << block_id << "]";
+        ReadContent(value + read_num, len, block_pos + block_offset);
+      } else {
+        memcpy(value + read_num, block + block_offset, len);
       }
-      memcpy(value + read_num, block + block_offset, len);
     }
-    // else {
-    //   char *block = nullptr;
-    //   uint32_t cache_bid = GetCacheBlockId(block_id);
-    //   bool res = lru_cache_->Get2(cache_bid, block);
-    //   if (block == nullptr) {
-    //     LOG(ERROR) << "Block Get block=nullptr:";
-    //   }
-    //   if (not res) {
-    //     ReadFunParameter parameter;
-    //     GetReadFunParameter(parameter, per_block_size_, block_pos);
-    //     pread(parameter.fd, block, parameter.len, parameter.offset);
-
-    //     lru_cache_->Set2(cache_bid, block);
-    //     if (block == nullptr) {
-    //       LOG(ERROR) << "block cell = nullptr";
-    //     }
-    //   }
-    //   memcpy(value + read_num, block + block_offset, len);
-    // }
 
     start += len;
     read_num += len;
@@ -121,11 +99,12 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
   return 0;
 }
 
-int Block::Update(const uint8_t *value, int n_bytes, uint32_t start) {
+int Block::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) {
   pwrite(fd_, value, n_bytes, header_size_ + start);
 
+  uint32_t update_len = 0;
   while (n_bytes) {
-    int len = n_bytes;
+    uint32_t len = n_bytes;
     if (len > per_block_size_) len = per_block_size_;
 
     uint32_t block_id = start / per_block_size_;
@@ -134,18 +113,20 @@ int Block::Update(const uint8_t *value, int n_bytes, uint32_t start) {
     if (len > per_block_size_ - block_offset)
       len = per_block_size_ - block_offset;
 
-    uint32_t cache_block_id = seg_id_ * seg_block_capacity_ + block_id;
-    lru_cache_->Evict(cache_block_id);
+    uint32_t cache_block_id = GetCacheBlockId(block_id);
+    lru_cache_->Update(cache_block_id, (const char *)value + update_len, len,
+                       block_offset);
 
     start += len;
     n_bytes -= len;
+    update_len += len;
   }
   return 0;
 }
 
 void Block::SegmentIsFull() {
-  last_bid_in_disk_ = (*cur_size_) * item_length_ / per_block_size_;
-  ++last_bid_in_disk_;
+  // last_bid_in_disk_ = (*cur_size_) * item_length_ / per_block_size_;
+  // ++last_bid_in_disk_;
 }
 
 int32_t Block::GetCacheBlockId(uint32_t block_id) {
