@@ -25,7 +25,7 @@ namespace tig_gamma {
 MmapRawVector::MmapRawVector(VectorMetaInfo *meta_info,
                              const std::string &root_path,
                              const StoreParams &store_params,
-                             const char *docids_bitmap)
+                             bitmap::BitmapManager *docids_bitmap)
     : RawVector(meta_info, root_path, docids_bitmap, store_params) {
   allow_use_zpf = false;
   vector_byte_size_ = meta_info_->DataSize() * meta_info->Dimension();

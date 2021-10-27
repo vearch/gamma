@@ -15,6 +15,7 @@
 #include "index/retrieval_model.h"
 #include "io/io_common.h"
 #include "storage/storage_manager.h"
+#include "util/bitmap_manager.h"
 #include "util/log.h"
 #include "util/utils.h"
 #include "vector/raw_vector_common.h"
@@ -69,7 +70,8 @@ struct StoreParams : DumpConfig {
 class RawVector : public VectorReader {
  public:
   RawVector(VectorMetaInfo *meta_info, const std::string &root_path,
-            const char *docids_bitmap, const StoreParams &store_params);
+            bitmap::BitmapManager *docids_bitmap,
+            const StoreParams &store_params);
 
   virtual ~RawVector();
 
@@ -164,7 +166,7 @@ class RawVector : public VectorReader {
   void SetIO(RawVectorIO *vio) { vio_ = vio; }
 
   VIDMgr *VidMgr() const { return vid_mgr_; }
-  const char *Bitmap() { return docids_bitmap_; }
+  bitmap::BitmapManager *Bitmap() { return docids_bitmap_; }
   int VectorByteSize() { return vector_byte_size_; }
   std::string RootPath() { return root_path_; }
   DumpConfig *GetDumpConfig();
@@ -200,7 +202,7 @@ class RawVector : public VectorReader {
 #ifdef WITH_ZFP
   ZFPCompressor *zfp_compressor_;
 #endif
-  const char *docids_bitmap_;
+  bitmap::BitmapManager *docids_bitmap_;
   VIDMgr *vid_mgr_;
   RawVectorIO *vio_;
 };

@@ -47,12 +47,12 @@ class CompressorZFP : public Compressor {
 
   int GetRawLen() { return raw_len; }
 
-  size_t Compress(char* data, char* output, int data_len) {
-    zfp_field* field = zfp_field_1d(data, type, dims);
-    zfp_stream* zfp = zfp_stream_open(NULL);
+  size_t Compress(char *data, char *output, int data_len) {
+    zfp_field *field = zfp_field_1d(data, type, dims);
+    zfp_stream *zfp = zfp_stream_open(NULL);
     zfp_stream_set_rate(zfp, rate, type, 1, 0);
 
-    bitstream* b_stream;
+    bitstream *b_stream;
     b_stream = stream_open(output, zfpsize);
     zfp_stream_set_bit_stream(zfp, b_stream);
     // zfp_stream_rewind(zfp);
@@ -63,7 +63,7 @@ class CompressorZFP : public Compressor {
     return size;
   }
 
-  size_t CompressBatch(char* datum, char* output, int n, int data_len) {
+  size_t CompressBatch(char *datum, char *output, int n, int data_len) {
     size_t flag = n * zfpsize;
     int size;
 
@@ -84,13 +84,13 @@ class CompressorZFP : public Compressor {
     return flag;
   }
 
-  size_t Decompress(char* data, char* output, int data_len) {
-    zfp_field* field = zfp_field_1d(output, type, dims);
-    zfp_stream* zfp = zfp_stream_open(NULL);
+  size_t Decompress(char *data, char *output, int data_len) {
+    zfp_field *field = zfp_field_1d(output, type, dims);
+    zfp_stream *zfp = zfp_stream_open(NULL);
     zfp_stream_set_rate(zfp, rate, type, 1, 0);
     /* zfp_stream_set_execution(zfp, zfp_exec_omp); */
     /* zfp_stream_set_reversible(zfp); */
-    bitstream* b_stream;
+    bitstream *b_stream;
     zfp_field_set_pointer(field, output);
     b_stream = stream_open(data, zfpsize);
     zfp_stream_set_bit_stream(zfp, b_stream);
@@ -102,7 +102,7 @@ class CompressorZFP : public Compressor {
     return size;
   }
 
-  size_t DecompressBatch(char* datum, char* output, int n, int data_len) {
+  size_t DecompressBatch(char *datum, char *output, int n, int data_len) {
     size_t flag = n * zfpsize;
     int size;
     if (!threads) threads = omp_get_max_threads();

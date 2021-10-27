@@ -21,7 +21,8 @@ using namespace std;
 namespace tig_gamma {
 
 RawVector::RawVector(VectorMetaInfo *meta_info, const string &root_path,
-                     const char *docids_bitmap, const StoreParams &store_params)
+                     bitmap::BitmapManager *docids_bitmap,
+                     const StoreParams &store_params)
     : VectorReader(meta_info),
       root_path_(root_path),
       total_mem_bytes_(0),

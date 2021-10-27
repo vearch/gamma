@@ -6,14 +6,15 @@
  */
 
 #include "realtime/realtime_invert_index.h"
+
 #include "util/log.h"
 #include "util/utils.h"
 
 namespace tig_gamma {
 namespace realtime {
 
-RTInvertIndex::RTInvertIndex(size_t nlist, size_t code_size,
-                             VIDMgr *vid_mgr, const char *docids_bitmap,
+RTInvertIndex::RTInvertIndex(size_t nlist, size_t code_size, VIDMgr *vid_mgr,
+                             bitmap::BitmapManager *docids_bitmap,
                              size_t bucket_keys, size_t bucket_keys_limit)
     : nlist_(nlist),
       code_size_(code_size),
@@ -34,8 +35,8 @@ RTInvertIndex::~RTInvertIndex() {
 bool RTInvertIndex::Init() {
   CHECK_DELETE(cur_ptr_);
   cur_ptr_ = new (std::nothrow)
-      RealTimeMemData(nlist_, vid_mgr_, docids_bitmap_,
-                      bucket_keys_, bucket_keys_limit_, code_size_);
+      RealTimeMemData(nlist_, vid_mgr_, docids_bitmap_, bucket_keys_,
+                      bucket_keys_limit_, code_size_);
   if (nullptr == cur_ptr_) return false;
 
   if (!cur_ptr_->Init()) return false;

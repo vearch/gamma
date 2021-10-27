@@ -21,7 +21,7 @@ static bool L2Cmp(const VectorDoc *a, const VectorDoc *b) {
 }
 
 VectorManager::VectorManager(const VectorStorageType &store_type,
-                             const char *docids_bitmap,
+                             bitmap::BitmapManager *docids_bitmap,
                              const std::string &root_path)
     : default_store_type_(store_type),
       docids_bitmap_(docids_bitmap),
@@ -353,7 +353,7 @@ int VectorManager::AddRTVecsToIndex() {
     std::vector<int64_t> vids;
     int vid;
     while (retrieval_model->updated_vids_.try_pop(vid)) {
-      if (bitmap::test(raw_vec->Bitmap(), raw_vec->VidMgr()->VID2DocID(vid)))
+      if (raw_vec->Bitmap()->GetN(raw_vec->VidMgr()->VID2DocID(vid)))
         continue;
       vids.push_back(vid);
       if (vids.size() >= 20000) break;

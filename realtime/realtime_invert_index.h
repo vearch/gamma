@@ -13,10 +13,11 @@
 #include <map>
 #include <vector>
 
-#include "util/bitmap.h"
 #include "faiss/Index.h"
 #include "faiss/IndexIVF.h"
 #include "realtime_mem_data.h"
+#include "util/bitmap.h"
+#include "util/bitmap_manager.h"
 
 namespace tig_gamma {
 namespace realtime {
@@ -24,8 +25,8 @@ namespace realtime {
 struct RTInvertIndex {
  public:
   // bucket_keys should not be larger than bucket_keys_limit
-  RTInvertIndex(size_t nlist, size_t code_size,
-                VIDMgr *vid_mgr, const char *docids_bitmap,
+  RTInvertIndex(size_t nlist, size_t code_size, VIDMgr *vid_mgr,
+                bitmap::BitmapManager *docids_bitmap,
                 size_t bucket_keys = 10000, size_t bucket_keys_limit = 1000000);
 
   ~RTInvertIndex();
@@ -56,7 +57,7 @@ struct RTInvertIndex {
   size_t bucket_keys_;
   size_t bucket_keys_limit_;
   VIDMgr *vid_mgr_;
-  const char *docids_bitmap_;
+  bitmap::BitmapManager *docids_bitmap_;
 
   RealTimeMemData *cur_ptr_;
 };

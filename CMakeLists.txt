@@ -186,9 +186,6 @@ else(BUILD_WITH_GPU)
     target_link_libraries(gamma ${LIBRARIES})
 endif(BUILD_WITH_GPU)
 
-
-set_target_properties(gamma PROPERTIES VERSION 0.1 SOVERSION 0.1)
-
 install(TARGETS gamma
 	LIBRARY	DESTINATION	lib 
 	ARCHIVE	DESTINATION	lib)

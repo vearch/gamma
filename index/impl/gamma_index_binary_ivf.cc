@@ -7,9 +7,9 @@
 
 #include "gamma_index_binary_ivf.h"
 
-#include "search/error_code.h"
 #include "faiss/IndexBinaryFlat.h"
 #include "faiss/utils/hamming.h"
+#include "search/error_code.h"
 
 namespace tig_gamma {
 
@@ -79,7 +79,8 @@ GammaIndexBinaryIVF::~GammaIndexBinaryIVF() {
   }
 }
 
-int GammaIndexBinaryIVF::Init(const std::string &model_parameters, int indexing_size) {
+int GammaIndexBinaryIVF::Init(const std::string &model_parameters,
+                              int indexing_size) {
   indexing_size_ = indexing_size;
   BinaryModelParams binary_param;
   if (model_parameters != "" && binary_param.Parse(model_parameters.c_str())) {
@@ -98,10 +99,11 @@ int GammaIndexBinaryIVF::Init(const std::string &model_parameters, int indexing_
   code_size = d / 8;
   verbose = false;
 
-  int bucket_keys = std::max(1000, this->indexing_size_ / binary_param.ncentroids);
+  int bucket_keys =
+      std::max(1000, this->indexing_size_ / binary_param.ncentroids);
   rt_invert_index_ptr_ = new realtime::RTInvertIndex(
-      this->nlist, this->code_size, raw_vec->VidMgr(), raw_vec->Bitmap(), bucket_keys,
-      1280000);
+      this->nlist, this->code_size, raw_vec->VidMgr(), raw_vec->Bitmap(),
+      bucket_keys, 1280000);
   // default is true in faiss
   is_trained = false;
 
@@ -214,23 +216,26 @@ int GammaIndexBinaryIVF::Indexing() {
   size_t num;
   if ((size_t)indexing_size_ < nlist) {
     num = nlist * 39;
-    LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
-                 << "], index_size becomes ncentroids * 39[" << num << "].";
+    LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids["
+                 << nlist << "], index_size becomes ncentroids * 39[" << num
+                 << "].";
   } else if ((size_t)indexing_size_ <= nlist * 265) {
     if ((size_t)indexing_size_ < nlist * 39) {
-      LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
-                   << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
+      LOG(WARNING)
+          << "Index_size[" << indexing_size_ << "] is too small. "
+          << "The appropriate range is [ncentroids * 39, ncentroids * 256]";
     }
     num = (size_t)indexing_size_;
   } else {
     num = nlist * 256;
-    LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too big. "
-                 << "The appropriate range is [ncentroids * 39, ncentroids * 256]."
-                 << "index_size becomes ncentroids * 256[" << num << "].";
+    LOG(WARNING)
+        << "Index_size[" << indexing_size_ << "] is too big. "
+        << "The appropriate range is [ncentroids * 39, ncentroids * 256]."
+        << "index_size becomes ncentroids * 256[" << num << "].";
   }
   if (num > vectors_count) {
     LOG(ERROR) << "vector total count [" << vectors_count
-                << "] less then index_size[" << num << "], failed!";
+               << "] less then index_size[" << num << "], failed!";
     return -1;
   }
 

@@ -24,7 +24,8 @@ class RocksDBRawVectorIO;
 class RocksDBRawVector : public RawVector {
  public:
   RocksDBRawVector(VectorMetaInfo *meta_info, const std::string &root_path,
-                   const StoreParams &store_params, const char *docids_bitmap);
+                   const StoreParams &store_params,
+                   bitmap::BitmapManager *docids_bitmap);
   ~RocksDBRawVector();
   /* RawVector */
   int InitStore(std::string &vec_name) override;

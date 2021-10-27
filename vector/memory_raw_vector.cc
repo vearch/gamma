@@ -16,7 +16,7 @@ namespace tig_gamma {
 MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
                                  const std::string &root_path,
                                  const StoreParams &store_params,
-                                 const char *docids_bitmap)
+                                 bitmap::BitmapManager *docids_bitmap)
     : RawVector(meta_info, root_path, docids_bitmap, store_params) {
   segments_ = nullptr;
   nsegments_ = 0;

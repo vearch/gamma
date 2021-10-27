@@ -766,18 +766,20 @@ class GammaTest : public ::testing::Test {
 
   void SetUp() override {}
 
-  void TearDown() override { CloseEngine(); }
+  void TearDown() override {}
 
   void *engine;
 };
 
 TEST_F(GammaTest, TestGamma) {
-  InitEngine();
   bool bLoad = false;
   if (bLoad) {
+    InitEngine();
     LoadEngine();
     opt.doc_id = 20000;
   } else {
+    utils::remove_dir(test::opt.path.c_str());
+    InitEngine();
     Create();
     Add();
   }
@@ -796,15 +798,12 @@ TEST_F(GammaTest, TestGamma) {
   // LoadEngine();
   // BuildEngineIndex();
   // Search();
+  CloseEngine();
 }
 
 }  // namespace test
 
 int main(int argc, char **argv) {
-  bool bLoad = false;
-  if (not bLoad) {
-    utils::remove_dir(test::opt.path.c_str());
-  }
   setvbuf(stdout, (char *)NULL, _IONBF, 0);
   if (argc != 3) {
     std::cout << "Usage: [Program] [profile_file] [vectors_file]\n";

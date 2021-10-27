@@ -5,14 +5,16 @@
  * found in the LICENSE file in the root directory of this source tree.
  */
 
-#ifndef _REALTIME_MEM_DATA_H_
-#define _REALTIME_MEM_DATA_H_
+#pragma once
 
 #include <stdint.h>
 #include <stdlib.h>
+
 #include <atomic>
 #include <string>
 #include <vector>
+
+#include "util/bitmap_manager.h"
 #include "vector/raw_vector_common.h"
 
 namespace tig_gamma {
@@ -26,7 +28,7 @@ const static long kRecoverIdxMask = ~kDelIdxMask;  // 0x7fffffffffffffff
 
 struct RTInvertBucketData {
   RTInvertBucketData(RTInvertBucketData *other);
-  RTInvertBucketData(VIDMgr *vid_mgr, const char *docids_bitmap);
+  RTInvertBucketData(VIDMgr *vid_mgr, bitmap::BitmapManager *docids_bitmap);
 
   bool Init(const size_t &buckets_num, const size_t &bucket_keys,
             const size_t &code_bytes_per_vec,
@@ -57,7 +59,7 @@ struct RTInvertBucketData {
   uint8_t **codes_array_;
   // int *dump_latest_pos_;
   VIDMgr *vid_mgr_;
-  const char *docids_bitmap_;
+  bitmap::BitmapManager *docids_bitmap_;
   std::atomic<long> *vid_bucket_no_pos_;
   std::atomic<int> *deleted_nums_;
   long compacted_num_;
@@ -68,8 +70,8 @@ struct RTInvertBucketData {
 struct RealTimeMemData {
  public:
   RealTimeMemData(size_t buckets_num, VIDMgr *vid_mgr,
-                  const char *docids_bitmap, size_t bucket_keys = 500,
-                  size_t bucket_keys_limit = 1000000,
+                  bitmap::BitmapManager *docids_bitmap,
+                  size_t bucket_keys = 500, size_t bucket_keys_limit = 1000000,
                   size_t code_bytes_per_vec = 512 * sizeof(float));
   ~RealTimeMemData();
 
@@ -111,11 +113,9 @@ struct RealTimeMemData {
   std::atomic<long> total_mem_bytes_;
 
   VIDMgr *vid_mgr_;
-  const char *docids_bitmap_;
+  bitmap::BitmapManager *docids_bitmap_;
 };
 
 }  // namespace realtime
 
 }  // namespace tig_gamma
-
-#endif
