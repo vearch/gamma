@@ -246,7 +246,7 @@ int GammaEngine::Setup() {
 
   docids_bitmap_ = new bitmap::BitmapManager();
   docids_bitmap_->SetDumpFilePath(index_root_path_ + "/bitmap");
-  int init_bitmap_size = 100;
+  int init_bitmap_size = 1000 * 10000;
   int file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size != 0) {
     init_bitmap_size = file_bytes_size;
