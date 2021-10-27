@@ -168,7 +168,7 @@ uint32_t BitmapManager::FileBytesSize() {
   return 0;
 }
 
-int BitmapManager::SetN(uint32_t bit_id) {
+int BitmapManager::Set(uint32_t bit_id) {
   if (bit_id >= 0 && bit_id < size_ && bitmap_ != nullptr) {
     bitmap_[bit_id >> 3] |= (0x1 << (bit_id & 0x7));
     return 0;
@@ -176,7 +176,7 @@ int BitmapManager::SetN(uint32_t bit_id) {
   return -1;
 }
 
-int BitmapManager::UnsetN(uint32_t bit_id) {
+int BitmapManager::Unset(uint32_t bit_id) {
   if (bit_id >= 0 && bit_id < size_ && bitmap_ != nullptr) {
     bitmap_[bit_id >> 3] &= ~(0x1 << (bit_id & 0x7));
     return 0;
@@ -184,7 +184,7 @@ int BitmapManager::UnsetN(uint32_t bit_id) {
   return -1;
 }
 
-bool BitmapManager::GetN(uint32_t bit_id) {
+bool BitmapManager::Test(uint32_t bit_id) {
   if (bit_id >= 0 && bit_id < size_ && bitmap_ != nullptr) {
     return (bitmap_[bit_id >> 3] & (0x1 << (bit_id & 0x7)));
   }

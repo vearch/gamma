@@ -163,7 +163,7 @@ class GammaSearchCondition : public RetrievalContext {
   bool IsValid(int id) const override {
     int docid = raw_vec->VidMgr()->VID2DocID(id);
     if ((range_query_result != nullptr && not range_query_result->Has(docid)) ||
-        docids_bitmap->GetN(docid) == true) {
+        docids_bitmap->Test(docid) == true) {
       return false;
     }
     return true;

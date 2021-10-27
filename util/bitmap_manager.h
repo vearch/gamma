@@ -27,11 +27,11 @@ class BitmapManager {
 
   uint32_t FileBytesSize();
 
-  int SetN(uint32_t bit_id);
+  int Set(uint32_t bit_id);
 
-  int UnsetN(uint32_t bit_id);
+  int Unset(uint32_t bit_id);
 
-  bool GetN(uint32_t bit_id);
+  bool Test(uint32_t bit_id);
 
   uint32_t BitSize() { return size_; }
 

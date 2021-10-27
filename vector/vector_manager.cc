@@ -353,7 +353,7 @@ int VectorManager::AddRTVecsToIndex() {
     std::vector<int64_t> vids;
     int vid;
     while (retrieval_model->updated_vids_.try_pop(vid)) {
-      if (raw_vec->Bitmap()->GetN(raw_vec->VidMgr()->VID2DocID(vid)))
+      if (raw_vec->Bitmap()->Test(raw_vec->VidMgr()->VID2DocID(vid)))
         continue;
       vids.push_back(vid);
       if (vids.size() >= 20000) break;

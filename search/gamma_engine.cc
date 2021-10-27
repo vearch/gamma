@@ -246,7 +246,7 @@ int GammaEngine::Setup() {
 
   docids_bitmap_ = new bitmap::BitmapManager();
   docids_bitmap_->SetDumpFilePath(index_root_path_ + "/bitmap");
-  int init_bitmap_size = 1000 * 10000;
+  int init_bitmap_size = 1000 * 10000;;
   int file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size != 0) {
     init_bitmap_size = file_bytes_size;
@@ -442,7 +442,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
     } else {
       gamma_result.init(topn, nullptr, 0);
       for (int docid = 0; docid < max_docid_; ++docid) {
-        if (range_query_result.Has(docid) && !docids_bitmap_->GetN(docid)) {
+        if (range_query_result.Has(docid) && !docids_bitmap_->Test(docid)) {
           ++gamma_result.total;
           if (gamma_result.results_count < topn) {
             gamma_result.docs[gamma_result.results_count++]->docid = docid;
@@ -813,11 +813,11 @@ int GammaEngine::Delete(std::string &key) {
   ret = table_->GetDocIDByKey(key, docid);
   if (ret != 0 || docid < 0) return -1;
 
-  if (docids_bitmap_->GetN(docid)) {
+  if (docids_bitmap_->Test(docid)) {
     return ret;
   }
   ++delete_num_;
-  docids_bitmap_->SetN(docid);
+  docids_bitmap_->Set(docid);
   docids_bitmap_->Dump(docid, 1);
   table_->Delete(key);
 
@@ -864,11 +864,11 @@ int GammaEngine::DelDocByQuery(Request &request) {
   std::vector<int> doc_ids = range_query_result.ToDocs();
   for (size_t i = 0; i < doc_ids.size(); ++i) {
     int docid = doc_ids[i];
-    if (docids_bitmap_->GetN(docid)) {
+    if (docids_bitmap_->Test(docid)) {
       continue;
     }
     ++delete_num_;
-    docids_bitmap_->SetN(docid);
+    docids_bitmap_->Set(docid);
     docids_bitmap_->Dump(docid, 1);
   }
 #endif  // BUILD_GPU
@@ -923,9 +923,9 @@ int GammaEngine::DelDocByFilter(Request &request, char **del_ids,
             0) {  // docid can be deleted.
           continue;
         }
-        if (docids_bitmap_->GetN(del_docid)) continue;
+        if (docids_bitmap_->Test(del_docid)) continue;
 
-        docids_bitmap_->SetN(del_docid);
+        docids_bitmap_->Set(del_docid);
         docids_bitmap_->Dump(del_docid, 1);
         table_->Delete(key);
         vec_manager_->Delete(del_docid);
@@ -964,7 +964,7 @@ int GammaEngine::GetDoc(std::string &key, Doc &doc) {
 
 int GammaEngine::GetDoc(int docid, Doc &doc) {
   int ret = 0;
-  if (docids_bitmap_->GetN(docid)) {
+  if (docids_bitmap_->Test(docid)) {
     LOG(INFO) << "docid [" << docid << "] is deleted!";
     return -1;
   }
@@ -1259,7 +1259,7 @@ int GammaEngine::Load() {
 
   delete_num_ = 0;
   for (int i = 0; i < max_docid_; ++i) {
-    if (docids_bitmap_->GetN(i)) {
+    if (docids_bitmap_->Test(i)) {
       ++delete_num_;
     }
   }

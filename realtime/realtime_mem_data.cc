@@ -99,7 +99,7 @@ void RTInvertBucketData::CompactOne(const size_t &bucket_no, long *&dst_idx,
                                     uint8_t *&dst_code, long *&src_idx,
                                     uint8_t *&src_code, int &pos,
                                     const size_t &code_bytes_per_vec) {
-  if (!(*src_idx & kDelIdxMask) && not docids_bitmap_->GetN(vid_mgr_->VID2DocID(
+  if (!(*src_idx & kDelIdxMask) && not docids_bitmap_->Test(vid_mgr_->VID2DocID(
                                        *src_idx & kRecoverIdxMask))) {
     *dst_idx = *src_idx;
     memcpy((void *)dst_code, (void *)(src_code), (size_t)code_bytes_per_vec);
@@ -290,7 +290,7 @@ bool RealTimeMemData::AddKeys(size_t list_no, size_t n, std::vector<long> &keys,
     }
     cur_invert_ptr_->vid_bucket_no_pos_[keys[i]] = list_no << 32 | retrive_pos;
     retrive_pos++;
-    if (cur_invert_ptr_->docids_bitmap_->GetN(
+    if (cur_invert_ptr_->docids_bitmap_->Test(
             cur_invert_ptr_->vid_mgr_->VID2DocID(keys[i]))) {
       cur_invert_ptr_->Delete(keys[i]);
     }
