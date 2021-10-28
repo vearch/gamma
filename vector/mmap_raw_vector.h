@@ -19,7 +19,8 @@ class MmapRawVectorIO;
 class MmapRawVector : public RawVector {
  public:
   MmapRawVector(VectorMetaInfo *meta_info, const std::string &root_path,
-                const StoreParams &store_params, const char *docids_bitmap);
+                const StoreParams &store_params,
+                bitmap::BitmapManager *docids_bitmap);
   ~MmapRawVector();
   int InitStore(std::string &vec_name) override;
   int AddToStore(uint8_t *v, int len) override;

@@ -23,7 +23,7 @@ namespace tig_gamma {
 RocksDBRawVector::RocksDBRawVector(VectorMetaInfo *meta_info,
                                    const std::string &root_path,
                                    const StoreParams &store_params,
-                                   const char *docids_bitmap)
+                                   bitmap::BitmapManager *docids_bitmap)
     : RawVector(meta_info, root_path, docids_bitmap, store_params) {
   this->root_path_ = root_path;
   db_ = nullptr;

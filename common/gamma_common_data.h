@@ -7,14 +7,15 @@
 
 #pragma once
 
+#include <algorithm>
+
+#include "index/retrieval_model.h"
 #include "table/field_range_index.h"
+#include "table/table.h"
 #include "util/log.h"
 #include "util/online_logger.h"
-#include "vector/raw_vector.h"
-#include "index/retrieval_model.h"
-#include "table/table.h"
 #include "util/utils.h"
-#include <algorithm>
+#include "vector/raw_vector.h"
 
 namespace tig_gamma {
 
@@ -162,26 +163,25 @@ class GammaSearchCondition : public RetrievalContext {
   bool IsValid(int id) const override {
     int docid = raw_vec->VidMgr()->VID2DocID(id);
     if ((range_query_result != nullptr && not range_query_result->Has(docid)) ||
-        bitmap::test(docids_bitmap, docid) == true) {
+        docids_bitmap->Test(docid) == true) {
       return false;
     }
     return true;
   };
 
-  void Init(float min_score, float max_score, const char *docids_bitmap,
-            RawVector *raw_vec) {
+  void Init(float min_score, float max_score,
+            bitmap::BitmapManager *docids_bitmap, RawVector *raw_vec) {
     this->min_score = min_score;
     this->max_score = max_score;
     this->docids_bitmap = docids_bitmap;
     this->raw_vec = raw_vec;
   }
 
-  const char *Bitmap() { return docids_bitmap; }
   int VID2DocID(int vid) { return raw_vec->VidMgr()->VID2DocID(vid); }
   MultiRangeQueryResults *RangeQueryResult() { return range_query_result; }
 
  private:
-  const char *docids_bitmap;
+  bitmap::BitmapManager *docids_bitmap;
   const RawVector *raw_vec;
 };
 
@@ -196,9 +196,7 @@ struct VectorQuery {
 };
 
 struct GammaQuery {
-  GammaQuery() {
-    condition = nullptr;
-  }
+  GammaQuery() { condition = nullptr; }
 
   ~GammaQuery() {
     if (condition) {
@@ -286,49 +284,54 @@ struct VectorResult {
   }
 
   void sort_by_docid() {
-    std::function<int(int64_t *, float *, char **, int *, int, int)> 
-      paritition = [&](int64_t *docids, float *dists, char **sources, 
-        int *source_lens, int low, int high) {
-      long pivot = docids[low];
-      float dist = dists[low];
-      char *source = sources[low];
-      int source_len = source_lens[low];
+    std::function<int(int64_t *, float *, char **, int *, int, int)>
+        paritition = [&](int64_t *docids, float *dists, char **sources,
+                         int *source_lens, int low, int high) {
+          long pivot = docids[low];
+          float dist = dists[low];
+          char *source = sources[low];
+          int source_len = source_lens[low];
 
-      while (low < high) {
-        while (low < high && docids[high] >= pivot) {
-          --high;
-        }
-        docids[low] = docids[high];
-        dists[low] = dists[high];
-        sources[low] = sources[high];
-        source_lens[low] = source_lens[high];
-        while (low < high && docids[low] <= pivot) {
-          ++low;
-        }
-        docids[high] = docids[low];
-        dists[high] = dists[low];
-        sources[high] = sources[low];
-        source_lens[high] = source_lens[low];
-      }
-      docids[low] = pivot;
-      dists[low] = dist;
-      sources[low] = source;
-      source_lens[low] = source_len;
-      return low;
-    };
+          while (low < high) {
+            while (low < high && docids[high] >= pivot) {
+              --high;
+            }
+            docids[low] = docids[high];
+            dists[low] = dists[high];
+            sources[low] = sources[high];
+            source_lens[low] = source_lens[high];
+            while (low < high && docids[low] <= pivot) {
+              ++low;
+            }
+            docids[high] = docids[low];
+            dists[high] = dists[low];
+            sources[high] = sources[low];
+            source_lens[high] = source_lens[low];
+          }
+          docids[low] = pivot;
+          dists[low] = dist;
+          sources[low] = source;
+          source_lens[low] = source_len;
+          return low;
+        };
 
-    std::function<void(int64_t *, float *, char **, int *, int, int)> 
-        quick_sort_by_docid = [&](int64_t *docids, float *dists, char **sources, int *source_lens, int low, int high) {
-      if (low < high) {
-        int pivot = paritition(docids, dists, sources, source_lens, low, high);
-        quick_sort_by_docid(docids, dists, sources, source_lens, low, pivot - 1);
-        quick_sort_by_docid(docids, dists, sources, source_lens, pivot + 1, high);
-      }
-    };
+    std::function<void(int64_t *, float *, char **, int *, int, int)>
+        quick_sort_by_docid = [&](int64_t *docids, float *dists, char **sources,
+                                  int *source_lens, int low, int high) {
+          if (low < high) {
+            int pivot =
+                paritition(docids, dists, sources, source_lens, low, high);
+            quick_sort_by_docid(docids, dists, sources, source_lens, low,
+                                pivot - 1);
+            quick_sort_by_docid(docids, dists, sources, source_lens, pivot + 1,
+                                high);
+          }
+        };
 
     for (int i = 0; i < n; ++i) {
-      quick_sort_by_docid(docids + i * topn, dists + i * topn, 
-        sources + i * topn, source_lens + i * topn, 0, topn - 1);
+      quick_sort_by_docid(docids + i * topn, dists + i * topn,
+                          sources + i * topn, source_lens + i * topn, 0,
+                          topn - 1);
     }
   }
 
@@ -384,6 +387,5 @@ struct GammaResult {
 
   VectorDoc **docs;
 };
-
 
 }  // namespace tig_gamma

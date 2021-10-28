@@ -14,6 +14,7 @@
 #include "c_api/api_data/gamma_config.h"
 #include "common/gamma_common_data.h"
 #include "index/retrieval_model.h"
+#include "util/bitmap_manager.h"
 #include "util/log.h"
 #include "vector/raw_vector.h"
 
@@ -21,7 +22,8 @@ namespace tig_gamma {
 
 class VectorManager {
  public:
-  VectorManager(const VectorStorageType &store_type, const char *docids_bitmap,
+  VectorManager(const VectorStorageType &store_type,
+                bitmap::BitmapManager *docids_bitmap,
                 const std::string &root_path);
   ~VectorManager();
 
@@ -81,7 +83,7 @@ class VectorManager {
 
  private:
   VectorStorageType default_store_type_;
-  const char *docids_bitmap_;
+  bitmap::BitmapManager *docids_bitmap_;
   bool table_created_;
   std::string root_path_;
 

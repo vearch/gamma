@@ -34,7 +34,7 @@ class RawVectorFactory {
   static RawVector *Create(VectorMetaInfo *meta_info, VectorStorageType type,
                            const std::string &root_path,
                            StoreParams &store_params,
-                           const char *docids_bitmap) {
+                           bitmap::BitmapManager *docids_bitmap) {
     RawVector *raw_vector = nullptr;
     RawVectorIO *vio = nullptr;
     switch (type) {

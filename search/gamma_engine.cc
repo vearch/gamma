@@ -25,14 +25,14 @@
 #include <thread>
 #include <vector>
 
-#include "util/bitmap.h"
 #include "cjson/cJSON.h"
-#include "search/error_code.h"
 #include "common/gamma_common_data.h"
 #include "gamma_table_io.h"
-#include "util/log.h"
-#include "omp.h"
 #include "io/raw_vector_io.h"
+#include "omp.h"
+#include "search/error_code.h"
+#include "util/bitmap.h"
+#include "util/log.h"
 #include "util/utils.h"
 
 using std::string;
@@ -182,6 +182,7 @@ GammaEngine::GammaEngine(const string &index_root_path)
   field_range_index_ = nullptr;
   created_table_ = false;
   b_loading_ = false;
+  docids_bitmap_ = nullptr;
 #ifdef PERFORMANCE_TESTING
   search_num_ = 0;
 #endif
@@ -216,6 +217,11 @@ GammaEngine::~GammaEngine() {
     delete field_range_index_;
     field_range_index_ = nullptr;
   }
+
+  if (docids_bitmap_) {
+    delete docids_bitmap_;
+    docids_bitmap_ = nullptr;
+  }
 }
 
 GammaEngine *GammaEngine::GetInstance(const string &index_root_path) {
@@ -238,7 +244,15 @@ int GammaEngine::Setup() {
     mkdir(dump_path_.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
   }
 
-  if (docids_bitmap_.Init(std::numeric_limits<int>::max()) != 0) {
+  docids_bitmap_ = new bitmap::BitmapManager();
+  docids_bitmap_->SetDumpFilePath(index_root_path_ + "/bitmap");
+  int init_bitmap_size = 1000 * 10000;;
+  int file_bytes_size = docids_bitmap_->FileBytesSize();
+  if (file_bytes_size != 0) {
+    init_bitmap_size = file_bytes_size;
+  }
+
+  if (docids_bitmap_->Init(init_bitmap_size) != 0) {
     LOG(ERROR) << "Cannot create bitmap!";
     return INTERNAL_ERR;
   }
@@ -248,8 +262,8 @@ int GammaEngine::Setup() {
   }
 
   if (!vec_manager_) {
-    vec_manager_ = new VectorManager(VectorStorageType::Mmap, 
-                                     docids_bitmap_.Bitmap(), index_root_path_);
+    vec_manager_ = new VectorManager(VectorStorageType::Mmap, docids_bitmap_,
+                                     index_root_path_);
   }
 
 #ifndef __APPLE__
@@ -265,7 +279,7 @@ int GammaEngine::Setup() {
 
   max_docid_ = 0;
   LOG(INFO) << "GammaEngine setup successed! bitmap_bytes_size="
-            << docids_bitmap_.BytesSize();
+            << docids_bitmap_->BytesSize();
   return 0;
 }
 
@@ -428,7 +442,7 @@ int GammaEngine::Search(Request &request, Response &response_results) {
     } else {
       gamma_result.init(topn, nullptr, 0);
       for (int docid = 0; docid < max_docid_; ++docid) {
-        if (range_query_result.Has(docid) && !docids_bitmap_.GetN(docid)) {
+        if (range_query_result.Has(docid) && !docids_bitmap_->Test(docid)) {
           ++gamma_result.total;
           if (gamma_result.results_count < topn) {
             gamma_result.docs[gamma_result.results_count++]->docid = docid;
@@ -599,13 +613,12 @@ int GammaEngine::CreateTable(TableInfo &table) {
     LOG(ERROR) << "write table schema error, path=" << path;
   }
 
-  docids_bitmap_.SetDumpFilePath(index_root_path_ + "/bitmap");
-  int file_bytes_size = docids_bitmap_.GetBitmapFileBytesSize();
-  if (file_bytes_size + 1 >= docids_bitmap_.BytesSize() &&
-      docids_bitmap_.LoadBitmap() == 0) {
+  int file_bytes_size = docids_bitmap_->FileBytesSize();
+  if (file_bytes_size + 1 >= docids_bitmap_->BytesSize() &&
+      docids_bitmap_->Load() == 0) {
     LOG(INFO) << "Load bitmap success.";
   } else {
-    docids_bitmap_.DumpBitmap();
+    docids_bitmap_->Dump();
     LOG(INFO) << "Full dump bitmap.";
   }
 
@@ -653,6 +666,7 @@ int GammaEngine::AddOrUpdate(Doc &doc) {
     return -4;
   }
   ++max_docid_;
+  docids_bitmap_->SetMaxID(max_docid_);
 
   if (not b_running_ and index_status_ == UNINDEXED) {
     if (max_docid_ >= indexing_size_) {
@@ -711,6 +725,7 @@ int GammaEngine::AddOrUpdateDocs(Docs &docs, BatchResult &result) {
     }
 
     max_docid_ += batch_size;
+    docids_bitmap_->SetMaxID(max_docid_);
   };
 
   for (size_t i = 0; i < doc_vec.size(); ++i) {
@@ -798,12 +813,12 @@ int GammaEngine::Delete(std::string &key) {
   ret = table_->GetDocIDByKey(key, docid);
   if (ret != 0 || docid < 0) return -1;
 
-  if (docids_bitmap_.GetN(docid)) {
+  if (docids_bitmap_->Test(docid)) {
     return ret;
   }
   ++delete_num_;
-  docids_bitmap_.SetN(docid);
-  docids_bitmap_.DumpBitmap(docid, 1);
+  docids_bitmap_->Set(docid);
+  docids_bitmap_->Dump(docid, 1);
   table_->Delete(key);
 
   vec_manager_->Delete(docid);
@@ -849,19 +864,20 @@ int GammaEngine::DelDocByQuery(Request &request) {
   std::vector<int> doc_ids = range_query_result.ToDocs();
   for (size_t i = 0; i < doc_ids.size(); ++i) {
     int docid = doc_ids[i];
-    if (docids_bitmap_.GetN(docid)) {
+    if (docids_bitmap_->Test(docid)) {
       continue;
     }
     ++delete_num_;
-    docids_bitmap_.SetN(docid);
-    docids_bitmap_.DumpBitmap(docid, 1);
+    docids_bitmap_->Set(docid);
+    docids_bitmap_->Dump(docid, 1);
   }
 #endif  // BUILD_GPU
   is_dirty_ = true;
   return 0;
 }
 
-int GammaEngine::DelDocByFilter(Request &request, char **del_ids, int *str_len) {
+int GammaEngine::DelDocByFilter(Request &request, char **del_ids,
+                                int *str_len) {
 #ifndef BUILD_GPU
   *str_len = 0;
   MultiRangeQueryResults range_query_result;
@@ -903,13 +919,14 @@ int GammaEngine::DelDocByFilter(Request &request, char **del_ids, int *str_len) 
     for (int del_docid = 0; del_docid < max_docid_; ++del_docid) {
       if (range_query_result.Has(del_docid) == true) {
         std::string key;
-        if (table_->GetKeyByDocid(del_docid, key) != 0) {  // docid can be deleted.
+        if (table_->GetKeyByDocid(del_docid, key) !=
+            0) {  // docid can be deleted.
           continue;
         }
-        if (docids_bitmap_.GetN(del_docid)) continue;
-        
-        docids_bitmap_.SetN(del_docid);
-        docids_bitmap_.DumpBitmap(del_docid, 1);
+        if (docids_bitmap_->Test(del_docid)) continue;
+
+        docids_bitmap_->Set(del_docid);
+        docids_bitmap_->Dump(del_docid, 1);
         table_->Delete(key);
         vec_manager_->Delete(del_docid);
         if (table_->IdType() == 0) {
@@ -925,7 +942,7 @@ int GammaEngine::DelDocByFilter(Request &request, char **del_ids, int *str_len) 
     }
   }
   LOG(INFO) << "DelDocByFilter(), Delete doc num: " << del_num;
-  
+
   *del_ids = cJSON_PrintUnformatted(root);
   *str_len = strlen(*del_ids);
   if (root) cJSON_Delete(root);
@@ -947,7 +964,7 @@ int GammaEngine::GetDoc(std::string &key, Doc &doc) {
 
 int GammaEngine::GetDoc(int docid, Doc &doc) {
   int ret = 0;
-  if (docids_bitmap_.GetN(docid)) {
+  if (docids_bitmap_->Test(docid)) {
     LOG(INFO) << "docid [" << docid << "] is deleted!";
     return -1;
   }
@@ -1075,7 +1092,7 @@ void GammaEngine::GetIndexStatus(EngineStatus &engine_status) {
   engine_status.SetIndexMem(index_mem_bytes);
   engine_status.SetVectorMem(vec_mem_bytes);
   engine_status.SetFieldRangeMem(total_mem_b);
-  engine_status.SetBitmapMem(docids_bitmap_.BytesSize());
+  engine_status.SetBitmapMem(docids_bitmap_->BytesSize());
   engine_status.SetDocNum(GetDocsNum());
   engine_status.SetMaxDocID(max_docid_ - 1);
   engine_status.SetMinIndexedNum(vec_manager_->MinIndexedNum());
@@ -1242,7 +1259,7 @@ int GammaEngine::Load() {
 
   delete_num_ = 0;
   for (int i = 0; i < max_docid_; ++i) {
-    if (docids_bitmap_.GetN(i)) {
+    if (docids_bitmap_->Test(i)) {
       ++delete_num_;
     }
   }

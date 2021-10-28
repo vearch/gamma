@@ -25,10 +25,10 @@
 #include <set>
 #include <vector>
 
-#include "util/bitmap.h"
 #include "gamma_api.h"
 #include "gamma_gpu_cloner.h"
 #include "gamma_index_ivfpq.h"
+#include "util/bitmap.h"
 
 using std::string;
 using std::vector;
@@ -677,7 +677,7 @@ template <class T>
 bool IsInRange(Table *table, RangeFilter &range, long docid) {
   T value = 0;
   std::string field_value;
-  int field_id = table->GetAttrIdx(range.field); 
+  int field_id = table->GetAttrIdx(range.field);
   table->GetFieldRawValue(docid, field_id, field_value);
   memcpy(&value, field_value.c_str(), sizeof(value));
 
@@ -722,10 +722,11 @@ bool FilteredByTermFilter(GammaSearchCondition *condition,
     auto term = condition->term_filters[i];
 
     std::string field_value;
-    int field_id = condition->table->GetAttrIdx(term.field); 
+    int field_id = condition->table->GetAttrIdx(term.field);
     condition->table->GetFieldRawValue(docid, field_id, field_value);
     vector<string> field_items;
-    if (field_value.size() >= 0) field_items = utils::split(field_value, kDelim);
+    if (field_value.size() >= 0)
+      field_items = utils::split(field_value, kDelim);
 
     bool all_in_field_items;
     if (term.is_union == static_cast<int>(FilterOperator::Or))

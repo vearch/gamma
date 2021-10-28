@@ -119,7 +119,7 @@ class GammaEngine {
 
   MultiFieldsRangeIndex *field_range_index_;
 
-  bitmap::BitmapManager<int> docids_bitmap_;
+  bitmap::BitmapManager *docids_bitmap_;
   table::Table *table_;
   VectorManager *vec_manager_;
 

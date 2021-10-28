@@ -17,9 +17,9 @@
 
 #include "gamma_index_flat.h"
 
+#include "omp.h"
 #include "vector/memory_raw_vector.h"
 #include "vector/mmap_raw_vector.h"
-#include "omp.h"
 
 using idx_t = faiss::Index::idx_t;
 
@@ -30,9 +30,7 @@ REGISTER_MODEL(FLAT, GammaFLATIndex);
 struct FLATModelParams {
   DistanceComputeType metric_type;
 
-  FLATModelParams() {
-    metric_type = DistanceComputeType::INNER_PRODUCT;
-  }
+  FLATModelParams() { metric_type = DistanceComputeType::INNER_PRODUCT; }
 
   int Parse(const char *str) {
     utils::JsonParser jp;
@@ -61,7 +59,8 @@ GammaFLATIndex::GammaFLATIndex() {}
 
 GammaFLATIndex::~GammaFLATIndex() {}
 
-int GammaFLATIndex::Init(const std::string &model_parameters, int indexing_size) {
+int GammaFLATIndex::Init(const std::string &model_parameters,
+                         int indexing_size) {
   indexing_size_ = indexing_size;
   auto raw_vec_type = dynamic_cast<MemoryRawVector *>(vector_);
   if (raw_vec_type == nullptr) {
@@ -69,9 +68,9 @@ int GammaFLATIndex::Init(const std::string &model_parameters, int indexing_size)
     return -1;
   }
   FLATModelParams flat_param;
-  if (model_parameters != "" && flat_param.Parse(model_parameters.c_str())) {    
+  if (model_parameters != "" && flat_param.Parse(model_parameters.c_str())) {
     return -1;
-  }    
+  }
   metric_type_ = flat_param.metric_type;
   return 0;
 }
