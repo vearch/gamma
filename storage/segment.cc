@@ -345,17 +345,12 @@ int Segment::GetValues(uint8_t *value, int id, int n) {
   while (id + n > (int)cur_size_) {
     // PersistentedSize();
     if (id + n <= (int)cur_size_) {
-      if (count > 5) {
-        LOG(INFO) << "Segment[" << blocks_->GetName() + "_" << seg_id_
-                  << "]. Wait " << count * 20
-                  << "ms because the data is not being brushed to disk.";
-      }
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     ++count;
-    if (count % 20 == 0) {
-      LOG(WARNING) << "Waited " << count * 20
+    if (count % 512 == 0) {
+      LOG(WARNING) << "Waited " << count * 512
                    << "ms because the data is not being brushed to disk."
                    << " segment[" << blocks_->GetName() + "_" << seg_id_
                    << "], cur_size[" << cur_size_ << "], GetValue(id=" << id
