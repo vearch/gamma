@@ -951,7 +951,7 @@ int GammaEngine::DelDocByFilter(Request &request, char **del_ids,
   return 0;
 }
 
-int GammaEngine::GetDoc(std::string &key, Doc &doc) {
+int GammaEngine::GetDoc(const std::string &key, Doc &doc) {
   int docid = -1, ret = 0;
   ret = table_->GetDocIDByKey(key, docid);
   if (ret != 0 || docid < 0) {

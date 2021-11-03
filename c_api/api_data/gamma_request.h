@@ -9,7 +9,7 @@
 
 #include <vector>
 
-#include "common/gamma_common_data.h"
+#include "common/common_query_data.h"
 #include "gamma_raw_data.h"
 #include "idl/fbs-gen/c/request_generated.h"
 
@@ -46,6 +46,8 @@ class Request : public RawData {
     topn_ = 0;
   }
 
+  virtual ~Request() {}
+
   virtual int Serialize(char **out, int *out_len);
 
   virtual void Deserialize(const char *data, int len);
@@ -64,7 +66,7 @@ class Request : public RawData {
 
   void AddVectorQuery(struct VectorQuery &vec_fields);
 
-  void AddField(std::string &field);
+  void AddField(const std::string &field);
 
   void AddRangeFilter(struct RangeFilter &range_filter);
 
@@ -80,11 +82,11 @@ class Request : public RawData {
 
   const std::string &RetrievalParams();
 
-  void SetRetrievalParams(std::string &retrieval_params);
+  void SetRetrievalParams(const std::string &retrieval_params);
 
   std::string OnlineLogLevel();
 
-  void SetOnlineLogLevel(std::string &online_log_level);
+  void SetOnlineLogLevel(const std::string &online_log_level);
 
   bool HasRank();
 

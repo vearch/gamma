@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include "common/common_query_data.h"
 #include "index/retrieval_model.h"
 #include "table/field_range_index.h"
 #include "table/table.h"
@@ -76,20 +77,6 @@ struct VectorDoc {
   double score;
   struct VectorDocField *fields;
   int fields_len;
-};
-
-struct TermFilter {
-  std::string field;
-  std::string value;
-  int is_union;
-};
-
-struct RangeFilter {
-  std::string field;
-  std::string lower_value;
-  std::string upper_value;
-  bool include_lower;
-  bool include_upper;
 };
 
 class GammaSearchCondition : public RetrievalContext {
@@ -183,16 +170,6 @@ class GammaSearchCondition : public RetrievalContext {
  private:
   bitmap::BitmapManager *docids_bitmap;
   const RawVector *raw_vec;
-};
-
-struct VectorQuery {
-  std::string name;
-  std::string value;
-  double min_score;
-  double max_score;
-  double boost;
-  int has_boost;
-  std::string retrieval_type;
 };
 
 struct GammaQuery {

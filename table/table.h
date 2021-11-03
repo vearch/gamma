@@ -79,7 +79,7 @@ class Table {
    * @param docid output, the docid to key
    * @return 0 if successed, -1 key not found
    */
-  int GetDocIDByKey(std::string &key, int &docid);
+  int GetDocIDByKey(const std::string &key, int &docid);
 
   int GetKeyByDocid(int docid, std::string &key);
 

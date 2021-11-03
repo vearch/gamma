@@ -12,7 +12,7 @@ namespace tig_gamma {
 class RawData {
  public:
   RawData() {}
-
+  virtual ~RawData() {}
   virtual int Serialize(char **out, int *out_len) = 0;
   virtual void Deserialize(const char *data, int len) = 0;
 };
