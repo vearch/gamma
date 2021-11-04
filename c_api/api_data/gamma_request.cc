@@ -185,7 +185,7 @@ void Request::AddRangeFilter(struct RangeFilter &range_filter) {
   range_filters_.emplace_back(range_filter);
 }
 
-void Request::AddTermFielter(struct TermFilter &term_filter) {
+void Request::AddTermFilter(struct TermFilter &term_filter) {
   term_filters_.emplace_back(term_filter);
 }
 
