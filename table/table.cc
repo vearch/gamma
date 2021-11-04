@@ -190,7 +190,7 @@ int Table::AddField(const string &name, DataType ftype, bool is_index) {
   return 0;
 }
 
-int Table::GetDocIDByKey(std::string &key, int &docid) {
+int Table::GetDocIDByKey(const std::string &key, int &docid) {
   if (id_type_ == 0) {
     int64_t k = utils::StringToInt64(key);
     if (item_to_docid_.find(k, docid)) {
@@ -368,7 +368,6 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
         in_block_pos_t in_block_pos;
         storage_mgr_->AddString(field_value.value.c_str(), len, block_id,
                                 in_block_pos);
-
         memcpy(doc_value + offset, &block_id, sizeof(block_id));
         memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
                sizeof(in_block_pos));

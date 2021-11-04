@@ -147,22 +147,28 @@ void Request::Deserialize(const char *data, int len) {
 }
 
 int Request::ReqNum() {
-  assert(request_);
-  return request_->req_num();
+  if (request_)
+    return request_->req_num();
+  else
+    return req_num_;
 }
 
 void Request::SetReqNum(int req_num) { req_num_ = req_num; }
 
 int Request::TopN() {
-  assert(request_);
-  return request_->topn();
+  if (request_)
+    return request_->topn();
+  else
+    return topn_;
 }
 
 void Request::SetTopN(int topn) { topn_ = topn; }
 
 int Request::BruteForceSearch() {
-  assert(request_);
-  return request_->brute_force_search();
+  if (request_)
+    return request_->brute_force_search();
+  else
+    return brute_force_search_;
 }
 
 void Request::SetBruteForceSearch(int brute_force_search) {
@@ -173,7 +179,7 @@ void Request::AddVectorQuery(struct VectorQuery &vec_fields) {
   vec_fields_.emplace_back(vec_fields);
 }
 
-void Request::AddField(std::string &field) { fields_.emplace_back(field); }
+void Request::AddField(const std::string &field) { fields_.emplace_back(field); }
 
 void Request::AddRangeFilter(struct RangeFilter &range_filter) {
   range_filters_.emplace_back(range_filter);
@@ -195,7 +201,7 @@ std::vector<struct TermFilter> &Request::TermFilters() { return term_filters_; }
 
 const std::string &Request::RetrievalParams() { return retrieval_params_; }
 
-void Request::SetRetrievalParams(std::string &retrieval_params) {
+void Request::SetRetrievalParams(const std::string &retrieval_params) {
   retrieval_params_ = retrieval_params;
 }
 
@@ -206,21 +212,25 @@ bool Request::HasRank() { return has_rank_; }
 void Request::SetHasRank(bool has_rank) { has_rank_ = has_rank; }
 
 int Request::MultiVectorRank() {
-  assert(request_);
-  return request_->multi_vector_rank();
+  if (request_)
+    return request_->multi_vector_rank();
+  else
+    return multi_vector_rank_; 
 }
 
 void Request::SetMultiVectorRank(int multi_vector_rank) {
   multi_vector_rank_ = multi_vector_rank_;
 }
 
-void Request::SetOnlineLogLevel(std::string &online_log_level) {
+void Request::SetOnlineLogLevel(const std::string &online_log_level) {
   online_log_level_ = online_log_level;
 }
 
 bool Request::L2Sqrt() {
-  assert(request_);
-  return request_->l2_sqrt();
+  if (request_)
+    return request_->l2_sqrt();
+  else
+    return l2_sqrt_;
 }
 
 void Request::SetL2Sqrt(bool l2_sqrt) { l2_sqrt_ = l2_sqrt; }

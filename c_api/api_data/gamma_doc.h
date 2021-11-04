@@ -99,6 +99,8 @@ class Doc : public RawData {
   void AddField(struct Field &&field);
 
   std::string &Key() { return key_; }
+  
+  void SetKey(const std::string &key) { key_ = key; }
 
   std::vector<struct Field> &TableFields() { return table_fields_; }
 
