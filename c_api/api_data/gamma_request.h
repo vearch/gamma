@@ -70,7 +70,7 @@ class Request : public RawData {
 
   void AddRangeFilter(struct RangeFilter &range_filter);
 
-  void AddTermFielter(struct TermFilter &term_filter);
+  void AddTermFilter(struct TermFilter &term_filter);
 
   std::vector<struct VectorQuery> &VecFields();
 

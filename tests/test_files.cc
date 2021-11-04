@@ -268,7 +268,7 @@ int SearchThread(void *engine, size_t num) {
       term_filter.value = "1315\00115248";
       term_filter.is_union = 1;
 
-      request.AddTermFielter(term_filter);
+      request.AddTermFilter(term_filter);
 
       std::string field_name = "field1";
       request.AddField(field_name);
@@ -363,7 +363,7 @@ int GetVector(void *engine) {
   term_filter.value = "1.jpg";
   term_filter.is_union = 0;
 
-  request.AddTermFielter(term_filter);
+  request.AddTermFilter(term_filter);
 
   char *request_str, *response_str;
   int request_len, response_len;
