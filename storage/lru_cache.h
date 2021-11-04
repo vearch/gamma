@@ -373,7 +373,7 @@ class LRUCache {
       ++hits_;
     else
       ++misses_;
-    if (hits_ % 100000 == 0 && hits_ != last_show_log_) {
+    if (hits_ % 10000000 == 0 && hits_ != last_show_log_) {
       LOG(INFO) << "LruCache[" << name_ << "] cur_size[" << cur_size_
                 << "] cells_size[" << cells_.size() << "] hits[" << hits_
                 << "] set_hits[" << set_hits_ << "] misses[" << misses_
@@ -462,7 +462,7 @@ class LRUCache {
       ++hits_;
     else
       ++misses_;
-    if (hits_ % 100000 == 0 && hits_ != last_show_log_) {
+    if (hits_ % 10000000 == 0 && hits_ != last_show_log_) {
       LOG(INFO) << "LruCache[" << name_ << "] cur_size[" << cur_size_
                 << "] cells_size[" << cells_.size() << "] hits[" << hits_
                 << "] set_hits[" << set_hits_ << "] misses[" << misses_
