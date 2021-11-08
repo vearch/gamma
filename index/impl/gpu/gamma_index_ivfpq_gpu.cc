@@ -508,10 +508,14 @@ int GammaIVFPQGPUIndex::AddRTVecsToIndex() {
   }
   if (vids.size() == 0) return 0;
   ScopeVectors scope_vecs;
-  raw_vec->Gets(vids, scope_vecs);
+  if (raw_vec->Gets(vids, scope_vecs)) {
+    LOG(ERROR) << "get update vector error!";
+    ret = -3;
+    return ret;
+  }
   if (cpu_index_->Update(vids, scope_vecs.Get())) {
     LOG(ERROR) << "update index error!";
-    ret = -3;
+    ret = -4;
   }
 
   return ret;
@@ -965,7 +969,10 @@ int GammaIVFPQGPUIndex::Search(RetrievalContext *retrieval_context, int n,
     compute_dis = [&]() {
       RawVector *raw_vec = dynamic_cast<RawVector *>(vector_);
       ScopeVectors scope_vecs;
-      raw_vec->Gets(I, scope_vecs);
+      if (raw_vec->Gets(I, scope_vecs)) {
+          LOG(ERROR) << "get raw vector error!";
+          return;
+      }
       compute_vec(scope_vecs.Get());
     };
   } else {

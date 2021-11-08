@@ -853,7 +853,10 @@ void compute_dis(int k, const float *xi, float *simi, idx_t *idxi,
   if (has_rank == true) {
     ScopeVectors scope_vecs;
     std::vector<idx_t> vids(recall_idxi, recall_idxi + recall_num);
-    vec->Gets(vids, scope_vecs);
+    if (vec->Gets(vids, scope_vecs)) {
+      LOG(ERROR) << "get raw vector failed";
+      return;
+    }
     int raw_d = vec->MetaInfo()->Dimension();
     for (int j = 0; j < recall_num; j++) {
       if (recall_idxi[j] == -1) continue;

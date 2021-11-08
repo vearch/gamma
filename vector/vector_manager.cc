@@ -360,10 +360,14 @@ int VectorManager::AddRTVecsToIndex() {
     }
     if (vids.size() == 0) continue;
     ScopeVectors scope_vecs;
-    raw_vec->Gets(vids, scope_vecs);
+    if (raw_vec->Gets(vids, scope_vecs)) {
+        LOG(ERROR) << "get update vector error!";
+        ret = -3;
+        return ret;
+    }
     if (retrieval_model->Update(vids, scope_vecs.Get())) {
       LOG(ERROR) << "update index error!";
-      ret = -3;
+      ret = -4;
     }
   }
   return ret;
