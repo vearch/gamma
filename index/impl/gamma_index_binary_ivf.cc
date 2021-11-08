@@ -219,7 +219,7 @@ int GammaIndexBinaryIVF::Indexing() {
     LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids["
                  << nlist << "], index_size becomes ncentroids * 39[" << num
                  << "].";
-  } else if ((size_t)indexing_size_ <= nlist * 265) {
+  } else if ((size_t)indexing_size_ <= nlist * 256) {
     if ((size_t)indexing_size_ < nlist * 39) {
       LOG(WARNING)
           << "Index_size[" << indexing_size_ << "] is too small. "
