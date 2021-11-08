@@ -277,8 +277,9 @@ int VectorManager::Indexing() {
   return ret;
 }
 
-int VectorManager::AddRTVecsToIndex() {
+int VectorManager::AddRTVecsToIndex(bool &index_is_dirty) {
   int ret = 0;
+  index_is_dirty = false;
   for (const auto &iter : vector_indexes_) {
     RetrievalModel *retrieval_model = iter.second;
     RawVector *raw_vec = dynamic_cast<RawVector *>(iter.second->vector_);
@@ -344,6 +345,7 @@ int VectorManager::AddRTVecsToIndex() {
           ret = -2;
         } else {
           retrieval_model->indexed_count_ += count_per_index;
+          index_is_dirty = true;
         }
       }
       if (ret == 0) {
@@ -369,6 +371,7 @@ int VectorManager::AddRTVecsToIndex() {
       LOG(ERROR) << "update index error!";
       ret = -4;
     }
+    index_is_dirty = true;
   }
   return ret;
 }

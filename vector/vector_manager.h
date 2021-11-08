@@ -35,7 +35,7 @@ class VectorManager {
 
   int Indexing();
 
-  int AddRTVecsToIndex();
+  int AddRTVecsToIndex(bool &index_is_dirty);
 
   // int Add(int docid, const std::vector<Field *> &field_vecs);
   int Search(GammaQuery &query, GammaResult *results);

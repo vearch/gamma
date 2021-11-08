@@ -1028,12 +1028,14 @@ int GammaEngine::Indexing() {
       continue;
     }
     index_status_ = IndexStatus::INDEXED;
-    int add_ret = vec_manager_->AddRTVecsToIndex();
+    bool index_is_dirty = false;
+    int add_ret = vec_manager_->AddRTVecsToIndex(index_is_dirty);
     if (add_ret < 0) {
       has_error = true;
       LOG(ERROR) << "Add real time vectors to index error!";
       continue;
-    } else if (add_ret > 0) {
+    }
+    if (index_is_dirty == true) {
       is_dirty_ = true;
     }
     usleep(1000 * 1000);  // sleep 5000ms
