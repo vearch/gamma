@@ -144,6 +144,8 @@ class Table {
   uint8_t string_field_num_;
   int key_idx_;  // key postion
 
+  std::map<std::string, int> attr_offset_map_;        // <field_id, field_name>
+  
   std::map<int, std::string> idx_attr_map_;        // <field_id, field_name>
   std::map<std::string, int> attr_idx_map_;        // <field_name, field_id>
   std::map<std::string, DataType> attr_type_map_;  // <field_name, field_type>

@@ -180,6 +180,7 @@ int Table::AddField(const string &name, DataType ftype, bool is_index) {
     ++string_field_num_;
   }
   idx_attr_offset_.push_back(item_length_);
+  attr_offset_map_.insert(std::pair<string, int>(name, item_length_));
   item_length_ += FTypeSize(ftype);
   attrs_.push_back(ftype);
   idx_attr_map_.insert(std::pair<int, string>(field_num_, name));
@@ -256,9 +257,9 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
   for (size_t i = 0; i < fields.size(); ++i) {
     const auto &field_value = fields[i];
     const std::string &name = field_value.name;
-    size_t offset = idx_attr_offset_[i];
+    size_t offset = attr_offset_map_[name];
 
-    DataType attr = attrs_[i];
+    DataType attr = attr_type_map_[name];
 
     if (attr != DataType::STRING) {
       int type_size = FTypeSize(attr);
@@ -343,9 +344,10 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
     for (size_t j = 0; j < fields.size(); ++j) {
       const auto &field_value = fields[j];
       const string &name = field_value.name;
-      size_t offset = idx_attr_offset_[j];
+      
+      size_t offset = attr_offset_map_[name];
 
-      DataType attr = attrs_[j];
+      DataType attr = attr_type_map_[name];
 
       if (attr != DataType::STRING) {
         int type_size = FTypeSize(attr);
