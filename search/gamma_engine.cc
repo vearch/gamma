@@ -972,7 +972,10 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
   vec_manager_->VectorNames(index_names);
 
   std::vector<string> table_fields;
-  table_->GetDocInfo(docid, doc, table_fields);
+  ret = table_->GetDocInfo(docid, doc, table_fields);
+  if (ret != 0) {
+    return ret;
+  }
 
   std::vector<std::pair<std::string, int>> vec_fields_ids;
   for (size_t i = 0; i < index_names.size(); ++i) {
@@ -990,7 +993,7 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
       doc.AddField(field);
     }
   }
-  return 0;
+  return ret;
 }
 
 int GammaEngine::BuildIndex() {
