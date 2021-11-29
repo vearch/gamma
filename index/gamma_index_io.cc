@@ -129,10 +129,9 @@ int WriteInvertedLists(faiss::IOWriter *f,
 
   for (size_t i = 0; i < rt_data->buckets_num_; i++) {
     if (sizes[i] > 0) {
-      {
-        WRITEANDCHECK(rt_data->cur_invert_ptr_->codes_array_[i],
-                      sizes[i] * rt_data->code_bytes_per_vec_);
-      }
+      WRITEANDCHECK(rt_data->cur_invert_ptr_->codes_array_[i],
+                    sizes[i] * rt_data->code_bytes_per_vec_);
+
       WRITEANDCHECK(rt_data->cur_invert_ptr_->idx_array_[i], sizes[i]);
     }
   }

@@ -15,6 +15,7 @@
 #include "c_api/api_data/gamma_batch_result.h"
 #include "c_api/api_data/gamma_doc.h"
 #include "c_api/api_data/gamma_table.h"
+#include "util/bitmap_manager.h"
 #include "io/io_common.h"
 #include "storage/storage_manager.h"
 #include "table_define.h"
@@ -48,7 +49,8 @@ class Table {
    * @param table_params unused
    * @return 0 if successed
    */
-  int CreateTable(TableInfo &table, TableParams &table_params);
+  int CreateTable(TableInfo &table, TableParams &table_params,
+                  bitmap::BitmapManager *bitmap_mgr);
 
   /** add a doc to table
    *
@@ -162,6 +164,7 @@ class Table {
 
   bool table_created_;
 
+  bitmap::BitmapManager *bitmap_mgr_;
   TableParams *table_params_;
   StorageManager *storage_mgr_;
 };

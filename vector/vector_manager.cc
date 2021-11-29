@@ -282,7 +282,7 @@ int VectorManager::AddRTVecsToIndex(bool &index_is_dirty) {
   index_is_dirty = false;
   for (const auto &iter : vector_indexes_) {
     RetrievalModel *retrieval_model = iter.second;
-    RawVector *raw_vec = dynamic_cast<RawVector *>(iter.second->vector_);
+    RawVector *raw_vec = dynamic_cast<RawVector *>(retrieval_model->vector_);
     int total_stored_vecs = raw_vec->MetaInfo()->Size();
     int indexed_vec_count = retrieval_model->indexed_count_;
 
@@ -340,7 +340,7 @@ int VectorManager::AddRTVecsToIndex(bool &index_is_dirty) {
             }
           }
         }
-        if (!iter.second->Add(count_per_index, add_vec)) {
+        if (!retrieval_model->Add(count_per_index, add_vec)) {
           LOG(ERROR) << "add index from docid " << start_docid << " error!";
           ret = -2;
         } else {

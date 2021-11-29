@@ -35,12 +35,14 @@ Table::Table(const string &root_path, bool b_compress) {
 
   table_created_ = false;
   last_docid_ = -1;
+  bitmap_mgr_ = nullptr;
   table_params_ = nullptr;
   storage_mgr_ = nullptr;
   LOG(INFO) << "Table created success!";
 }
 
 Table::~Table() {
+  bitmap_mgr_ = nullptr;
   CHECK_DELETE(table_params_);
   if (storage_mgr_) {
     delete storage_mgr_;
@@ -65,6 +67,7 @@ int Table::Load(int &num) {
   int idx = iter->second;
   if (id_type_ == 0) {
     for (int i = 0; i < doc_num; ++i) {
+      if (bitmap_mgr_->Test(i)) { continue; }
       std::string key;
       GetFieldRawValue(i, idx, key);
       int64_t k = utils::StringToInt64(key);
@@ -72,6 +75,7 @@ int Table::Load(int &num) {
     }
   } else {
     for (int i = 0; i < doc_num; ++i) {
+      if (bitmap_mgr_->Test(i)) { continue; }
       long key = -1;
       std::string key_str;
       GetFieldRawValue(i, idx, key_str);
@@ -92,10 +96,12 @@ int Table::Sync() {
   return ret;
 }
 
-int Table::CreateTable(TableInfo &table, TableParams &table_params) {
+int Table::CreateTable(TableInfo &table, TableParams &table_params,
+                       bitmap::BitmapManager *bitmap_mgr) {
   if (table_created_) {
     return -10;
   }
+  bitmap_mgr_ = bitmap_mgr;
   name_ = table.Name();
   std::vector<struct FieldInfo> &fields = table.Fields();
 
@@ -341,6 +347,14 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
     std::vector<Field> &fields = doc.TableFields();
     uint8_t doc_value[item_length_];
 
+    if(fields.size() == 0) {
+        Field field;
+        field.name = "_id";
+        field.value = doc.Key();
+        field.datatype = DataType::STRING;
+        fields.push_back(field);
+    }
+
     for (size_t j = 0; j < fields.size(); ++j) {
       const auto &field_value = fields[j];
       const string &name = field_value.name;
@@ -495,13 +509,11 @@ int Table::GetDocInfo(const int docid, Doc &doc,
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
   }
-
   const uint8_t *doc_value;
   int ret = storage_mgr_->Get(docid, doc_value);
   if (ret != 0) {
     return ret;
   }
-
   std::vector<struct Field> &table_fields = doc.TableFields();
 
   if (fields.size() == 0) {

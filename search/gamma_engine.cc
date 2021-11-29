@@ -246,15 +246,22 @@ int GammaEngine::Setup() {
 
   docids_bitmap_ = new bitmap::BitmapManager();
   docids_bitmap_->SetDumpFilePath(index_root_path_ + "/bitmap");
-  int init_bitmap_size = 1000 * 10000;;
+  int init_bitmap_size = 5000 * 10000;
+  bool is_load = false;
   int file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size != 0) {
-    init_bitmap_size = file_bytes_size;
+    init_bitmap_size = file_bytes_size * 8;
+    is_load = true;
   }
 
   if (docids_bitmap_->Init(init_bitmap_size) != 0) {
     LOG(ERROR) << "Cannot create bitmap!";
     return INTERNAL_ERR;
+  }
+  if (is_load) {
+    docids_bitmap_->Load();
+  } else {
+    docids_bitmap_->Dump();
   }
 
   if (!table_) {
@@ -563,7 +570,8 @@ int GammaEngine::CreateTable(TableInfo &table) {
     meta_jp->GetObject("table", table_jp);
     disk_table_params.Parse(table_jp);
   }
-  int ret_table = table_->CreateTable(table, disk_table_params);
+  int ret_table = table_->CreateTable(table, disk_table_params,
+                                      docids_bitmap_);
   indexing_size_ = table.IndexingSize();
   if (ret_table != 0) {
     LOG(ERROR) << "Cannot create table!";
@@ -572,7 +580,7 @@ int GammaEngine::CreateTable(TableInfo &table) {
 
   if (!meta_jp) {
     utils::JsonParser dump_meta_;
-    dump_meta_.PutInt("version", 320);  // version=3.2.0
+    dump_meta_.PutInt("version", 327);  // version=3.2.0
 
     utils::JsonParser table_jp;
     table_->GetDumpConfig()->ToJson(table_jp);
@@ -611,15 +619,6 @@ int GammaEngine::CreateTable(TableInfo &table) {
   TableSchemaIO tio(path);  // rewrite it if the path is already existed
   if (tio.Write(table)) {
     LOG(ERROR) << "write table schema error, path=" << path;
-  }
-
-  int file_bytes_size = docids_bitmap_->FileBytesSize();
-  if (file_bytes_size + 1 >= docids_bitmap_->BytesSize() &&
-      docids_bitmap_->Load() == 0) {
-    LOG(INFO) << "Load bitmap success.";
-  } else {
-    docids_bitmap_->Dump();
-    LOG(INFO) << "Full dump bitmap.";
   }
 
   LOG(INFO) << "create table [" << table_name << "] success!";
