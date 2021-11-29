@@ -39,7 +39,7 @@ class VectorManager {
 
   // int Add(int docid, const std::vector<Field *> &field_vecs);
   int Search(GammaQuery &query, GammaResult *results);
-
+  
   int GetVector(const std::vector<std::pair<std::string, int>> &fields_ids,
                 std::vector<std::string> &vec, bool is_bytearray = false);
 
@@ -73,6 +73,8 @@ class VectorManager {
   int AlterCacheSize(struct CacheInfo &cache_info);
 
   int GetAllCacheSize(Config &conf);
+
+  bitmap::BitmapManager *Bitmap() { return docids_bitmap_; };
 
  private:
   void Close();  // release all resource
