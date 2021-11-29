@@ -141,6 +141,8 @@ class RawVector : public VectorReader {
    * @return 0 if successed
    */
   int Add(int docid, struct Field &field);
+  
+  int Add(int docid, float *data);
 
   int Update(int docid, struct Field &field);
 

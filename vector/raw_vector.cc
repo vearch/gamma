@@ -146,6 +146,15 @@ int RawVector::Add(int docid, struct Field &field) {
   return vid_mgr_->Add(meta_info_->size_++, docid);
 }
 
+int RawVector::Add(int docid, float *data) {
+  int ret = AddToStore((uint8_t *)data, data_size_ * meta_info_->Dimension());
+  if (ret) {
+    LOG(ERROR) << "add to store error, docid=" << docid << ", ret=" << ret;
+    return -2;
+  }
+  return vid_mgr_->Add(meta_info_->size_++, docid);
+}
+
 int RawVector::Update(int docid, struct Field &field) {
   if (vid_mgr_->MultiVids() || docid >= (int)meta_info_->Size()) {
     return -1;

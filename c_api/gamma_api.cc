@@ -86,7 +86,7 @@ int SetLogDictionary(const std::string &log_dir) {
 
         std::stringstream cleanSS;
         cleanSS << "find " << log_dir << " -type f -name 'gamma.log-*' -mtime +7 -exec rm {} +";
-        system(cleanSS.str().c_str());
+        system(ss.str().c_str());
       });
 
   LOG(INFO) << "Version [" << GIT_SHA1 << "]";

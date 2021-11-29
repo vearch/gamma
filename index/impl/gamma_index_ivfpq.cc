@@ -51,6 +51,7 @@ struct IVFPQModelParams {
   int ncentroids;     // coarse cluster center number
   int nsubvector;     // number of sub cluster center
   int nbits_per_idx;  // bit number of sub cluster center
+  int nprobe;         // search how many bucket
   DistanceComputeType metric_type;
   bool has_hnsw;
   int nlinks;          // link number for hnsw graph
@@ -65,6 +66,7 @@ struct IVFPQModelParams {
     ncentroids = 2048;
     nsubvector = 64;
     nbits_per_idx = 8;
+    nprobe = 80;
     metric_type = DistanceComputeType::INNER_PRODUCT;
     has_hnsw = false;
     nlinks = 32;
@@ -86,6 +88,7 @@ struct IVFPQModelParams {
     int ncentroids;
     int nsubvector;
     int nbits_per_idx;
+    int nprobe;
 
     // -1 as default
     if (!jp.GetInt("ncentroids", ncentroids)) {
@@ -116,6 +119,18 @@ struct IVFPQModelParams {
         return -1;
       }
       if (nbits_per_idx > 0) this->nbits_per_idx = nbits_per_idx;
+    }
+
+    if (!jp.GetInt("nprobe", nprobe)) {
+      if (nprobe < -1) {
+        LOG(ERROR) << "invalid nprobe =" << nprobe;
+        return -1;
+      }
+      if (nprobe > 0) this->nprobe = nprobe;
+      if (this->nprobe > this->ncentroids) {
+        LOG(ERROR) << "nprobe should less than ncentroids";
+        return -1;
+      }
     }
 
     int bucket_init_size;
@@ -217,6 +232,7 @@ struct IVFPQModelParams {
     ss << "ncentroids =" << ncentroids << ", ";
     ss << "nsubvector =" << nsubvector << ", ";
     ss << "nbits_per_idx =" << nbits_per_idx << ", ";
+    ss << "nprobe =" << nprobe << ", ";
     ss << "metric_type =" << (int)metric_type << ", ";
     ss << "bucket_init_size =" << bucket_init_size << ", ";
     ss << "bucket_max_size =" << bucket_max_size;
@@ -398,7 +414,7 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters, int indexing_size
   }
 
   // default value, nprobe will be passed at search time
-  this->nprobe = 80;
+  this->nprobe = ivfpq_param.nprobe;
   return 0;
 }
 
@@ -434,7 +450,6 @@ RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
   int recall_num;
   int nprobe;
   int parallel_on_queries;
-  int ivf_flat;
 
   if (!jp.GetInt("recall_num", recall_num)) {
     if (recall_num > 0) {
@@ -456,11 +471,6 @@ RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
     }
   }
 
-  if (!jp.GetInt("ivf_flat", ivf_flat)) {
-    if (ivf_flat != 0) {
-      retrieval_params->SetIvfFlat(true);
-    }
-  }
   return retrieval_params;
 }
 
@@ -538,7 +548,7 @@ int GammaIVFPQIndex::Indexing() {
     xt = train_vec;
   }
 
-  train(num, xt);
+  faiss::IndexIVFPQ::train(num, xt);
 
   if (d_ > raw_d) {
     delete train_vec;
@@ -736,8 +746,6 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
       (size_t)retrieval_params->Nprobe() <= this->nlist) {
     nprobe = retrieval_params->Nprobe();
   } else {
-    LOG(WARNING) << "Error nprobe for search, so using default value:"
-                 << this->nprobe;
     retrieval_params->SetNprobe(this->nprobe);
   }
 
@@ -754,21 +762,11 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
   std::unique_ptr<idx_t[]> idx(new idx_t[n * nprobe]);
   std::unique_ptr<float[]> coarse_dis(new float[n * nprobe]);
 
-  if (retrieval_params->IvfFlat() == true) {
-    quantizer->search(n, xq, nprobe, coarse_dis.get(), idx.get());
-  } else {
-    quantizer->search(n, applied_xq, nprobe, coarse_dis.get(), idx.get());
-  }
+  quantizer->search(n, applied_xq, nprobe, coarse_dis.get(), idx.get());
   this->invlists->prefetch_lists(idx.get(), n * nprobe);
 
-  if (retrieval_params->IvfFlat() == true) {
-    // just use xq
-    search_ivf_flat(retrieval_context, n, xq, k, idx.get(), coarse_dis.get(),
-                    distances, labels, nprobe, false);
-  } else {
-    search_preassigned(retrieval_context, n, xq, applied_xq, k, idx.get(), coarse_dis.get(),
-                       distances, labels, nprobe, false);
-  }
+  search_preassigned(retrieval_context, n, xq, applied_xq, k, idx.get(), coarse_dis.get(),
+                     distances, labels, nprobe, false);
   return 0;
 }
 
@@ -905,138 +903,6 @@ void compute_dis(int k, const float *xi, float *simi, idx_t *idxi,
 
 }  // namespace
 
-void GammaIVFPQIndex::search_ivf_flat(
-    RetrievalContext *retrieval_context, int n, const float *x, int k,
-    const idx_t *keys, const float *coarse_dis, float *distances, idx_t *labels,
-    int nprobe, bool store_pairs, const faiss::IVFSearchParameters *params) {
-  if (k <= 0) {
-    LOG(WARNING) << "topK should greater then 0, topK = " << k;
-    return;
-  }
-
-  MemoryRawVector *mem_raw_vec = dynamic_cast<MemoryRawVector *>(vector_);
-  if (mem_raw_vec == nullptr) {
-    LOG(ERROR) << "IVF FLAT can only work on memory raw vector";
-    memset(labels, -1, n * sizeof(idx_t) * k);
-    return;
-  }
-
-  IVFPQRetrievalParameters *retrieval_params =
-      dynamic_cast<IVFPQRetrievalParameters *>(
-          retrieval_context->RetrievalParams());
-  utils::ScopeDeleter1<IVFPQRetrievalParameters> del_params;
-  if (retrieval_params == nullptr) {
-    retrieval_params = new IVFPQRetrievalParameters();
-    del_params.set(retrieval_params);
-  }
-
-  faiss::MetricType metric_type;
-  if (retrieval_params->GetDistanceComputeType() ==
-      DistanceComputeType::INNER_PRODUCT) {
-    metric_type = faiss::METRIC_INNER_PRODUCT;
-  } else {
-    metric_type = faiss::METRIC_L2;
-  }
-
-  size_t raw_d = mem_raw_vec->MetaInfo()->Dimension();
-
-  using HeapForIP = faiss::CMin<float, idx_t>;
-  using HeapForL2 = faiss::CMax<float, idx_t>;
-
-  bool parallel_mode = retrieval_params->ParallelOnQueries() ? 0 : 1;
-
-  // don't start parallel section if single query
-  bool do_parallel = parallel_mode == 0 ? n > 1 : nprobe > 1;
-
-  size_t ndis = 0;
-#pragma omp parallel if (do_parallel) reduction(+ : ndis)
-  {
-    GammaInvertedListScanner *scanner =
-        GetGammaIVFFlatScanner(raw_d, metric_type);
-    utils::ScopeDeleter1<GammaInvertedListScanner> del(scanner);
-    scanner->set_search_context(retrieval_context);
-
-    /****************************************************
-     * Actual loops, depending on parallel_mode
-     ****************************************************/
-
-    if (parallel_mode == 0) {  // parallelize over queries
-
-#pragma omp for
-      for (int i = 0; i < n; i++) {
-        // loop over queries
-        scanner->set_query(x + i * d);
-        float *simi = distances + i * k;
-        idx_t *idxi = labels + i * k;
-
-        init_result(metric_type, k, simi, idxi);
-
-        size_t nscan = 0;
-
-        // loop over probes
-        for (int ik = 0; ik < nprobe; ik++) {
-          nscan += scan_one_list(scanner, keys[i * nprobe + ik],
-                                 coarse_dis[i * nprobe + ik], simi, idxi, k,
-                                 this->nlist, this->invlists, store_pairs,
-                                 retrieval_params->IvfFlat(), mem_raw_vec);
-
-          if (max_codes && nscan >= max_codes) {
-            break;
-          }
-        }
-
-        ndis += nscan;
-        reorder_result(metric_type, k, simi, idxi);
-      }       // parallel for
-    } else {  // parallelize over inverted lists
-      std::vector<idx_t> local_idx(k);
-      std::vector<float> local_dis(k);
-
-      for (int i = 0; i < n; i++) {
-        scanner->set_query(x + i * d);
-        init_result(metric_type, k, local_dis.data(), local_idx.data());
-
-#pragma omp for schedule(dynamic)
-        for (int ik = 0; ik < nprobe; ik++) {
-          ndis += scan_one_list(scanner, keys[i * nprobe + ik],
-                                coarse_dis[i * nprobe + ik], local_dis.data(),
-                                local_idx.data(), k, this->nlist,
-                                this->invlists, store_pairs,
-                                retrieval_params->IvfFlat(), mem_raw_vec);
-
-          // can't do the test on max_codes
-        }
-        // merge thread-local results
-
-        float *simi = distances + i * k;
-        idx_t *idxi = labels + i * k;
-#pragma omp single
-        init_result(metric_type, k, simi, idxi);
-
-#pragma omp barrier
-#pragma omp critical
-        {
-          if (metric_type == faiss::METRIC_INNER_PRODUCT) {
-            faiss::heap_addn<HeapForIP>(k, simi, idxi, local_dis.data(),
-                                        local_idx.data(), k);
-          } else {
-            faiss::heap_addn<HeapForL2>(k, simi, idxi, local_dis.data(),
-                                        local_idx.data(), k);
-          }
-        }
-#pragma omp barrier
-#pragma omp single
-        reorder_result(metric_type, k, simi, idxi);
-      }
-    }
-  }  // parallel section
-#ifdef PERFORMANCE_TESTING
-  std::string compute_msg = "ivf flat compute ";
-  compute_msg += std::to_string(n);
-  retrieval_context->GetPerfTool().Perf(compute_msg);
-#endif
-}
-
 void GammaIVFPQIndex::search_preassigned(
     RetrievalContext *retrieval_context, int n, const float *x, const float *applied_x, int k,
     const idx_t *keys, const float *coarse_dis, float *distances, idx_t *labels,
@@ -1115,7 +981,7 @@ void GammaIVFPQIndex::search_preassigned(
   bool parallel_mode = retrieval_params->ParallelOnQueries() ? 0 : 1;
 
   // don't start parallel section if single query
-  bool do_parallel = parallel_mode == 0 ? n > 1 : nprobe > 1;
+  bool do_parallel = omp_get_max_threads() >= 2 && (parallel_mode == 0 ? n > 1 : nprobe > 1);
 
 #pragma omp parallel if (do_parallel) reduction(+ : ndis)
   {
@@ -1146,7 +1012,7 @@ void GammaIVFPQIndex::search_preassigned(
           nscan += scan_one_list(
               scanner, keys[i * nprobe + ik], coarse_dis[i * nprobe + ik],
               recall_simi, recall_idxi, recall_num, this->nlist, this->invlists,
-              store_pairs, retrieval_params->IvfFlat());
+              store_pairs, false);
 
           if (max_codes && nscan >= max_codes) break;
         }
@@ -1171,7 +1037,7 @@ void GammaIVFPQIndex::search_preassigned(
           ndis += scan_one_list(
               scanner, keys[i * nprobe + ik], coarse_dis[i * nprobe + ik],
               local_dis.data(), local_idx.data(), recall_num, this->nlist,
-              this->invlists, store_pairs, retrieval_params->IvfFlat());
+              this->invlists, store_pairs, false);
 
           // can't do the test on max_codes
         }

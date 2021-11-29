@@ -146,6 +146,7 @@ class VectorMetaInfo {
   long mem_bytes_;             // memory usage
   int data_size_;              // each vector element size(byte)
   int version_;
+  bool with_io_ = true;
 };
 
 /** Scoped raw vectors (for automatic deallocation)
@@ -292,6 +293,8 @@ class RetrievalModel {
    * @return load number(>=0) if successed
    */
   virtual int Load(const std::string &dir) = 0;
+
+  virtual void train(int64_t n, const float *x) {}
 
   VectorReader *vector_;
   tbb::concurrent_bounded_queue<int> updated_vids_;

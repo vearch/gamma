@@ -35,7 +35,7 @@ using std::string;
 namespace {
 
 string kIVFPQParam =
-    "{\"nprobe\" : 10, \"metric_type\" : \"InnerProduct\", \"ncentroids\" : "
+    "{\"nprobe\" : 10, \"metric_type\" : \"L2\", \"ncentroids\" : "
     "256,\"nsubvector\" : 64, \"relayout_group_size\": 4}";
 
 string kHNSWParam_str =
@@ -48,13 +48,14 @@ struct Options {
   Options() {
     nprobe = 10;
     doc_id = 0;
-    d = 512;
+    d = 128;
+    topK = 100;
     filter = false;
     print_doc = true;
     search_thread_num = 1;
     max_doc_size = 10000 * 200;
     add_doc_num = 10000 * 20;
-    search_num = 100;
+    search_num = 10000;
     indexing_size = 10000 * 1;
     fields_vec = {"_id", "img", "field1", "field2", "field3"};
     fields_type = {tig_gamma::DataType::STRING, tig_gamma::DataType::STRING,
@@ -76,6 +77,7 @@ struct Options {
   size_t doc_id;
   size_t doc_id2;
   size_t d;
+  int topK;
   size_t max_doc_size;
   size_t add_doc_num;
   size_t search_num;
@@ -173,7 +175,7 @@ float *fvecs_read(const char *fname, size_t *d_out, size_t *n_out) {
   }
   int d;
   fread(&d, 1, sizeof(int), f);
-  LOG(INFO) << "assert" << d;
+  LOG(INFO) << "d = " << d;
   assert((d > 0 && d < 1000000) || !"unreasonable dimension");
   fseek(f, 0, SEEK_SET);
   struct stat st;

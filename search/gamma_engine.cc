@@ -246,7 +246,7 @@ int GammaEngine::Setup() {
 
   docids_bitmap_ = new bitmap::BitmapManager();
   docids_bitmap_->SetDumpFilePath(index_root_path_ + "/bitmap");
-  int init_bitmap_size = 1000 * 10000;;
+  int init_bitmap_size = 1000 * 10000;
   int file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size != 0) {
     init_bitmap_size = file_bytes_size;
@@ -613,7 +613,7 @@ int GammaEngine::CreateTable(TableInfo &table) {
     LOG(ERROR) << "write table schema error, path=" << path;
   }
 
-  int file_bytes_size = docids_bitmap_->FileBytesSize();
+  uint32_t file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size + 1 >= docids_bitmap_->BytesSize() &&
       docids_bitmap_->Load() == 0) {
     LOG(INFO) << "Load bitmap success.";
@@ -1028,12 +1028,14 @@ int GammaEngine::Indexing() {
       continue;
     }
     index_status_ = IndexStatus::INDEXED;
-    int add_ret = vec_manager_->AddRTVecsToIndex();
+    bool index_is_dirty = false;
+    int add_ret = vec_manager_->AddRTVecsToIndex(index_is_dirty);
     if (add_ret < 0) {
       has_error = true;
       LOG(ERROR) << "Add real time vectors to index error!";
       continue;
-    } else if (add_ret > 0) {
+    }
+    if (index_is_dirty == true) {
       is_dirty_ = true;
     }
     usleep(1000 * 1000);  // sleep 5000ms
