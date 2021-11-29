@@ -67,16 +67,29 @@ link_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/faiss/lib
 )
 
-#LINK LIBRARY
-set(LIBRARIES
-    -lfaiss
-    ${RocksDB_LIB}
-    ${ZFP_LIB}
-    -lcrypto
-    -lzstd
-    -lopenblas
-    -ltbb
-)
+find_package(MKL)
+if(MKL_FOUND)
+    #LINK LIBRARY
+    set(LIBRARIES
+        -lfaiss
+        ${RocksDB_LIB}
+        ${ZFP_LIB}
+        -lcrypto
+        -lzstd
+        ${MKL_LIBRARIES}
+        -ltbb
+    )
+else()
+    set(LIBRARIES
+        -lfaiss
+        ${RocksDB_LIB}
+        ${ZFP_LIB}
+        -lcrypto
+        -lzstd
+        -lopenblas
+        -ltbb
+   ) 
+endif()
 
 message(STATUS ENABLE_COVERAGE=${ENABLE_COVERAGE})
 if(ENABLE_COVERAGE)
@@ -136,12 +149,13 @@ if(PERFORMANCE_TESTING STREQUAL "ON")
     add_definitions(-DPERFORMANCE_TESTING) 
 endif(PERFORMANCE_TESTING STREQUAL "ON")
 
-if(EXISTS "${GAMMA_INDEX_IMPL}/relayout/CMakeLists.txt")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout/CMakeLists.txt")
     if(NOT APPLE)
-        add_subdirectory(${GAMMA_INDEX_IMPL}/relayout)
+        add_definitions(-DOPT_IVFPQ_RELAYOUT)
+        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout)
         include_directories(${RELAYOUT_INCLUDE})
     endif(NOT APPLE)
-endif(EXISTS "${GAMMA_INDEX_IMPL}/relayout/CMakeLists.txt")
+endif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout/CMakeLists.txt")
 
 set(LIB_SRCS ${DIR_SRCS} ${RELAYOUT_SRCS})
 
