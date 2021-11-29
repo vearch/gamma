@@ -6,7 +6,6 @@
  */
 
 #include "realtime/realtime_invert_index.h"
-
 #include "util/log.h"
 #include "util/utils.h"
 

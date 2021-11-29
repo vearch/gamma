@@ -598,24 +598,21 @@ class IVFPQRetrievalParameters : public RetrievalParameters {
   IVFPQRetrievalParameters() : RetrievalParameters() {
     parallel_on_queries_ = true;
     recall_num_ = 100;
-    nprobe_ = 80;
-    ivf_flat_ = false;
+    nprobe_ = -1;
   }
 
   IVFPQRetrievalParameters(bool parallel_on_queries, int recall_num, int nprobe,
-                           enum DistanceComputeType type, bool ivf_flat) {
+                           enum DistanceComputeType type) {
     parallel_on_queries_ = parallel_on_queries;
     recall_num_ = recall_num;
     nprobe_ = nprobe;
-    ivf_flat_ = ivf_flat;
     distance_compute_type_ = type;
   }
 
   IVFPQRetrievalParameters(enum DistanceComputeType type) {
     parallel_on_queries_ = true;
     recall_num_ = 100;
-    nprobe_ = 80;
-    ivf_flat_ = false;
+    nprobe_ = -1;
     distance_compute_type_ = type;
   }
 
@@ -635,16 +632,11 @@ class IVFPQRetrievalParameters : public RetrievalParameters {
     parallel_on_queries_ = parallel_on_queries;
   }
 
-  bool IvfFlat() { return ivf_flat_; }
-
-  void SetIvfFlat(bool ivf_flat) { ivf_flat_ = ivf_flat; }
-
  protected:
   // parallelize over queries or ivf lists
   bool parallel_on_queries_;
   int recall_num_;
   int nprobe_;
-  bool ivf_flat_;
 };
 
 struct IVFPQModelParams;
@@ -684,12 +676,6 @@ struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
                           idx_t *labels, int nprobe, bool store_pairs,
                           const faiss::IVFSearchParameters *params = nullptr);
 
-  void search_ivf_flat(RetrievalContext *retrieval_context, int n,
-                       const float *x, int k, const idx_t *keys,
-                       const float *coarse_dis, float *distances, idx_t *labels,
-                       int nprobe, bool store_pairs,
-                       const faiss::IVFSearchParameters *params = nullptr);
-
   long GetTotalMemBytes() override {
     if (!rt_invert_index_ptr_) {
       return 0;
@@ -705,6 +691,8 @@ struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
                               idx_t a2) const;
 
   int Delete(const std::vector<int64_t> &ids);
+
+  void train(int64_t n, const float *x) { faiss::IndexIVFPQ::train(n, x); }
 
   int indexed_vec_count_;
   realtime::RTInvertIndex *rt_invert_index_ptr_;

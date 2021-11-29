@@ -341,6 +341,14 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
     std::vector<Field> &fields = doc.TableFields();
     uint8_t doc_value[item_length_];
 
+    if(fields.size() == 0) {
+        Field field;
+        field.name = "_id";
+        field.value = doc.Key();
+        field.datatype = DataType::STRING;
+        fields.push_back(field);
+    }
+
     for (size_t j = 0; j < fields.size(); ++j) {
       const auto &field_value = fields[j];
       const string &name = field_value.name;
@@ -495,13 +503,11 @@ int Table::GetDocInfo(const int docid, Doc &doc,
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
   }
-
   const uint8_t *doc_value;
   int ret = storage_mgr_->Get(docid, doc_value);
   if (ret != 0) {
     return ret;
   }
-
   std::vector<struct Field> &table_fields = doc.TableFields();
 
   if (fields.size() == 0) {
