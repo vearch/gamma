@@ -14,7 +14,7 @@ if [ ! -d "faiss" ]; then
     tar -xzvf faiss-1.6.3.tar.gz
     mv faiss faiss-1.6.3
     pushd faiss-1.6.3
-    ./configure --without-cuda --prefix=${FAISS_HOME}
+    ./configure --without-cuda --with-blas=/usr/lib64/libopenblas.so --prefix=${FAISS_HOME}
     make -j && make install
     popd
     \rm faiss/lib/libfaiss.so

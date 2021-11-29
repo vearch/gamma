@@ -30,6 +30,7 @@
 #include "common/gamma_common_data.h"
 #include "gamma_index_ivfflat.h"
 #include "vector/rocksdb_raw_vector.h"
+#include "index/gamma_index_io.h"
 
 namespace tig_gamma {
 
@@ -37,10 +38,12 @@ using namespace faiss;
 
 struct IVFFlatModelParams {
   int ncentroids;  // coarse cluster center number
+  int nprobe;      // search how many bucket
   DistanceComputeType metric_type;
 
   IVFFlatModelParams() { 
     ncentroids = 2048;
+    nprobe = 80;
     metric_type = DistanceComputeType::INNER_PRODUCT; 
   }
 
@@ -53,6 +56,7 @@ struct IVFFlatModelParams {
 
     // -1 as default
     int nc = 0;
+    int nprobe = 0;
     if (jp.Contains("ncentroids")) {
       if (jp.GetInt("ncentroids", nc)) {
         LOG(ERROR) << "parse ncentroids error";
@@ -63,6 +67,17 @@ struct IVFFlatModelParams {
       } else if (nc <= 0 && nc != -1) {
         LOG(ERROR) << "invalid ncentroids=" << nc;
         return PARAM_ERR;
+      }
+    }
+    if (!jp.GetInt("nprobe", nprobe)) {
+      if (nprobe < -1) {
+        LOG(ERROR) << "invalid nprobe =" << nprobe;
+        return -1;
+      }
+      if (nprobe > 0) this->nprobe = nprobe;
+      if (this->nprobe > this->ncentroids) {
+        LOG(ERROR) << "nprobe should less than ncentroids";
+        return -1;
       }
     }
 
@@ -84,7 +99,8 @@ struct IVFFlatModelParams {
 
   std::string ToString() {
     std::stringstream ss;
-    ss << "ncentroids =" << ncentroids;
+    ss << "ncentroids =" << ncentroids << ", ";
+    ss << "nprobe =" << nprobe;
     return ss.str();
   }
 };
@@ -116,9 +132,13 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters, int indexing_si
   LOG(INFO) << params.ToString();
 
   RawVector *raw_vec = nullptr;
+  if (check_vector_) {
 #ifdef WITH_ROCKSDB
-  raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
+    raw_vec = dynamic_cast<RocksDBRawVector *>(vector_);
 #endif
+  } else {
+    raw_vec = dynamic_cast<RawVector *>(vector_);
+  }
   if (raw_vec == nullptr) {
     LOG(ERROR) << "IVFFlat needs store type=RocksDB";
     return PARAM_ERR;
@@ -155,6 +175,7 @@ int GammaIndexIVFFlat::Init(const std::string &model_parameters, int indexing_si
   } else {
     metric_type = faiss::METRIC_L2;
   }
+  this->nprobe = params.nprobe;
 
   LOG(INFO) << "d=" << d << ", nlist=" << nlist
             << ", metric_type=" << metric_type;
@@ -230,7 +251,7 @@ int GammaIndexIVFFlat::Indexing() {
     num = nlist * 39;
     LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
                  << "], index_size becomes ncentroids * 39[" << num << "].";
-  } else if ((size_t)indexing_size_ <= nlist * 256) {
+  } else if ((size_t)indexing_size_ <= nlist * 265) {
     if ((size_t)indexing_size_ < nlist * 39) {
       LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
                    << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
@@ -365,6 +386,7 @@ void GammaIndexIVFFlat::SearchPreassgined(RetrievalContext *retrieval_context,
 int GammaIndexIVFFlat::Search(RetrievalContext *retrieval_context, int n,
                               const uint8_t *rx, int k, float *distances,
                               idx_t *labels) {
+#ifndef FAISSLIKE_INDEX
   IVFFlatRetrievalParameters *retrieval_params =
       dynamic_cast<IVFFlatRetrievalParameters *>(
           retrieval_context->RetrievalParams());
@@ -375,9 +397,12 @@ int GammaIndexIVFFlat::Search(RetrievalContext *retrieval_context, int n,
     del_params.set(retrieval_params);
   }
 
+  int nprobe = retrieval_params->Nprobe();
+#else
+  int nprobe = this->nprobe;
+#endif
   const float *x = reinterpret_cast<const float *>(rx);
 
-  int nprobe = retrieval_params->Nprobe();
   std::unique_ptr<idx_t[]> idx(new idx_t[n * nprobe]);
   std::unique_ptr<float[]> coarse_dis(new float[n * nprobe]);
 
@@ -577,14 +602,83 @@ void GammaIndexIVFFlat::search_preassigned(RetrievalContext *retrieval_context,
   }
 }
 
+string IVFFlatToString(const faiss::IndexIVFFlat *ivfl) {
+  std::stringstream ss;
+  ss << "d=" << ivfl->d << ", ntotal=" << ivfl->ntotal
+     << ", is_trained=" << ivfl->is_trained
+     << ", metric_type=" << ivfl->metric_type << ", nlist=" << ivfl->nlist
+     << ", nprobe=" << ivfl->nprobe;
+
+  return ss.str();
+}
+
 int GammaIndexIVFFlat::Dump(const std::string &dir) {
-  LOG(INFO) << "IndexIVFFlat don't need dump";
-  return 0;
+  if (!this->is_trained) {
+    LOG(INFO) << "gamma index is not trained, skip dumping";
+    return 0;
+  }
+  std::string index_name = vector_->MetaInfo()->AbsoluteName();
+  string index_dir = dir + "/" + index_name;
+  if (utils::make_dir(index_dir.c_str())) {
+    LOG(ERROR) << "mkdir error, index dir=" << index_dir;
+    return IO_ERR;
+  }
+
+  string index_file = index_dir + "/ivfflat.index";
+  faiss::IOWriter *f = new FileIOWriter(index_file.c_str());
+  utils::ScopeDeleter1<FileIOWriter> del((FileIOWriter *)f);
+  const IndexIVFFlat *ivfl = static_cast<const IndexIVFFlat *>(this);
+  uint32_t h = faiss::fourcc("IvFl");
+  WRITE1(h);
+  tig_gamma::write_ivf_header(ivfl, f);
+
+  int indexed_count = indexed_vec_count_;
+  if (WriteInvertedLists(f, rt_invert_index_ptr_)) {
+    LOG(ERROR) << "write invert list error, index name=" << index_name;
+    return INTERNAL_ERR;
+  }
+  WRITE1(indexed_count);
+
+  LOG(INFO) << "dump:" << IVFFlatToString(ivfl) << ", indexed count=" << indexed_count;
+  return 0;  
 };
 
 int GammaIndexIVFFlat::Load(const std::string &dir) {
-  LOG(INFO) << "IndexIVFFlat don't need load";
-  return 0;
+  std::string index_name = vector_->MetaInfo()->AbsoluteName();
+  string index_file = dir + "/" + index_name + "/ivfflat.index";
+  if (!utils::file_exist(index_file)) {
+    LOG(INFO) << index_file << " isn't existed, skip loading";
+    return 0;  // it should train again after load
+  }
+
+  faiss::IOReader *f = new FileIOReader(index_file.c_str());
+  utils::ScopeDeleter1<FileIOReader> del((FileIOReader *)f);
+  uint32_t h;
+  READ1(h);
+  assert(h == faiss::fourcc("IvFl"));
+  IndexIVFFlat *ivfl = static_cast<IndexIVFFlat *>(this);
+  tig_gamma::read_ivf_header(ivfl, f, nullptr);  // not legacy
+
+  int ret = ReadInvertedLists(f, rt_invert_index_ptr_);
+  if (ret == FORMAT_ERR) {
+    indexed_vec_count_ = 0;
+    LOG(INFO) << "unsupported inverted list format, it need rebuilding!";
+  } else if (ret == 0) {
+    READ1(indexed_vec_count_);
+    if (indexed_vec_count_ < 0 || (check_vector_ && 
+        indexed_vec_count_ > (int)vector_->MetaInfo()->size_)) {
+      LOG(ERROR) << "invalid indexed count [" << indexed_vec_count_ 
+                 << "] vector size [" << vector_->MetaInfo()->size_ << "]";
+      return INTERNAL_ERR;
+    }
+    LOG(INFO) << "load: " << IVFFlatToString(ivfl)
+              << ", indexed vector count=" << indexed_vec_count_;
+  } else {
+    LOG(ERROR) << "read invert list error, index name=" << index_name;
+    return INTERNAL_ERR;
+  }
+  assert(this->is_trained);
+  return indexed_vec_count_;
 };
 
 GammaInvertedListScanner *GammaIndexIVFFlat::GetGammaInvertedListScanner(

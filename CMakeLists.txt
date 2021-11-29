@@ -6,9 +6,11 @@ cmake_minimum_required(VERSION 3.17)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
-option(BUILD_TEST "Build tests" off)
+option(BUILD_TEST "Build tests" on)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
 option(BUILD_TOOLS "Build tools" off)
+option(BUILD_FAISSLIKE_INDEX "Build faisslike index" on)
+option(BUILD_RELAYOUT "Build relayout index" off)
 option(ENABLE_COVERAGE "Use gcov" off)
 
 exec_program(
@@ -65,6 +67,7 @@ include_directories(
 
 link_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/faiss/lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout
 )
 
 #LINK LIBRARY
@@ -136,12 +139,13 @@ if(PERFORMANCE_TESTING STREQUAL "ON")
     add_definitions(-DPERFORMANCE_TESTING) 
 endif(PERFORMANCE_TESTING STREQUAL "ON")
 
-if(EXISTS "${GAMMA_INDEX_IMPL}/relayout/CMakeLists.txt")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout/CMakeLists.txt")
     if(NOT APPLE)
-        add_subdirectory(${GAMMA_INDEX_IMPL}/relayout)
+        add_definitions(-DOPT_IVFPQ_RELAYOUT)
+        add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout)
         include_directories(${RELAYOUT_INCLUDE})
     endif(NOT APPLE)
-endif(EXISTS "${GAMMA_INDEX_IMPL}/relayout/CMakeLists.txt")
+endif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/index/impl/relayout/CMakeLists.txt")
 
 set(LIB_SRCS ${DIR_SRCS} ${RELAYOUT_SRCS})
 
@@ -184,13 +188,38 @@ if(BUILD_WITH_GPU)
 else(BUILD_WITH_GPU)
     add_library(gamma SHARED ${LIB_SRCS})
     target_link_libraries(gamma ${LIBRARIES})
+    find_package(MKL)
+    if(MKL_FOUND)
+        target_link_libraries(gamma ${MKL_LIBRARIES})
+    else()
+        find_package(BLAS REQUIRED)
+        target_link_libraries(gamma ${BLAS_LIBRARIES})
+    endif()
+
+    if(BUILD_RELAYOUT)
+        target_link_libraries(gamma -lrelayout)
+    endif()
 endif(BUILD_WITH_GPU)
 
 install(TARGETS gamma
 	LIBRARY	DESTINATION	lib 
 	ARCHIVE	DESTINATION	lib)
 
-install(FILES ${GAMMA_C_API}/gamma_api.h DESTINATION include)
+install(FILES ${GAMMA_C_API}/gamma_api.h DESTINATION include/gamma)
+# install(DIRECTORY ${PROJECT_SOURCE_DIR} DESTINATION include/gamma FILES_MATCHING PATTERN "*.h" PATTERN "build/*" EXCLUDE)
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/index DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/common DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/realtime DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/search DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/io DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/table DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/util DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/storage DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/vector DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/c_api DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/idl/fbs-gen/c DESTINATION include/gamma/idl/fbs-gen FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/index/impl/relayout DESTINATION include/gamma FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/third_party DESTINATION include/gamma FILES_MATCHING PATTERN "*.h" PATTERN "*.hh")
 
 if(BUILD_TEST)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -199,3 +228,7 @@ endif(BUILD_TEST)
 if(BUILD_TOOLS)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tools)
 endif(BUILD_TOOLS)
+
+if(BUILD_FAISSLIKE_INDEX)
+    add_definitions(-DFAISSLIKE_INDEX)
+endif(BUILD_FAISSLIKE_INDEX)

@@ -51,6 +51,7 @@ struct IVFPQModelParams {
   int ncentroids;     // coarse cluster center number
   int nsubvector;     // number of sub cluster center
   int nbits_per_idx;  // bit number of sub cluster center
+  int nprobe;         // search how many bucket
   DistanceComputeType metric_type;
   bool has_hnsw;
   int nlinks;          // link number for hnsw graph
@@ -65,6 +66,7 @@ struct IVFPQModelParams {
     ncentroids = 2048;
     nsubvector = 64;
     nbits_per_idx = 8;
+    nprobe = 80;
     metric_type = DistanceComputeType::INNER_PRODUCT;
     has_hnsw = false;
     nlinks = 32;
@@ -86,6 +88,7 @@ struct IVFPQModelParams {
     int ncentroids;
     int nsubvector;
     int nbits_per_idx;
+    int nprobe;
 
     // -1 as default
     if (!jp.GetInt("ncentroids", ncentroids)) {
@@ -116,6 +119,18 @@ struct IVFPQModelParams {
         return -1;
       }
       if (nbits_per_idx > 0) this->nbits_per_idx = nbits_per_idx;
+    }
+
+    if (!jp.GetInt("nprobe", nprobe)) {
+      if (nprobe < -1) {
+        LOG(ERROR) << "invalid nprobe =" << nprobe;
+        return -1;
+      }
+      if (nprobe > 0) this->nprobe = nprobe;
+      if (this->nprobe > this->ncentroids) {
+        LOG(ERROR) << "nprobe should less than ncentroids";
+        return -1;
+      }
     }
 
     int bucket_init_size;
@@ -217,6 +232,7 @@ struct IVFPQModelParams {
     ss << "ncentroids =" << ncentroids << ", ";
     ss << "nsubvector =" << nsubvector << ", ";
     ss << "nbits_per_idx =" << nbits_per_idx << ", ";
+    ss << "nprobe =" << nprobe << ", ";
     ss << "metric_type =" << (int)metric_type << ", ";
     ss << "bucket_init_size =" << bucket_init_size << ", ";
     ss << "bucket_max_size =" << bucket_max_size;
@@ -398,7 +414,7 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters, int indexing_size
   }
 
   // default value, nprobe will be passed at search time
-  this->nprobe = 80;
+  this->nprobe = ivfpq_param.nprobe;
   return 0;
 }
 
@@ -477,7 +493,7 @@ int GammaIVFPQIndex::Indexing() {
     num = nlist * 39;
     LOG(WARNING) << "Because index_size[" << indexing_size_ << "] < ncentroids[" << nlist 
                  << "], index_size becomes ncentroids * 39[" << num << "].";
-  } else if ((size_t)indexing_size_ <= nlist * 256) {
+  } else if ((size_t)indexing_size_ <= nlist * 265) {
     if ((size_t)indexing_size_ < nlist * 39) {
       LOG(WARNING) << "Index_size[" << indexing_size_ << "] is too small. "
                    << "The appropriate range is [ncentroids * 39, ncentroids * 256]"; 
@@ -538,7 +554,7 @@ int GammaIVFPQIndex::Indexing() {
     xt = train_vec;
   }
 
-  train(num, xt);
+  faiss::IndexIVFPQ::train(num, xt);
 
   if (d_ > raw_d) {
     delete train_vec;
@@ -736,8 +752,8 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
       (size_t)retrieval_params->Nprobe() <= this->nlist) {
     nprobe = retrieval_params->Nprobe();
   } else {
-    LOG(WARNING) << "Error nprobe for search, so using default value:"
-                 << this->nprobe;
+    // LOG(WARNING) << "Error nprobe for search, so using default value:"
+    //             << this->nprobe;
     retrieval_params->SetNprobe(this->nprobe);
   }
 

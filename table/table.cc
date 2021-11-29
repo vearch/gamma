@@ -495,13 +495,8 @@ int Table::GetDocInfo(const int docid, Doc &doc,
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
   }
-
   const uint8_t *doc_value;
-  int ret = storage_mgr_->Get(docid, doc_value);
-  if (ret != 0) {
-    return ret;
-  }
-
+  storage_mgr_->Get(docid, doc_value);
   std::vector<struct Field> &table_fields = doc.TableFields();
 
   if (fields.size() == 0) {

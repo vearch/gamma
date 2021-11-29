@@ -115,3 +115,4 @@ int MmapRawVector::GetVector(long vid, const uint8_t *&vec,
 }
 
 }  // namespace tig_gamma
+

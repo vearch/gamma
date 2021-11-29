@@ -148,11 +148,13 @@ class GammaSearchCondition : public RetrievalContext {
   };
 
   bool IsValid(int id) const override {
+  #ifndef FAISSLIKE_INDEX
     int docid = raw_vec->VidMgr()->VID2DocID(id);
     if ((range_query_result != nullptr && not range_query_result->Has(docid)) ||
         docids_bitmap->Test(docid) == true) {
       return false;
     }
+  #endif
     return true;
   };
 

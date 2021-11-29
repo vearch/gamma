@@ -246,7 +246,7 @@ int GammaEngine::Setup() {
 
   docids_bitmap_ = new bitmap::BitmapManager();
   docids_bitmap_->SetDumpFilePath(index_root_path_ + "/bitmap");
-  int init_bitmap_size = 1000 * 10000;;
+  int init_bitmap_size = 1000 * 10000;
   int file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size != 0) {
     init_bitmap_size = file_bytes_size;
@@ -972,10 +972,7 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
   vec_manager_->VectorNames(index_names);
 
   std::vector<string> table_fields;
-  ret = table_->GetDocInfo(docid, doc, table_fields);
-  if (ret != 0) {
-    return ret;
-  }
+  table_->GetDocInfo(docid, doc, table_fields);
 
   std::vector<std::pair<std::string, int>> vec_fields_ids;
   for (size_t i = 0; i < index_names.size(); ++i) {
@@ -993,7 +990,7 @@ int GammaEngine::GetDoc(int docid, Doc &doc) {
       doc.AddField(field);
     }
   }
-  return ret;
+  return 0;
 }
 
 int GammaEngine::BuildIndex() {
@@ -1028,12 +1025,14 @@ int GammaEngine::Indexing() {
       continue;
     }
     index_status_ = IndexStatus::INDEXED;
-    int add_ret = vec_manager_->AddRTVecsToIndex();
+    bool index_is_dirty = false;
+    int add_ret = vec_manager_->AddRTVecsToIndex(index_is_dirty);
     if (add_ret < 0) {
       has_error = true;
       LOG(ERROR) << "Add real time vectors to index error!";
       continue;
-    } else if (add_ret > 0) {
+    }
+    if (index_is_dirty == true) {
       is_dirty_ = true;
     }
     usleep(1000 * 1000);  // sleep 5000ms

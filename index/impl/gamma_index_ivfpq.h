@@ -598,7 +598,7 @@ class IVFPQRetrievalParameters : public RetrievalParameters {
   IVFPQRetrievalParameters() : RetrievalParameters() {
     parallel_on_queries_ = true;
     recall_num_ = 100;
-    nprobe_ = 80;
+    nprobe_ = -1;
     ivf_flat_ = false;
   }
 
@@ -614,7 +614,7 @@ class IVFPQRetrievalParameters : public RetrievalParameters {
   IVFPQRetrievalParameters(enum DistanceComputeType type) {
     parallel_on_queries_ = true;
     recall_num_ = 100;
-    nprobe_ = 80;
+    nprobe_ = -1;
     ivf_flat_ = false;
     distance_compute_type_ = type;
   }
@@ -705,6 +705,8 @@ struct GammaIVFPQIndex : GammaFLATIndex, faiss::IndexIVFPQ {
                               idx_t a2) const;
 
   int Delete(const std::vector<int64_t> &ids);
+
+  void train(int64_t n, const float *x) { faiss::IndexIVFPQ::train(n, x); }
 
   int indexed_vec_count_;
   realtime::RTInvertIndex *rt_invert_index_ptr_;
