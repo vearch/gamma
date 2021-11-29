@@ -74,16 +74,25 @@ class GammaEngine {
   int BuildFieldIndex();
 
   void GetIndexStatus(EngineStatus &engine_status);
+  IndexStatus GetIndexStatus() { return index_status_; }
 
   int Dump();
 
   int Load();
 
   int GetDocsNum();
+  
+  int GetBRunning() { return b_running_; }
+  int GetIndexingSize() { return indexing_size_;}
+  void SetIsDirty(bool is_dirty) { is_dirty_ = is_dirty; }
+  int GetMaxDocid() { return max_docid_; }
+  void SetMaxDocid(int max_docid) { max_docid_ = max_docid; }
 
   table::Table *GetTable() { return table_; }
 
   VectorManager *GetVectorManager() { return vec_manager_; }
+
+  bitmap::BitmapManager *GetBitmap() { return docids_bitmap_; }
 
   int SetBatchDocsNum(int i) {
     batch_docs_.resize(i);
