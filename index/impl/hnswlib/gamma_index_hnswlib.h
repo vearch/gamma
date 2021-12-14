@@ -34,9 +34,9 @@ class HNSWLIBRetrievalParameters : public RetrievalParameters {
     do_efSearch_check_ = 1;
   }
 
-  HNSWLIBRetrievalParameters(int efSearch, enum DistanceComputeType type, int do_efSearch_check) {
-    efSearch_ = efSearch;
+  HNSWLIBRetrievalParameters(enum DistanceComputeType type, int efSearch, int do_efSearch_check) {
     distance_compute_type_ = type;
+    efSearch_ = efSearch;
     do_efSearch_check_ = do_efSearch_check;
   }
 
@@ -86,17 +86,17 @@ struct GammaIndexHNSWLIB : public GammaFLATIndex,
 
   int Load(const std::string &index_dir) override;
 
+  /*
   virtual char *getDataByInternalId(tableint internal_id) const override {
     ScopeVector svec;
     dynamic_cast<const RawVector *>(vector_)->GetVector(internal_id, svec);
     return (char *)svec.Get();
   }
-
-  /*
-  virtual char *getDataByInternalId(tableint internal_id) const override {
-    return (char *)(dynamic_cast<const MemoryRawVector *>(vector_)->GetFromMem(internal_id));
-  }
   */
+ 
+  virtual char *getDataByInternalId(tableint internal_id) const override {
+    return (char *)raw_vec_->GetFromMem(internal_id);
+  }
 
   int indexed_vec_count_;
 
@@ -105,6 +105,8 @@ struct GammaIndexHNSWLIB : public GammaFLATIndex,
   SpaceInterface<float> *space_interface_ = nullptr;
   SpaceInterface<float> *space_interface_ip_ = nullptr;
   DistanceComputeType metric_type_;
+  int do_efSearch_check_;
+  MemoryRawVector *raw_vec_ = nullptr;
 
   // for dump
   std::mutex dump_mutex_;

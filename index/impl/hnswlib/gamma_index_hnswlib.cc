@@ -24,13 +24,17 @@ namespace tig_gamma {
 using idx_t = faiss::Index::idx_t;
 
 struct HNSWLIBModelParams {
-  int nlinks;          // link number for hnsw graph
-  int efConstruction;  // construction parameter for building hnsw graph
+  int nlinks;                   // link number for hnsw graph
+  int efConstruction;           // construction parameter for building hnsw graph
+  int efSearch;                 // search parameter for hnsw graph
+  int do_efSearch_check;        // check efsearch or not when searching
   DistanceComputeType metric_type;
 
   HNSWLIBModelParams() {
     nlinks = 32;
     efConstruction = 100;
+    efSearch = 64;
+    do_efSearch_check = 1;
     metric_type = DistanceComputeType::L2;
   }
 
@@ -48,6 +52,8 @@ struct HNSWLIBModelParams {
 
     int nlinks;
     int efConstruction;
+    int efSearch;
+    int do_efSearch_check;
 
     // for -1, set as default
     if (!jp.GetInt("nlinks", nlinks)) {
@@ -73,6 +79,23 @@ struct HNSWLIBModelParams {
       return -1;
     }
 
+    if (!jp.GetInt("efSearch", efSearch)) {
+      if (efSearch < -1) {
+        LOG(ERROR) << "invalid efSearch = " << efSearch;
+        return -1;
+      }
+      if (efSearch > 0) this->efSearch = efSearch;
+    }
+
+    if (!jp.GetInt("do_efSearch_check", do_efSearch_check)) {
+      if (do_efSearch_check < -1) {
+        LOG(ERROR) << "invalid do_efSearch_check = " << do_efSearch_check;
+        return -1;
+      }
+      if (do_efSearch_check > 0) this->do_efSearch_check = 1;
+      if (do_efSearch_check == 0) this->do_efSearch_check = 0;
+    }
+
     std::string metric_type;
 
     if (!jp.GetString("metric_type", metric_type)) {
@@ -95,6 +118,8 @@ struct HNSWLIBModelParams {
     std::stringstream ss;
     ss << "nlinks =" << nlinks << ", ";
     ss << "efConstruction =" << efConstruction << ", ";
+    ss << "efSearch =" << efSearch << ", ";
+    ss << "do_efSearch_check =" << do_efSearch_check << ", ";
     ss << "metric_type =" << (int)metric_type;
     return ss.str();
   }
@@ -125,9 +150,13 @@ GammaIndexHNSWLIB::~GammaIndexHNSWLIB() {
 
 int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_size) {
   indexing_size_ = indexing_size;
-  auto raw_vec_type = dynamic_cast<MemoryRawVector *>(vector_);
-  if (raw_vec_type == nullptr) {
+  raw_vec_ = dynamic_cast<MemoryRawVector *>(vector_);
+  if (raw_vec_ == nullptr) {
     LOG(ERROR) << "HNSW can only work in memory only mode";
+    return -1;
+  }
+  if (raw_vec_->HaveZFPCompressor()) {
+    LOG(ERROR) << "HNSW can't work with zfp compressor, shouldn't set compress when create table";
     return -1;
   }
 
@@ -164,8 +193,8 @@ int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_si
   maxM_ = M_;
   maxM0_ = M_ * 2;
   ef_construction_ = std::max(ef_construction, M_);
-  ef_ = 10;
-
+  ef_ = hnsw_param.efSearch;
+  do_efSearch_check_ = hnsw_param.do_efSearch_check;
   int random_seed = 100;
   level_generator_.seed(random_seed);
   update_probability_generator_.seed(random_seed + 1);
@@ -206,7 +235,7 @@ int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_si
 
 RetrievalParameters *GammaIndexHNSWLIB::Parse(const std::string &parameters) {
   if (parameters == "") {
-    return new HNSWLIBRetrievalParameters();
+    return new HNSWLIBRetrievalParameters(metric_type_, ef_, do_efSearch_check_);
   }
 
   utils::JsonParser jp;
@@ -236,7 +265,8 @@ RetrievalParameters *GammaIndexHNSWLIB::Parse(const std::string &parameters) {
   jp.GetInt("do_efSearch_check", do_efSearch_check);
 
   RetrievalParameters *retrieval_params =
-      new HNSWLIBRetrievalParameters(efSearch > 0 ? efSearch : 64, type, do_efSearch_check);
+      new HNSWLIBRetrievalParameters(type, efSearch > 0 ? efSearch : ef_, 
+                                     do_efSearch_check > -1 ? do_efSearch_check : do_efSearch_check_);
   return retrieval_params;
 }
 
@@ -301,10 +331,9 @@ int GammaIndexHNSWLIB::Search(RetrievalContext *retrieval_context, int n,
   HNSWLIBRetrievalParameters *retrieval_params =
       dynamic_cast<HNSWLIBRetrievalParameters *>(
           retrieval_context->RetrievalParams());
-  utils::ScopeDeleter1<HNSWLIBRetrievalParameters> del_params;
   if (retrieval_params == nullptr) {
-    retrieval_params = new HNSWLIBRetrievalParameters();
-    del_params.set(retrieval_params);
+    retrieval_params = new HNSWLIBRetrievalParameters(metric_type_, ef_, do_efSearch_check_);
+    retrieval_context->retrieval_params_ = retrieval_params;
   }
 
   DISTFUNC<float> fstdistfunc;
