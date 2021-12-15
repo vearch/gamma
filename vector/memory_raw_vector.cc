@@ -21,7 +21,7 @@ MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
   segments_ = nullptr;
   nsegments_ = 0;
   segment_size_ = store_params.segment_size;
-  vector_byte_size_ = data_size_ * meta_info->Dimension();
+  vector_byte_size_ = meta_info->DataSize() * meta_info->Dimension();
   current_segment_ = nullptr;
   curr_idx_in_seg_ = 0;
   storage_mgr_ = nullptr;

@@ -174,6 +174,13 @@ class RawVector : public VectorReader {
   DumpConfig *GetDumpConfig();
 
   StorageManager *storage_mgr_;
+  
+  int HaveZFPCompressor() {
+#ifdef WITH_ZFP
+    if(zfp_compressor_) return 1;
+#endif
+    return 0;
+  }
 
  protected:
   /** get vector by id
