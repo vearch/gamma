@@ -357,7 +357,12 @@ int VectorManager::AddRTVecsToIndex(bool &index_is_dirty) {
     while (retrieval_model->updated_vids_.try_pop(vid)) {
       if (raw_vec->Bitmap()->Test(raw_vec->VidMgr()->VID2DocID(vid)))
         continue;
-      vids.push_back(vid);
+      if (vid >= retrieval_model->indexed_count_) {
+        retrieval_model->updated_vids_.push(vid);
+        break;
+      } else {
+        vids.push_back(vid);
+      }
       if (vids.size() >= 20000) break;
     }
     if (vids.size() == 0) continue;
