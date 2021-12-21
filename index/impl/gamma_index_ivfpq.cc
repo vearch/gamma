@@ -47,195 +47,6 @@ static inline void ConvertVectorDim(size_t num, int raw_d, int d,
 
 IndexIVFPQStats indexIVFPQ_stats;
 
-struct IVFPQModelParams {
-  int ncentroids;     // coarse cluster center number
-  int nsubvector;     // number of sub cluster center
-  int nbits_per_idx;  // bit number of sub cluster center
-  DistanceComputeType metric_type;
-  bool has_hnsw;
-  int nlinks;          // link number for hnsw graph
-  int efConstruction;  // construction parameter for building hnsw graph
-  int efSearch;        // search parameter for search in hnsw graph
-  bool has_opq;
-  int opq_nsubvector;  // number of sub cluster center of opq
-  int bucket_init_size; // original size of RTInvertIndex bucket
-  int bucket_max_size; // max size of RTInvertIndex bucket
-
-  IVFPQModelParams() {
-    ncentroids = 2048;
-    nsubvector = 64;
-    nbits_per_idx = 8;
-    metric_type = DistanceComputeType::INNER_PRODUCT;
-    has_hnsw = false;
-    nlinks = 32;
-    efConstruction = 200;
-    efSearch = 64;
-    has_opq = false;
-    opq_nsubvector = 64;
-    bucket_init_size = 1000;
-    bucket_max_size = 1280000;
-  }
-
-  int Parse(const char *str) {
-    utils::JsonParser jp;
-    if (jp.Parse(str)) {
-      LOG(ERROR) << "parse IVFPQ retrieval parameters error: " << str;
-      return -1;
-    }
-
-    int ncentroids;
-    int nsubvector;
-    int nbits_per_idx;
-
-    // -1 as default
-    if (!jp.GetInt("ncentroids", ncentroids)) {
-      if (ncentroids < -1) {
-        LOG(ERROR) << "invalid ncentroids =" << ncentroids;
-        return -1;
-      }
-      if (ncentroids > 0) this->ncentroids = ncentroids;
-    } else {
-      LOG(ERROR) << "cannot get ncentroids for ivfpq, set it when create space";
-      return -1;
-    }
-
-    if (!jp.GetInt("nsubvector", nsubvector)) {
-      if (nsubvector < -1) {
-        LOG(ERROR) << "invalid nsubvector =" << nsubvector;
-        return -1;
-      }
-      if (nsubvector > 0) this->nsubvector = nsubvector;
-    } else {
-      LOG(ERROR) << "cannot get nsubvector for ivfpq, set it when create space";
-      return -1;
-    }
-
-    if (!jp.GetInt("nbits_per_idx", nbits_per_idx)) {
-      if (nbits_per_idx < -1) {
-        LOG(ERROR) << "invalid nbits_per_idx =" << nbits_per_idx;
-        return -1;
-      }
-      if (nbits_per_idx > 0) this->nbits_per_idx = nbits_per_idx;
-    }
-
-    int bucket_init_size;
-    int bucket_max_size;
-
-    // -1 as default
-    if (!jp.GetInt("bucket_init_size", bucket_init_size)) {
-      if (bucket_init_size < -1) {
-        LOG(ERROR) << "invalid bucket_init_size =" << bucket_init_size;
-        return -1;
-      }
-      if (bucket_init_size > 0) this->bucket_init_size = bucket_init_size;
-    }
-
-    if (!jp.GetInt("bucket_max_size", bucket_max_size)) {
-      if (bucket_max_size < -1) {
-        LOG(ERROR) << "invalid bucket_max_size =" << bucket_max_size;
-        return -1;
-      }
-      if (bucket_max_size > 0) this->bucket_max_size = bucket_max_size;
-    }
-
-    std::string metric_type;
-
-    if (!jp.GetString("metric_type", metric_type)) {
-      if (strcasecmp("L2", metric_type.c_str()) &&
-          strcasecmp("InnerProduct", metric_type.c_str())) {
-        LOG(ERROR) << "invalid metric_type = " << metric_type;
-        return -1;
-      }
-      if (!strcasecmp("L2", metric_type.c_str()))
-        this->metric_type = DistanceComputeType::L2;
-      else
-        this->metric_type = DistanceComputeType::INNER_PRODUCT;
-    }
-
-    utils::JsonParser jp_hnsw;
-    if (!jp.GetObject("hnsw", jp_hnsw)) {
-      has_hnsw = true;
-      int nlinks;
-      int efConstruction;
-      int efSearch;
-      // -1 as default
-      if (!jp_hnsw.GetInt("nlinks", nlinks)) {
-        if (nlinks < -1) {
-          LOG(ERROR) << "invalid nlinks = " << nlinks;
-          return -1;
-        }
-        if(nlinks > 0) this->nlinks = nlinks;
-      }
-
-      if (!jp_hnsw.GetInt("efConstruction", efConstruction)) {
-        if (efConstruction < -1) {
-          LOG(ERROR) << "invalid efConstruction = " << efConstruction;
-          return -1;
-        }
-        if(efConstruction > 0) this->efConstruction = efConstruction;
-      }
-
-      if (!jp_hnsw.GetInt("efSearch", efSearch)) {
-        if (efSearch < -1) {
-          LOG(ERROR) << "invalid efSearch = " << efSearch;
-          return -1;
-        }
-        if(efSearch > 0) this->efSearch = efSearch;
-      }
-    }
-
-    utils::JsonParser jp_opq;
-    if (!jp.GetObject("opq", jp_opq)) {
-      has_opq = true;
-      int opq_nsubvector;
-      // -1 as default
-      if (!jp_opq.GetInt("nsubvector", opq_nsubvector)) {
-        if (nsubvector < -1) {
-          LOG(ERROR) << "invalid opq_nsubvector = " << opq_nsubvector;
-          return -1;
-        }
-        if (opq_nsubvector > 0) this->opq_nsubvector = opq_nsubvector;
-      } 
-    }
-
-    if (!Validate()) return -1;
-    return 0;
-  }
-
-  bool Validate() {
-    if (ncentroids <= 0 || nsubvector <= 0 || nbits_per_idx <= 0) return false;
-    if (nbits_per_idx != 8) {
-      LOG(ERROR) << "only support 8 now, nbits_per_idx=" << nbits_per_idx;
-      return false;
-    }
-
-    return true;
-  }
-
-  std::string ToString() {
-    std::stringstream ss;
-    ss << "ncentroids =" << ncentroids << ", ";
-    ss << "nsubvector =" << nsubvector << ", ";
-    ss << "nbits_per_idx =" << nbits_per_idx << ", ";
-    ss << "metric_type =" << (int)metric_type << ", ";
-    ss << "bucket_init_size =" << bucket_init_size << ", ";
-    ss << "bucket_max_size =" << bucket_max_size;
-
-    if (has_hnsw) {
-      ss << ", hnsw: nlinks=" << nlinks << ", ";
-      ss << "efConstrction=" << efConstruction << ", ";
-      ss << "efSearch=" << efSearch;
-    }
-    if (has_opq) {
-      ss << ", opq: nsubvector=" << opq_nsubvector;
-    }
-
-    return ss.str();
-  }
-
-  int ToJson(utils::JsonParser &jp) { return 0; }
-};
-
 REGISTER_MODEL(IVFPQ, GammaIVFPQIndex)
 
 GammaIVFPQIndex::GammaIVFPQIndex() : indexed_vec_count_(0) {
@@ -272,39 +83,30 @@ GammaIVFPQIndex::~GammaIVFPQIndex() {
   CHECK_DELETE(model_param_);
 }
 
-faiss::InvertedListScanner *GammaIVFPQIndex::get_InvertedListScanner(
+GammaInvertedListScanner *GammaIVFPQIndex::GetInvertedListScanner(
     bool store_pairs, faiss::MetricType metric_type) {
-  return GetGammaInvertedListScanner(store_pairs, metric_type);
-}
-
-GammaInvertedListScanner *GammaIVFPQIndex::GetGammaIVFFlatScanner(
-    size_t d, faiss::MetricType metric_type) {
-  if (metric_type == faiss::METRIC_INNER_PRODUCT) {
-    auto scanner = new GammaIVFFlatScanner<faiss::METRIC_INNER_PRODUCT,
-                                           faiss::CMin<float, int64_t>>(d);
-    return scanner;
-  } else if (metric_type == faiss::METRIC_L2) {
-    auto scanner =
-        new GammaIVFFlatScanner<faiss::METRIC_L2, faiss::CMax<float, int64_t>>(
-            d);
-    return scanner;
+  if (pq.nbits == 8) {
+    return GetGammaInvertedListScanner<faiss::PQDecoder8>(store_pairs, metric_type);
+  } else if (pq.nbits == 16) {
+    return GetGammaInvertedListScanner<faiss::PQDecoder16>(store_pairs, metric_type);
   } else {
-    LOG(ERROR) << "metric type not supported";
+    return GetGammaInvertedListScanner<faiss::PQDecoderGeneric>(store_pairs, metric_type);
   }
   return nullptr;
 }
 
+template <class PQDecoder>
 GammaInvertedListScanner *GammaIVFPQIndex::GetGammaInvertedListScanner(
     bool store_pairs, faiss::MetricType metric_type) {
   if (metric_type == faiss::METRIC_INNER_PRODUCT) {
     auto scanner =
         new GammaIVFPQScanner<faiss::METRIC_INNER_PRODUCT,
-                              faiss::CMin<float, idx_t>, 2>(*this, store_pairs);
+                              faiss::CMin<float, idx_t>, PQDecoder>(*this, store_pairs, 2);
     return scanner;
   } else if (metric_type == faiss::METRIC_L2) {
     auto scanner =
-        new GammaIVFPQScanner<faiss::METRIC_L2, faiss::CMax<float, idx_t>, 2>(
-            *this, store_pairs);
+        new GammaIVFPQScanner<faiss::METRIC_L2, faiss::CMax<float, idx_t>, PQDecoder>(
+            *this, store_pairs, 2);
     return scanner;
   }
   return nullptr;
@@ -397,8 +199,7 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters, int indexing_size
     metric_type = faiss::METRIC_L2;
   }
 
-  // default value, nprobe will be passed at search time
-  this->nprobe = 80;
+  this->nprobe = ivfpq_param.nprobe;
   return 0;
 }
 
@@ -434,7 +235,6 @@ RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
   int recall_num;
   int nprobe;
   int parallel_on_queries;
-  int ivf_flat;
 
   if (!jp.GetInt("recall_num", recall_num)) {
     if (recall_num > 0) {
@@ -456,11 +256,6 @@ RetrievalParameters *GammaIVFPQIndex::Parse(const std::string &parameters) {
     }
   }
 
-  if (!jp.GetInt("ivf_flat", ivf_flat)) {
-    if (ivf_flat != 0) {
-      retrieval_params->SetIvfFlat(true);
-    }
-  }
   return retrieval_params;
 }
 
@@ -538,7 +333,7 @@ int GammaIVFPQIndex::Indexing() {
     xt = train_vec;
   }
 
-  train(num, xt);
+  faiss::IndexIVFPQ::train(num, xt);
 
   if (d_ > raw_d) {
     delete train_vec;
@@ -736,8 +531,6 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
       (size_t)retrieval_params->Nprobe() <= this->nlist) {
     nprobe = retrieval_params->Nprobe();
   } else {
-    LOG(WARNING) << "Error nprobe for search, so using default value:"
-                 << this->nprobe;
     retrieval_params->SetNprobe(this->nprobe);
   }
 
@@ -754,21 +547,11 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
   std::unique_ptr<idx_t[]> idx(new idx_t[n * nprobe]);
   std::unique_ptr<float[]> coarse_dis(new float[n * nprobe]);
 
-  if (retrieval_params->IvfFlat() == true) {
-    quantizer->search(n, xq, nprobe, coarse_dis.get(), idx.get());
-  } else {
-    quantizer->search(n, applied_xq, nprobe, coarse_dis.get(), idx.get());
-  }
+  quantizer->search(n, applied_xq, nprobe, coarse_dis.get(), idx.get());
   this->invlists->prefetch_lists(idx.get(), n * nprobe);
 
-  if (retrieval_params->IvfFlat() == true) {
-    // just use xq
-    search_ivf_flat(retrieval_context, n, xq, k, idx.get(), coarse_dis.get(),
-                    distances, labels, nprobe, false);
-  } else {
-    search_preassigned(retrieval_context, n, xq, applied_xq, k, idx.get(), coarse_dis.get(),
-                       distances, labels, nprobe, false);
-  }
+  search_preassigned(retrieval_context, n, xq, applied_xq, k, idx.get(), coarse_dis.get(),
+                     distances, labels, nprobe, false);
   return 0;
 }
 
@@ -905,138 +688,6 @@ void compute_dis(int k, const float *xi, float *simi, idx_t *idxi,
 
 }  // namespace
 
-void GammaIVFPQIndex::search_ivf_flat(
-    RetrievalContext *retrieval_context, int n, const float *x, int k,
-    const idx_t *keys, const float *coarse_dis, float *distances, idx_t *labels,
-    int nprobe, bool store_pairs, const faiss::IVFSearchParameters *params) {
-  if (k <= 0) {
-    LOG(WARNING) << "topK should greater then 0, topK = " << k;
-    return;
-  }
-
-  MemoryRawVector *mem_raw_vec = dynamic_cast<MemoryRawVector *>(vector_);
-  if (mem_raw_vec == nullptr) {
-    LOG(ERROR) << "IVF FLAT can only work on memory raw vector";
-    memset(labels, -1, n * sizeof(idx_t) * k);
-    return;
-  }
-
-  IVFPQRetrievalParameters *retrieval_params =
-      dynamic_cast<IVFPQRetrievalParameters *>(
-          retrieval_context->RetrievalParams());
-  utils::ScopeDeleter1<IVFPQRetrievalParameters> del_params;
-  if (retrieval_params == nullptr) {
-    retrieval_params = new IVFPQRetrievalParameters();
-    del_params.set(retrieval_params);
-  }
-
-  faiss::MetricType metric_type;
-  if (retrieval_params->GetDistanceComputeType() ==
-      DistanceComputeType::INNER_PRODUCT) {
-    metric_type = faiss::METRIC_INNER_PRODUCT;
-  } else {
-    metric_type = faiss::METRIC_L2;
-  }
-
-  size_t raw_d = mem_raw_vec->MetaInfo()->Dimension();
-
-  using HeapForIP = faiss::CMin<float, idx_t>;
-  using HeapForL2 = faiss::CMax<float, idx_t>;
-
-  bool parallel_mode = retrieval_params->ParallelOnQueries() ? 0 : 1;
-
-  // don't start parallel section if single query
-  bool do_parallel = parallel_mode == 0 ? n > 1 : nprobe > 1;
-
-  size_t ndis = 0;
-#pragma omp parallel if (do_parallel) reduction(+ : ndis)
-  {
-    GammaInvertedListScanner *scanner =
-        GetGammaIVFFlatScanner(raw_d, metric_type);
-    utils::ScopeDeleter1<GammaInvertedListScanner> del(scanner);
-    scanner->set_search_context(retrieval_context);
-
-    /****************************************************
-     * Actual loops, depending on parallel_mode
-     ****************************************************/
-
-    if (parallel_mode == 0) {  // parallelize over queries
-
-#pragma omp for
-      for (int i = 0; i < n; i++) {
-        // loop over queries
-        scanner->set_query(x + i * d);
-        float *simi = distances + i * k;
-        idx_t *idxi = labels + i * k;
-
-        init_result(metric_type, k, simi, idxi);
-
-        size_t nscan = 0;
-
-        // loop over probes
-        for (int ik = 0; ik < nprobe; ik++) {
-          nscan += scan_one_list(scanner, keys[i * nprobe + ik],
-                                 coarse_dis[i * nprobe + ik], simi, idxi, k,
-                                 this->nlist, this->invlists, store_pairs,
-                                 retrieval_params->IvfFlat(), mem_raw_vec);
-
-          if (max_codes && nscan >= max_codes) {
-            break;
-          }
-        }
-
-        ndis += nscan;
-        reorder_result(metric_type, k, simi, idxi);
-      }       // parallel for
-    } else {  // parallelize over inverted lists
-      std::vector<idx_t> local_idx(k);
-      std::vector<float> local_dis(k);
-
-      for (int i = 0; i < n; i++) {
-        scanner->set_query(x + i * d);
-        init_result(metric_type, k, local_dis.data(), local_idx.data());
-
-#pragma omp for schedule(dynamic)
-        for (int ik = 0; ik < nprobe; ik++) {
-          ndis += scan_one_list(scanner, keys[i * nprobe + ik],
-                                coarse_dis[i * nprobe + ik], local_dis.data(),
-                                local_idx.data(), k, this->nlist,
-                                this->invlists, store_pairs,
-                                retrieval_params->IvfFlat(), mem_raw_vec);
-
-          // can't do the test on max_codes
-        }
-        // merge thread-local results
-
-        float *simi = distances + i * k;
-        idx_t *idxi = labels + i * k;
-#pragma omp single
-        init_result(metric_type, k, simi, idxi);
-
-#pragma omp barrier
-#pragma omp critical
-        {
-          if (metric_type == faiss::METRIC_INNER_PRODUCT) {
-            faiss::heap_addn<HeapForIP>(k, simi, idxi, local_dis.data(),
-                                        local_idx.data(), k);
-          } else {
-            faiss::heap_addn<HeapForL2>(k, simi, idxi, local_dis.data(),
-                                        local_idx.data(), k);
-          }
-        }
-#pragma omp barrier
-#pragma omp single
-        reorder_result(metric_type, k, simi, idxi);
-      }
-    }
-  }  // parallel section
-#ifdef PERFORMANCE_TESTING
-  std::string compute_msg = "ivf flat compute ";
-  compute_msg += std::to_string(n);
-  retrieval_context->GetPerfTool().Perf(compute_msg);
-#endif
-}
-
 void GammaIVFPQIndex::search_preassigned(
     RetrievalContext *retrieval_context, int n, const float *x, const float *applied_x, int k,
     const idx_t *keys, const float *coarse_dis, float *distances, idx_t *labels,
@@ -1115,12 +766,12 @@ void GammaIVFPQIndex::search_preassigned(
   bool parallel_mode = retrieval_params->ParallelOnQueries() ? 0 : 1;
 
   // don't start parallel section if single query
-  bool do_parallel = parallel_mode == 0 ? n > 1 : nprobe > 1;
+  bool do_parallel = omp_get_max_threads() >= 2 && (parallel_mode == 0 ? n > 1 : nprobe > 1);
 
 #pragma omp parallel if (do_parallel) reduction(+ : ndis)
   {
     GammaInvertedListScanner *scanner =
-        GetGammaInvertedListScanner(store_pairs, metric_type);
+        GetInvertedListScanner(store_pairs, metric_type);
     utils::ScopeDeleter1<GammaInvertedListScanner> del(scanner);
     scanner->set_search_context(retrieval_context);
 
@@ -1146,7 +797,7 @@ void GammaIVFPQIndex::search_preassigned(
           nscan += scan_one_list(
               scanner, keys[i * nprobe + ik], coarse_dis[i * nprobe + ik],
               recall_simi, recall_idxi, recall_num, this->nlist, this->invlists,
-              store_pairs, retrieval_params->IvfFlat());
+              store_pairs, false);
 
           if (max_codes && nscan >= max_codes) break;
         }
@@ -1171,7 +822,7 @@ void GammaIVFPQIndex::search_preassigned(
           ndis += scan_one_list(
               scanner, keys[i * nprobe + ik], coarse_dis[i * nprobe + ik],
               local_dis.data(), local_idx.data(), recall_num, this->nlist,
-              this->invlists, store_pairs, retrieval_params->IvfFlat());
+              this->invlists, store_pairs, false);
 
           // can't do the test on max_codes
         }

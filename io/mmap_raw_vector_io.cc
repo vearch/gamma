@@ -49,7 +49,7 @@ int MmapRawVectorIO::Load(int vec_num) {
       return ret;
     }
     for (size_t i = 0; i < lens.size(); ++i) {
-      for (size_t j = 0; j < lens[i]; ++j) {
+      for (int j = 0; j < lens[i]; ++j) {
         memory_vec->AddToMem(values[i] + j * memory_vec->VectorByteSize(),
                              memory_vec->VectorByteSize());
       }
