@@ -69,7 +69,7 @@ link_directories(
 
 #LINK LIBRARY
 set(LIBRARIES
-    -lfaiss
+    -lfaiss_avx2
     ${RocksDB_LIB}
     ${ZFP_LIB}
     -lcrypto
