@@ -613,7 +613,7 @@ int GammaEngine::CreateTable(TableInfo &table) {
     LOG(ERROR) << "write table schema error, path=" << path;
   }
 
-  int file_bytes_size = docids_bitmap_->FileBytesSize();
+  uint32_t file_bytes_size = docids_bitmap_->FileBytesSize();
   if (file_bytes_size + 1 >= docids_bitmap_->BytesSize() &&
       docids_bitmap_->Load() == 0) {
     LOG(INFO) << "Load bitmap success.";
