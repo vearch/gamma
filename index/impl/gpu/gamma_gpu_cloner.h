@@ -25,7 +25,7 @@
 
 #include <vector>
 
-#include "gamma_index_ivfpq.h"
+#include "index/impl/gamma_index_ivfpq.h"
 
 namespace tig_gamma {
 namespace gamma_gpu {

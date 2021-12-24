@@ -25,9 +25,9 @@
 #include <set>
 #include <vector>
 
-#include "gamma_api.h"
+#include "c_api/gamma_api.h"
 #include "gamma_gpu_cloner.h"
-#include "gamma_index_ivfpq.h"
+#include "index/impl/gamma_index_ivfpq.h"
 #include "util/bitmap.h"
 
 using std::string;
@@ -275,7 +275,7 @@ GammaIVFPQGPUIndex::~GammaIVFPQGPUIndex() {
   resources_.clear();
 }
 
-int GammaIVFPQGPUIndex::Init(const std::string &model_parameters) {
+int GammaIVFPQGPUIndex::Init(const std::string &model_parameters, int indexing_size) {
   IVFPQModelParams ivfpq_param;
   if (model_parameters != "" && ivfpq_param.Parse(model_parameters.c_str())) {
     return -1;
@@ -302,7 +302,7 @@ int GammaIVFPQGPUIndex::Init(const std::string &model_parameters) {
   gpu_index_ = nullptr;
   cpu_index_ = new GammaIVFPQIndex();
   cpu_index_->vector_ = vector_;
-  cpu_index_->Init(model_parameters);
+  cpu_index_->Init(model_parameters, indexing_size);
 
 #ifdef PERFORMANCE_TESTING
   search_count_ = 0;
@@ -500,10 +500,15 @@ int GammaIVFPQGPUIndex::AddRTVecsToIndex() {
   this->indexed_count_ = cpu_index_->indexed_vec_count_;
   std::vector<int64_t> vids;
   int vid;
-  while (this->updated_vids_.try_dequeue(vid)) {
-    if (bitmap::test(raw_vec->Bitmap(), raw_vec->VidMgr()->VID2DocID(vid)))
+  while (this->updated_vids_.try_pop(vid)) {
+    if (raw_vec->Bitmap()->Test(raw_vec->VidMgr()->VID2DocID(vid)))
       continue;
-    vids.push_back(vid);
+    if (vid >= this->indexed_count_) {
+      this->updated_vids_.push(vid);
+      break;
+    } else {
+      vids.push_back(vid);
+    }  
     if (vids.size() >= 20000) break;
   }
   if (vids.size() == 0) return 0;
