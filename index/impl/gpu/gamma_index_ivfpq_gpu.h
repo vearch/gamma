@@ -9,9 +9,9 @@
 
 #include "concurrentqueue/blockingconcurrentqueue.h"
 #include "faiss/Index.h"
-#include "field_range_index.h"
+#include "table/field_range_index.h"
 #include "gamma_gpu_cloner.h"
-#include "gamma_index_ivfpq.h"
+#include "index/impl/gamma_index_ivfpq.h"
 #include "util/log.h"
 #include "vector/raw_vector.h"
 #include "index/retrieval_model.h"
@@ -62,7 +62,7 @@ class GammaIVFPQGPUIndex : public RetrievalModel {
 
   virtual ~GammaIVFPQGPUIndex();
 
-  int Init(const std::string &model_parameters);
+  int Init(const std::string &model_parameters, int indexing_size);
 
   RetrievalParameters *Parse(const std::string &parameters);
 
