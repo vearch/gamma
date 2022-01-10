@@ -130,6 +130,8 @@ REGISTER_MODEL(HNSW, GammaIndexHNSWLIB);
 GammaIndexHNSWLIB::GammaIndexHNSWLIB()
     : GammaFLATIndex(), HierarchicalNSW(nullptr) {
   indexed_vec_count_ = 0;
+  updated_num_ = 0;
+  deleted_num_ = 0;
 }
 
 GammaIndexHNSWLIB::~GammaIndexHNSWLIB() {
@@ -177,7 +179,7 @@ int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_si
   std::vector<std::mutex>(max_update_element_locks)
       .swap(link_list_update_locks_);
   element_levels_ = std::vector<int>(max_elements_);
-  has_deletions_ = false;
+  num_deleted_ = 0;
   if (hnsw_param.metric_type == DistanceComputeType::INNER_PRODUCT) {
     fstdistfunc_ = space_interface_ip_->get_dist_func();
     dist_func_param_ = space_interface_ip_->get_dist_func_param();
@@ -186,7 +188,7 @@ int GammaIndexHNSWLIB::Init(const std::string &model_parameters, int indexing_si
     dist_func_param_ = space_interface_->get_dist_func_param();
   }
   metric_type_ = hnsw_param.metric_type;
-  // data_size_ = space_interface_->get_data_size();
+  vec_data_size_ = space_interface_->get_data_size();
   data_size_ = 0;
   int M = hnsw_param.nlinks;
   M_ = M;
@@ -300,7 +302,6 @@ int GammaIndexHNSWLIB::AddVertices(size_t n0, size_t n, const float *x) {
   for (size_t i = 0; i < n; ++i) {
     addPoint((const void *)(x + i * d), n0 + i);
   }
-
 #ifdef PERFORMANCE_TESTING
   add_count_ += n;
   if (add_count_ >= 10000) {
@@ -309,7 +310,6 @@ int GammaIndexHNSWLIB::AddVertices(size_t n0, size_t n, const float *x) {
     add_count_ = 0;
   }
 #endif  // PERFORMANCE_TESTING
-
   return 0;
 }
 
@@ -393,6 +393,9 @@ int GammaIndexHNSWLIB::Update(const std::vector<int64_t> &ids,
   for (size_t i = 0; i < ids.size(); i++) {
     updatePoint((const void *)vecs[i], ids[i], 1.0);
   }
+  updated_num_ += ids.size();
+  LOG(INFO) << "update index success! size=" << ids.size()
+            << ", total=" << updated_num_;
   return 0;
 }
 
@@ -401,6 +404,9 @@ int GammaIndexHNSWLIB::Delete(const std::vector<int64_t> &ids) {
   for (size_t i = 0; i < ids.size(); i++) {
     markDelete(ids[i]);
   }
+  deleted_num_ += ids.size();
+  LOG(INFO) << "delete index success! size=" << ids.size()
+            << ", total=" << deleted_num_;
   return 0;
 }
 

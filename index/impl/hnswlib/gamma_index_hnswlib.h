@@ -99,6 +99,8 @@ struct GammaIndexHNSWLIB : public GammaFLATIndex,
   }
 
   int indexed_vec_count_;
+  int updated_num_;
+  int deleted_num_;
 
   int d;
   int ntotal;
