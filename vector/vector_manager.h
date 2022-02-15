@@ -43,6 +43,9 @@ class VectorManager {
   int GetVector(const std::vector<std::pair<std::string, int>> &fields_ids,
                 std::vector<std::string> &vec, bool is_bytearray = false);
 
+  int GetDocVector(int docid, std::string &field_name,
+                   std::vector<uint8_t> &vec);
+
   void GetTotalMemBytes(long &index_total_mem_bytes,
                         long &vector_total_mem_bytes);
 

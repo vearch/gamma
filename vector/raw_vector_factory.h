@@ -52,18 +52,21 @@ class RawVectorFactory {
       case VectorStorageType::RocksDB:
         raw_vector = new RocksDBRawVector(meta_info, root_path, store_params,
                                           docids_bitmap);
-        vio = new RocksDBRawVectorIO((RocksDBRawVector *)raw_vector);
+        if (meta_info->with_io_)
+            vio = new RocksDBRawVectorIO((RocksDBRawVector *)raw_vector);
         break;
 #endif  // WITH_ROCKSDB
       default:
         LOG(ERROR) << "invalid raw feature type:" << static_cast<int>(type);
         return nullptr;
     }
-    if (vio && vio->Init()) {
-      Fail(raw_vector, vio, "init raw vector io error");
-      return nullptr;
+    if (meta_info->with_io_) {
+        if (vio && vio->Init()) {
+            Fail(raw_vector, vio, "init raw vector io error");
+            return nullptr;
+        }
+        raw_vector->SetIO(vio);
     }
-    raw_vector->SetIO(vio);
     return raw_vector;
   }
 };

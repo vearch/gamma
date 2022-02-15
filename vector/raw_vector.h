@@ -159,9 +159,9 @@ class RawVector : public VectorReader {
 
   virtual int UpdateToStore(int vid, uint8_t *v, int len) = 0;
 
-  virtual int GetCacheSize(uint32_t &cache_size) { return -1; };
+  virtual int GetCacheSize(int &cache_size) { return -1; };
 
-  virtual int AlterCacheSize(uint32_t cache_size) { return -1; }
+  virtual int AlterCacheSize(int cache_size) { return -1; }
 
   RawVectorIO *GetIO() { return vio_; }
 
@@ -170,6 +170,7 @@ class RawVector : public VectorReader {
   VIDMgr *VidMgr() const { return vid_mgr_; }
   bitmap::BitmapManager *Bitmap() { return docids_bitmap_; }
   int VectorByteSize() { return vector_byte_size_; }
+
   std::string RootPath() { return root_path_; }
   DumpConfig *GetDumpConfig();
 
@@ -207,7 +208,7 @@ class RawVector : public VectorReader {
   bool has_source_;
   std::string desc_;  // description of this raw vector
   StoreParams store_params_;
-  bool allow_use_zpf;
+  bool allow_use_zfp;
 #ifdef WITH_ZFP
   ZFPCompressor *zfp_compressor_;
 #endif

@@ -27,7 +27,7 @@ MmapRawVector::MmapRawVector(VectorMetaInfo *meta_info,
                              const StoreParams &store_params,
                              bitmap::BitmapManager *docids_bitmap)
     : RawVector(meta_info, root_path, docids_bitmap, store_params) {
-  allow_use_zpf = false;
+  allow_use_zfp = false;    // Storage_mgr is compressed internally using ZFP.
   vector_byte_size_ = meta_info_->DataSize() * meta_info->Dimension();
   storage_mgr_ = nullptr;
 }
@@ -58,15 +58,12 @@ int MmapRawVector::InitStore(std::string &vec_name) {
       LOG(ERROR) << "data type is not float, compress is unsupported";
       return PARAM_ERR;
     }
-    int res =
-        storage_mgr_->UseCompress(CompressType::Zfp, meta_info_->Dimension());
-    if (res == 0) {
+    if (storage_mgr_->UseCompress(CompressType::Zfp,
+          meta_info_->Dimension()) == 0) {
       LOG(INFO) << "Storage_manager use zfp compress vector";
     } else {
       LOG(INFO) << "ZFP initialization failed, not use zfp";
     }
-  } else {
-    LOG(INFO) << "store_params_.compress.IsEmpty() is true, not use zfp";
   }
 #endif
   int ret = storage_mgr_->Init(vec_name, store_params_.cache_size);
@@ -95,15 +92,15 @@ int MmapRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
   return storage_mgr_->Update(vid, v, len);
 }
 
-int MmapRawVector::AlterCacheSize(uint32_t cache_size) {
+int MmapRawVector::AlterCacheSize(int cache_size) {
   if (storage_mgr_ == nullptr) return -1;
   storage_mgr_->AlterCacheSize(cache_size, 0);
   return 0;
 }
 
-int MmapRawVector::GetCacheSize(uint32_t &cache_size) {
+int MmapRawVector::GetCacheSize(int &cache_size) {
   if (storage_mgr_ == nullptr) return -1;
-  uint32_t str_cache_size = 0;
+  int str_cache_size = 0;
   storage_mgr_->GetCacheSize(cache_size, str_cache_size);
   return 0;
 }
@@ -115,3 +112,4 @@ int MmapRawVector::GetVector(long vid, const uint8_t *&vec,
 }
 
 }  // namespace tig_gamma
+

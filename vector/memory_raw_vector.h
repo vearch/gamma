@@ -31,7 +31,7 @@ class MemoryRawVector : public RawVector {
                       std::vector<int> &lens) override;
 
   int UpdateToStore(int vid, uint8_t *v, int len) override;
-  
+
   uint8_t *GetFromMem(long vid) const;
 
  protected:
@@ -41,7 +41,6 @@ class MemoryRawVector : public RawVector {
   friend MmapRawVectorIO;
   int ExtendSegments();
   int AddToMem(const uint8_t *v, int len);
-  // uint8_t *GetFromMem(long vid) const;
 
   uint8_t **segments_;
   int nsegments_;

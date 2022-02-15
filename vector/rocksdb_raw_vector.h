@@ -11,7 +11,6 @@
 
 #include <string>
 #include <vector>
-
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
