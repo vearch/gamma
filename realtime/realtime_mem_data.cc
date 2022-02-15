@@ -337,11 +337,11 @@ int RealTimeMemData::Delete(int *vids, int n) {
 void RealTimeMemData::FreeOldData(long *idx, uint8_t *codes,
                                   RTInvertBucketData *invert, long size) {
   if (idx) {
-    delete idx;
+    delete[] idx;
     idx = nullptr;
   }
   if (codes) {
-    delete codes;
+    delete[] codes;
     codes = nullptr;
   }
   if (invert) {
