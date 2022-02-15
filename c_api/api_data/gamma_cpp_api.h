@@ -29,4 +29,3 @@ int CPPAddOrUpdateDocs2(void *engine, tig_gamma::Docs *docs, float *data, tig_ga
 
 void CPPSetNprobe(void *engine, int nprobe, std::string index_type);
 
-void CPPSetRerank(void *engine, int rerank, std::string index_type);
