@@ -145,10 +145,7 @@ int AddOrUpdateDocs(void *engine, char **doc_str, int len, char **result_str,
 }
 
 int UpdateDoc(void *engine, const char *doc_str, int len) {
-  tig_gamma::Doc doc;
-  doc.SetEngine(static_cast<tig_gamma::GammaEngine *>(engine));
-  doc.Deserialize(doc_str, len);
-  return static_cast<tig_gamma::GammaEngine *>(engine)->Update(&doc);
+  return -1;
 }
 
 int Search(void *engine, const char *request_str, int req_len,
@@ -159,8 +156,9 @@ int Search(void *engine, const char *request_str, int req_len,
 
   int ret =
       static_cast<tig_gamma::GammaEngine *>(engine)->Search(request, response);
+  if (ret != 0) { return ret; }
 
-  response.Serialize(response_str, res_len);
+  response.Serialize(request.Fields(), response_str, res_len);
 
   return ret;
 }
@@ -238,5 +236,24 @@ int GetConfig(void *engine, char **config_str, int *len) {
   int res = 
       static_cast<tig_gamma::GammaEngine *>(engine)->GetConfig(config);
   if (res == 0) { res = config.Serialize(config_str, len); }
+  return res;
+}
+
+int BeginMigrate(void *engine) {
+  int res = 
+      static_cast<tig_gamma::GammaEngine *>(engine)->BeginMigrate();
+  return res;
+}
+
+int GetMigrageDoc(void *engine, char **doc_str, int *len, int *is_del) {
+  tig_gamma::Doc doc;
+  int ret = static_cast<tig_gamma::GammaEngine *>(engine)->GetMigrageDoc(doc, is_del);
+  if (ret == 0) { doc.Serialize(doc_str, len); }
+  return ret;
+}
+
+int TerminateMigrate(void *engine) {
+  int res = 
+      static_cast<tig_gamma::GammaEngine *>(engine)->TerminateMigrate();
   return res;
 }
