@@ -93,6 +93,8 @@ class GammaFLATIndex : public RetrievalModel {
   int Load(const std::string &index_dir) override;
 
   DistanceComputeType metric_type_;
+  
+  int rerank_ = 0;
 };
 
 }  // namespace tig_gamma

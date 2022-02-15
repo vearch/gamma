@@ -259,7 +259,7 @@ int GammaIndexBinaryIVF::Indexing() {
     }
   }
 
-  train(num, train_vec);
+  faiss::IndexBinaryIVF::train(num, train_vec);
 
   LOG(INFO) << "train successed!";
   return 0;

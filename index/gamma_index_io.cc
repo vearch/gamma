@@ -129,10 +129,9 @@ int WriteInvertedLists(faiss::IOWriter *f,
 
   for (size_t i = 0; i < rt_data->buckets_num_; i++) {
     if (sizes[i] > 0) {
-      {
-        WRITEANDCHECK(rt_data->cur_invert_ptr_->codes_array_[i],
-                      sizes[i] * rt_data->code_bytes_per_vec_);
-      }
+      WRITEANDCHECK(rt_data->cur_invert_ptr_->codes_array_[i],
+                    sizes[i] * rt_data->code_bytes_per_vec_);
+
       WRITEANDCHECK(rt_data->cur_invert_ptr_->idx_array_[i], sizes[i]);
     }
   }
@@ -143,7 +142,8 @@ int WriteInvertedLists(faiss::IOWriter *f,
 }
 
 int ReadInvertedLists(faiss::IOReader *f,
-                      realtime::RTInvertIndex *rt_invert_index) {
+                      realtime::RTInvertIndex *rt_invert_index,
+                      int &indexed_vec_count) {
   realtime::RealTimeMemData *rt_data = rt_invert_index->cur_ptr_;
   uint32_t h;
   size_t buckets_num = 0, code_bytes = 0;
@@ -167,6 +167,7 @@ int ReadInvertedLists(faiss::IOReader *f,
   for (long bno = 0; (size_t)bno < rt_data->buckets_num_; ++bno) {
     if (sizes[bno] == 0) continue;
 
+    indexed_vec_count += sizes[bno];
     if (rt_data->ExtendBucketIfNeed(bno, sizes[bno])) {
       LOG(ERROR) << "loading, extend bucket error";
       return INTERNAL_ERR;
@@ -185,6 +186,7 @@ int ReadInvertedLists(faiss::IOReader *f,
         rt_data->cur_invert_ptr_->ExtendIDs();
       }
       rt_data->cur_invert_ptr_->vid_bucket_no_pos_[ids[pos]] = bno << 32 | pos;
+      indexed_vec_count -= rt_data->cur_invert_ptr_->deleted_nums_[bno];
     }
 
     rt_data->cur_invert_ptr_->retrieve_idx_pos_[bno] = sizes[bno];

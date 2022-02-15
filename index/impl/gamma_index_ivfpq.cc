@@ -297,7 +297,7 @@ int GammaIVFPQIndex::Indexing() {
   // merge vectors
   int raw_d = raw_vec->MetaInfo()->Dimension();
   const uint8_t *train_raw_vec = nullptr;
-  utils::ScopeDeleter1<uint8_t> del_train_raw_vec;
+  utils::ScopeDeleter<uint8_t> del_train_raw_vec;
   if (lens.size() == 1) {
     train_raw_vec = headers.Get(0);
   } else {
@@ -324,7 +324,7 @@ int GammaIVFPQIndex::Indexing() {
   }
   
   const float *xt = nullptr;
-  utils::ScopeDeleter1<float> del_xt;
+  utils::ScopeDeleter<float> del_xt;
   if (opq_ != nullptr) {
     opq_->train(num, train_vec);
     xt = opq_->apply(num, train_vec);
@@ -336,7 +336,7 @@ int GammaIVFPQIndex::Indexing() {
   faiss::IndexIVFPQ::train(num, xt);
 
   if (d_ > raw_d) {
-    delete train_vec;
+    delete[] train_vec;
   }
 
   LOG(INFO) << "train successed!";
@@ -367,7 +367,7 @@ int GammaIVFPQIndex::Update(const std::vector<int64_t> &ids,
   int raw_d = vector_->MetaInfo()->Dimension();
   for (size_t i = 0; i < ids.size(); i++) {
     const float *vec = nullptr;
-    utils::ScopeDeleter1<float> del_vec;
+    utils::ScopeDeleter<float> del_vec;
     const float *add_vec = reinterpret_cast<const float *>(vecs[i]);
     if (d_ > raw_d) {
       float *extend_vec = new float[d_];
@@ -378,7 +378,7 @@ int GammaIVFPQIndex::Update(const std::vector<int64_t> &ids,
       vec = add_vec;
     }
     const float *applied_vec = nullptr;
-    utils::ScopeDeleter1<float> del_applied;
+    utils::ScopeDeleter<float> del_applied;
     if (opq_ != nullptr) {
       applied_vec = opq_->apply(1, vec);
       del_applied.set(applied_vec == vec ? nullptr : applied_vec);
@@ -391,7 +391,7 @@ int GammaIVFPQIndex::Update(const std::vector<int64_t> &ids,
     std::vector<uint8_t> xcodes;
     xcodes.resize(code_size);
     const float *to_encode = nullptr;
-    utils::ScopeDeleter1<float> del_to_encode;
+    utils::ScopeDeleter<float> del_to_encode;
 
     if (by_residual) {
       to_encode = compute_residuals(quantizer, 1, applied_vec, &idx);
@@ -434,7 +434,7 @@ bool GammaIVFPQIndex::Add(int n, const uint8_t *vec) {
   }
 
   const float *applied_vec = nullptr;
-  utils::ScopeDeleter1<float> del_applied;
+  utils::ScopeDeleter<float> del_applied;
   if (opq_ != nullptr) {
     applied_vec = opq_->apply(n, add_vec_head);
     del_applied.set(applied_vec == add_vec_head ? nullptr : applied_vec);
@@ -536,7 +536,7 @@ int GammaIVFPQIndex::Search(RetrievalContext *retrieval_context, int n,
 
   const float *xq = reinterpret_cast<const float *>(x);
   const float *applied_xq = nullptr;
-  utils::ScopeDeleter1<float> del_applied;
+  utils::ScopeDeleter<float> del_applied;
   if (opq_ == nullptr) {
     applied_xq = xq;
   } else {
@@ -695,7 +695,7 @@ void GammaIVFPQIndex::search_preassigned(
   int raw_d = vector_->MetaInfo()->Dimension();
   // for opq, rerank need raw vector
   float *vec_q = nullptr;
-  utils::ScopeDeleter1<float> del_vec_q;
+  utils::ScopeDeleter<float> del_vec_q;
   if (d > raw_d) {
     float *vec = new float[n * d];
 
@@ -708,7 +708,7 @@ void GammaIVFPQIndex::search_preassigned(
   }
   
   float *vec_applied_q = nullptr;
-  utils::ScopeDeleter1<float> del_applied_q;
+  utils::ScopeDeleter<float> del_applied_q;
   if (d > raw_d) {
     float *applied_vec = new float[n * d];
 
@@ -971,14 +971,12 @@ int GammaIVFPQIndex::Dump(const std::string &dir) {
   if (opq_ != nullptr)
     write_opq(opq_, f);
 
-  int indexed_count = indexed_vec_count_;
   if (WriteInvertedLists(f, rt_invert_index_ptr_)) {
     LOG(ERROR) << "write invert list error, index name=" << index_name;
     return INTERNAL_ERR;
   }
-  WRITE1(indexed_count);
 
-  LOG(INFO) << "dump:" << IVFPQToString(ivpq, opq_) << ", indexed count=" << indexed_count;
+  LOG(INFO) << "dump:" << IVFPQToString(ivpq, opq_) << ", indexed count=" << indexed_vec_count_;
   return 0;
 }
 
@@ -1010,18 +1008,17 @@ int GammaIVFPQIndex::Load(const std::string &index_dir) {
     read_opq(opq_, f);
   }
 
-  int ret = ReadInvertedLists(f, rt_invert_index_ptr_);
+  int ret = ReadInvertedLists(f, rt_invert_index_ptr_, indexed_vec_count_);
   if (ret == FORMAT_ERR) {
     indexed_vec_count_ = 0;
     LOG(INFO) << "unsupported inverted list format, it need rebuilding!";
   } else if (ret == 0) {
-    READ1(indexed_vec_count_);
-    if (indexed_vec_count_ < 0 ||
-        indexed_vec_count_ > (int)vector_->MetaInfo()->size_) {
-      LOG(ERROR) << "invalid indexed count [" << indexed_vec_count_ 
-                 << "] vector size [" << vector_->MetaInfo()->size_ << "]";
-      return INTERNAL_ERR;
-    }
+    // if (indexed_vec_count_ < 0 ||
+    //     indexed_vec_count_ > (int)vector_->MetaInfo()->size_) {
+    //   LOG(ERROR) << "invalid indexed count [" << indexed_vec_count_ 
+    //              << "] vector size [" << vector_->MetaInfo()->size_ << "]";
+    //   return INTERNAL_ERR;
+    // }
     // precomputed table not stored. It is cheaper to recompute it
     ivpq->use_precomputed_table = 0;
     if (ivpq->by_residual) ivpq->precompute_table();
