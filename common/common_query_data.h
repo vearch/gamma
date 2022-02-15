@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <functional>
 
 namespace tig_gamma {
@@ -45,22 +46,22 @@ struct VectorResult {
 
   ~VectorResult() {
     if (dists) {
-      delete dists;
+      delete[] dists;
       dists = nullptr;
     }
 
     if (docids) {
-      delete docids;
+      delete[] docids;
       docids = nullptr;
     }
 
     if (sources) {
-      delete sources;
+      delete[] sources;
       sources = nullptr;
     }
 
     if (source_lens) {
-      delete source_lens;
+      delete[] source_lens;
       source_lens = nullptr;
     }
   }
@@ -175,6 +176,92 @@ struct VectorResult {
   int *source_lens;
   std::vector<int> total;
   std::vector<int> idx;
+};
+
+struct VectorDocField {
+  std::string name;
+  double score;
+  char *source;
+  int source_len;
+};
+
+struct VectorDoc {
+  VectorDoc() {
+    docid = -1;
+    score = 0.0f;
+  }
+
+  ~VectorDoc() {
+    if (fields) {
+      delete[] fields;
+      fields = nullptr;
+    }
+  }
+
+  bool init(std::string *vec_names, int vec_num) {
+    if (vec_num <= 0) {
+      fields = nullptr;
+      fields_len = 0;
+      return true;
+    }
+    fields = new (std::nothrow) VectorDocField[vec_num];
+    if (fields == nullptr) {
+      return false;
+    }
+    for (int i = 0; i < vec_num; i++) {
+      fields[i].name = vec_names[i];
+    }
+    fields_len = vec_num;
+    return true;
+  }
+
+  int docid;
+  double score;
+  struct VectorDocField *fields;
+  int fields_len;
+};
+
+struct GammaResult {
+  GammaResult() {
+    topn = 0;
+    total = 0;
+    results_count = 0;
+    docs = nullptr;
+  }
+  ~GammaResult() {
+    if (docs) {
+      for (int i = 0; i < topn; i++) {
+        if (docs[i]) {
+          delete docs[i];
+          docs[i] = nullptr;
+        }
+      }
+      delete[] docs;
+      docs = nullptr;
+    }
+  }
+
+  bool init(int n, std::string *vec_names, int vec_num) {
+    topn = n;
+    docs = new (std::nothrow) VectorDoc *[topn];
+    if (!docs) {
+      // LOG(ERROR) << "docs in CommonDocs init error!";
+      return false;
+    }
+    for (int i = 0; i < n; i++) {
+      docs[i] = new VectorDoc();
+      if (!docs[i]->init(vec_names, vec_num)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  int topn;
+  int total;
+  int results_count;
+
+  VectorDoc **docs;
 };
 
 }

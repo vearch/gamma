@@ -39,6 +39,7 @@ int MmapRawVectorIO::Load(int vec_num) {
     return INTERNAL_ERR;
   }
   raw_vector->MetaInfo()->size_ = vec_num;
+
   if (dynamic_cast<MemoryRawVector *>(raw_vector)) {
     MemoryRawVector *memory_vec = dynamic_cast<MemoryRawVector *>(raw_vector);
     std::vector<const uint8_t *> values;
@@ -48,10 +49,16 @@ int MmapRawVectorIO::Load(int vec_num) {
       LOG(ERROR) << "Load mmap vector failed";
       return ret;
     }
+
+    const StorageManagerOptions opt =
+        raw_vector->storage_mgr_->GetStorageManagerOptions();
+
+    int fixed_value_bytes = opt.fixed_value_bytes;
     for (size_t i = 0; i < lens.size(); ++i) {
-      for (int j = 0; j < lens[i]; ++j) {
-        memory_vec->AddToMem(values[i] + j * memory_vec->VectorByteSize(),
-                             memory_vec->VectorByteSize());
+      for (size_t j = 0; j < (size_t)lens[i]; ++j) {
+        memory_vec->AddToStore(
+            const_cast<uint8_t *>(values[i] + j * fixed_value_bytes),
+            fixed_value_bytes);
       }
     }
   }

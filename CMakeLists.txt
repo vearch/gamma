@@ -13,6 +13,7 @@ option(BUILD_FAISSLIKE_INDEX "Build faisslike index" off)
 option(BUILD_RELAYOUT "Build relayout index" off)
 option(ENABLE_COVERAGE "Use gcov" off)
 
+
 exec_program(
     "sh"
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
@@ -107,6 +108,11 @@ if(ENABLE_COVERAGE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
+if(BUILD_FAISSLIKE_INDEX)
+    add_definitions(-DFAISSLIKE_INDEX)
+    MESSAGE(STATUS "BUILD_FAISSLIKE_INDEX=ON")
+endif(BUILD_FAISSLIKE_INDEX)
+
 #ADDITIONAL SOURCE DIR
 aux_source_directory(${THIRDPARTY} DIR_SRCS)
 aux_source_directory(${BTREE} DIR_SRCS)
@@ -172,7 +178,6 @@ set(LIB_SRCS ${DIR_SRCS} ${RELAYOUT_SRCS})
 if(BUILD_WITH_GPU)
     message(STATUS "With GPU")
     add_definitions(-DBUILD_GPU) 
-    
     set(GAMMA_GPU ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/gpu)
 
     aux_source_directory(${GAMMA_GPU} DIR_SRCS)
@@ -241,7 +246,3 @@ endif(BUILD_TEST)
 if(BUILD_TOOLS)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tools)
 endif(BUILD_TOOLS)
-
-if(BUILD_FAISSLIKE_INDEX)
-    add_definitions(-DFAISSLIKE_INDEX)
-endif(BUILD_FAISSLIKE_INDEX)

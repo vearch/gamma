@@ -15,16 +15,16 @@
 #include "c_api/api_data/gamma_batch_result.h"
 #include "c_api/api_data/gamma_doc.h"
 #include "c_api/api_data/gamma_table.h"
+#include "util/bitmap_manager.h"
 #include "io/io_common.h"
 #include "storage/storage_manager.h"
 #include "table_define.h"
 #include "util/log.h"
 
-using namespace tig_gamma::table;
+
 
 namespace tig_gamma {
 
-namespace table {
 
 class TableIO;
 
@@ -48,7 +48,8 @@ class Table {
    * @param table_params unused
    * @return 0 if successed
    */
-  int CreateTable(TableInfo &table, TableParams &table_params);
+  int CreateTable(TableInfo &table, TableParams &table_params,
+                  bitmap::BitmapManager *bitmap_mgr);
 
   /** add a doc to table
    *
@@ -91,13 +92,20 @@ class Table {
 
   long GetMemoryBytes();
 
-  int GetDocInfo(std::string &id, Doc &doc, std::vector<std::string> &fields);
-  int GetDocInfo(const int docid, Doc &doc, std::vector<std::string> &fields);
+  const uint8_t *GetDocBuffer(int docid);
+
+  int GetDocInfo(const std::string &key, Doc &doc,
+                 const std::vector<std::string> &fields);
+  int GetDocInfo(const int docid, Doc &doc,
+                 const std::vector<std::string> &fields);
 
   int GetFieldRawValue(int docid, const std::string &field_name,
                        std::string &value, const uint8_t *doc_v = nullptr);
 
   int GetFieldRawValue(int docid, int field_id, std::string &value,
+                       const uint8_t *doc_v = nullptr);
+  
+  int GetFieldRawValue(int docid, int field_id, std::vector<uint8_t> &value,
                        const uint8_t *doc_v = nullptr);
 
   int GetFieldType(const std::string &field, DataType &type);
@@ -108,6 +116,12 @@ class Table {
 
   int GetAttrIdx(const std::string &field) const;
 
+  const std::string &GetName() { return name_; }
+
+  void SetKeyFieldName(std::string name) { key_field_name_ = name; }
+
+  const std::string &GetKeyFieldName() { return key_field_name_; }
+
   uint8_t StringFieldNum() const { return string_field_num_; }
 
   int Load(int &doc_num);
@@ -116,7 +130,7 @@ class Table {
 
   int FieldsNum() { return attrs_.size(); }
 
-  std::map<std::string, int> &FieldMap() { return attr_idx_map_; }
+  const std::map<std::string, int> &FieldMap() { return attr_idx_map_; }
 
   DumpConfig *GetDumpConfig() { return table_params_; }
 
@@ -124,9 +138,9 @@ class Table {
 
   bool IsCompress() { return b_compress_; }
 
-  bool AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size);
+  bool AlterCacheSize(int cache_size, int str_cache_size);
 
-  void GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size);
+  void GetCacheSize(int &cache_size, int &str_cache_size);
 
   int GetStorageManagerSize();
 
@@ -138,13 +152,22 @@ class Table {
 
   int AddField(const std::string &name, DataType ftype, bool is_index);
 
+  int ParseStrPosition(const uint8_t *buf, uint32_t &block_id,
+                       in_block_pos_t &in_block_pos, str_len_t &len);
+
+  int SetStrPosition(uint8_t *buf, uint32_t block_id,
+                     in_block_pos_t in_block_pos, str_len_t len);
+
+  void CheckStrLen(const std::string &field_name, str_len_t &len);
+
   std::string name_;   // table name
   int item_length_;    // every doc item length
   uint8_t field_num_;  // field number
   uint8_t string_field_num_;
   int key_idx_;  // key postion
+  std::string key_field_name_;
 
-  std::map<std::string, int> attr_offset_map_;        // <field_id, field_name>
+  std::map<std::string, int> attr_offset_map_;     // <field_id, field_name>
   
   std::map<int, std::string> idx_attr_map_;        // <field_id, field_name>
   std::map<std::string, int> attr_idx_map_;        // <field_name, field_id>
@@ -162,9 +185,9 @@ class Table {
 
   bool table_created_;
 
+  bitmap::BitmapManager *bitmap_mgr_;
   TableParams *table_params_;
   StorageManager *storage_mgr_;
 };
 
-}  // namespace table
 }  // namespace tig_gamma

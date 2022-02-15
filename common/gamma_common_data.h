@@ -36,52 +36,9 @@ enum class ResultCode : std::uint16_t {
 
 enum class VectorStorageType : std::uint8_t { MemoryOnly, Mmap, RocksDB };
 
-struct VectorDocField {
-  std::string name;
-  double score;
-  char *source;
-  int source_len;
-};
-
-struct VectorDoc {
-  VectorDoc() {
-    docid = -1;
-    score = 0.0f;
-  }
-
-  ~VectorDoc() {
-    if (fields) {
-      delete[] fields;
-      fields = nullptr;
-    }
-  }
-
-  bool init(std::string *vec_names, int vec_num) {
-    if (vec_num <= 0) {
-      fields = nullptr;
-      fields_len = 0;
-      return true;
-    }
-    fields = new (std::nothrow) VectorDocField[vec_num];
-    if (fields == nullptr) {
-      return false;
-    }
-    for (int i = 0; i < vec_num; i++) {
-      fields[i].name = vec_names[i];
-    }
-    fields_len = vec_num;
-    return true;
-  }
-
-  int docid;
-  double score;
-  struct VectorDocField *fields;
-  int fields_len;
-};
-
 class GammaSearchCondition : public RetrievalContext {
  public:
-  GammaSearchCondition() {
+  GammaSearchCondition(PerfTool *perf_tool) {
     range_query_result = nullptr;
     topn = 0;
     multi_vector_rank = false;
@@ -92,10 +49,8 @@ class GammaSearchCondition : public RetrievalContext {
     has_rank = 1;
     min_score = std::numeric_limits<float>::min();
     max_score = std::numeric_limits<float>::max();
-
-#ifdef BUILD_GPU
+    perf_tool_ = perf_tool;
     table = nullptr;
-#endif  // BUILD_GPU
   }
 
   GammaSearchCondition(GammaSearchCondition *condition) {
@@ -107,30 +62,24 @@ class GammaSearchCondition : public RetrievalContext {
     brute_force_search = condition->brute_force_search;
     l2_sqrt = condition->l2_sqrt;
     has_rank = condition->has_rank;
+    perf_tool_ = condition->perf_tool_;
 
-#ifdef BUILD_GPU
     range_filters = condition->range_filters;
     term_filters = condition->term_filters;
     table = condition->table;
-#endif  // BUILD_GPU
   }
 
   ~GammaSearchCondition() {
     range_query_result = nullptr;  // should not delete
-
-#ifdef BUILD_GPU
     table = nullptr;  // should not delete
-#endif                // BUILD_GPU
   }
 
   MultiRangeQueryResults *range_query_result;
 
-#ifdef BUILD_GPU
   std::vector<struct RangeFilter> range_filters;
   std::vector<struct TermFilter> term_filters;
 
   Table *table;
-#endif  // BUILD_GPU
 
   int topn;
   bool multi_vector_rank;
@@ -148,11 +97,13 @@ class GammaSearchCondition : public RetrievalContext {
   };
 
   bool IsValid(int id) const override {
+  #ifndef FAISSLIKE_INDEX
     int docid = raw_vec->VidMgr()->VID2DocID(id);
     if ((range_query_result != nullptr && not range_query_result->Has(docid)) ||
         docids_bitmap->Test(docid) == true) {
       return false;
     }
+  #endif
     return true;
   };
 
@@ -184,49 +135,6 @@ struct GammaQuery {
 
   std::vector<struct VectorQuery> vec_query;
   GammaSearchCondition *condition;
-};
-
-struct GammaResult {
-  GammaResult() {
-    topn = 0;
-    total = 0;
-    results_count = 0;
-    docs = nullptr;
-  }
-  ~GammaResult() {
-    if (docs) {
-      for (int i = 0; i < topn; i++) {
-        if (docs[i]) {
-          delete docs[i];
-          docs[i] = nullptr;
-        }
-      }
-      delete[] docs;
-      docs = nullptr;
-    }
-  }
-
-  bool init(int n, std::string *vec_names, int vec_num) {
-    topn = n;
-    docs = new (std::nothrow) VectorDoc *[topn];
-    if (!docs) {
-      // LOG(ERROR) << "docs in CommonDocs init error!";
-      return false;
-    }
-    for (int i = 0; i < n; i++) {
-      docs[i] = new VectorDoc();
-      if (!docs[i]->init(vec_names, vec_num)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  int topn;
-  int total;
-  int results_count;
-
-  VectorDoc **docs;
 };
 
 }  // namespace tig_gamma

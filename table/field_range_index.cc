@@ -584,7 +584,7 @@ int FieldRangeIndex::Delete(std::string &key, int value) {
                              sizeof(Node *));
 
         if (ret < 0) {
-          LOG(ERROR) << "Cannot find docid [" << value << "] in range index";
+          LOG(WARNING) << "Cannot find docid [" << value << "] in range index";
           return;
         }
         pthread_rwlock_wrlock(&rw_lock_);
@@ -899,7 +899,7 @@ long FieldRangeIndex::ScanMemory(long &dense, long &sparse) {
 }
 
 MultiFieldsRangeIndex::MultiFieldsRangeIndex(std::string &path,
-                                             table::Table *table)
+                                             Table *table)
     : path_(path) {
   table_ = table;
   fields_.resize(table->FieldsNum());

@@ -22,7 +22,6 @@ using std::string;
 using std::vector;
 
 namespace tig_gamma {
-namespace table {
 
 Table::Table(const string &root_path, bool b_compress) {
   item_length_ = 0;
@@ -35,12 +34,15 @@ Table::Table(const string &root_path, bool b_compress) {
 
   table_created_ = false;
   last_docid_ = -1;
+  bitmap_mgr_ = nullptr;
   table_params_ = nullptr;
   storage_mgr_ = nullptr;
+  key_field_name_ = "_id";
   LOG(INFO) << "Table created success!";
 }
 
 Table::~Table() {
+  bitmap_mgr_ = nullptr;
   CHECK_DELETE(table_params_);
   if (storage_mgr_) {
     delete storage_mgr_;
@@ -55,16 +57,16 @@ int Table::Load(int &num) {
   LOG(INFO) << "Load doc_num [" << doc_num << "] truncate to [" << num << "]";
   doc_num = num;
 
-  const std::string str_id = "_id";
-  const auto &iter = attr_idx_map_.find(str_id);
+  const auto &iter = attr_idx_map_.find(key_field_name_);
   if (iter == attr_idx_map_.end()) {
-    LOG(ERROR) << "Cannot find field [" << str_id << "]";
+    LOG(ERROR) << "Cannot find field [" << key_field_name_ << "]";
     return -1;
   }
 
   int idx = iter->second;
   if (id_type_ == 0) {
     for (int i = 0; i < doc_num; ++i) {
+      if (bitmap_mgr_->Test(i)) { continue; }
       std::string key;
       GetFieldRawValue(i, idx, key);
       int64_t k = utils::StringToInt64(key);
@@ -72,6 +74,7 @@ int Table::Load(int &num) {
     }
   } else {
     for (int i = 0; i < doc_num; ++i) {
+      if (bitmap_mgr_->Test(i)) { continue; }
       long key = -1;
       std::string key_str;
       GetFieldRawValue(i, idx, key_str);
@@ -92,10 +95,12 @@ int Table::Sync() {
   return ret;
 }
 
-int Table::CreateTable(TableInfo &table, TableParams &table_params) {
+int Table::CreateTable(TableInfo &table, TableParams &table_params,
+                       bitmap::BitmapManager *bitmap_mgr) {
   if (table_created_) {
     return -10;
   }
+  bitmap_mgr_ = bitmap_mgr;
   name_ = table.Name();
   std::vector<struct FieldInfo> &fields = table.Fields();
 
@@ -171,7 +176,7 @@ int Table::AddField(const string &name, DataType ftype, bool is_index) {
     LOG(ERROR) << "Duplicate field " << name;
     return -1;
   }
-  if (name == "_id") {
+  if (name == key_field_name_) {
     key_idx_ = field_num_;
     id_type_ = ftype == DataType::STRING ? 0 : 1;
   }
@@ -190,6 +195,36 @@ int Table::AddField(const string &name, DataType ftype, bool is_index) {
   ++field_num_;
   return 0;
 }
+
+int Table::ParseStrPosition(const uint8_t *buf, uint32_t &block_id,
+                            in_block_pos_t &in_block_pos, str_len_t &len) {
+  memcpy(&block_id, buf, sizeof(block_id));
+  memcpy(&in_block_pos, buf + sizeof(block_id), sizeof(in_block_pos));
+  memcpy(&len, buf + sizeof(block_id) + sizeof(in_block_pos), sizeof(len));
+  return 0;
+}
+
+int Table::SetStrPosition(uint8_t *buf, uint32_t block_id,
+                          in_block_pos_t in_block_pos, str_len_t len) {
+  memcpy(buf, &block_id, sizeof(block_id));
+  memcpy(buf + sizeof(block_id), &in_block_pos, sizeof(in_block_pos));
+  memcpy(buf + sizeof(block_id) + sizeof(in_block_pos), &len, sizeof(len));
+  return 0;
+}
+
+void Table::CheckStrLen(const std::string &field_name, str_len_t &len) {
+  if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[field_name] == true) {
+    LOG(ERROR) << "Str len[" << len << "] greater than STR_MAX_INDEX_LEN["
+               << STR_MAX_INDEX_LEN << "] does not support indexing.";
+    len = STR_MAX_INDEX_LEN;
+  }
+  if (len > MAX_STRING_LEN) {
+    LOG(ERROR) << "Str len[" << len << "] > MAX_STRING_LEN[" << MAX_STRING_LEN
+               << "]. Truncation occurs.";
+    len = MAX_STRING_LEN;
+  }
+}
+
 
 int Table::GetDocIDByKey(const std::string &key, int &docid) {
   if (id_type_ == 0) {
@@ -213,11 +248,11 @@ int Table::GetKeyByDocid(int docid, std::string &key) {
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
   }
-  const uint8_t *doc_value;
+  const uint8_t *doc_value = nullptr;
   if (0 != storage_mgr_->Get(docid, doc_value)) {
     return -1;
   }
-  int field_id = attr_idx_map_["_id"];
+  int field_id = attr_idx_map_[key_field_name_];
   GetFieldRawValue(docid, field_id, key, doc_value);
   delete[] doc_value;
 
@@ -266,27 +301,13 @@ int Table::Add(const std::string &key, const std::vector<struct Field> &fields,
       memcpy(doc_value + offset, field_value.value.c_str(), type_size);
     } else {
       str_len_t len = field_value.value.size();
-      if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
-        LOG(ERROR) << "String length[" << len
-                   << "] greater than STR_MAX_INDEX_LEN[" << STR_MAX_INDEX_LEN
-                   << "] does not support indexing.";
-        len = STR_MAX_INDEX_LEN;
-      }
-      if (len > MAX_STRING_LEN) {
-        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN["
-                   << MAX_STRING_LEN << "]. Truncation occurs.";
-        len = MAX_STRING_LEN;
-      }
+      CheckStrLen(name, len);
       uint32_t block_id;
       in_block_pos_t in_block_pos;
       storage_mgr_->AddString(field_value.value.c_str(), len, block_id,
                               in_block_pos);
 
-      memcpy(doc_value + offset, &block_id, sizeof(block_id));
-      memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
-             sizeof(in_block_pos));
-      memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos), &len,
-             sizeof(len));
+      SetStrPosition(doc_value + offset, block_id, in_block_pos, len);
     }
   }
 
@@ -341,6 +362,14 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
     std::vector<Field> &fields = doc.TableFields();
     uint8_t doc_value[item_length_];
 
+    if(fields.size() == 0) {
+        Field field;
+        field.name = "_id";
+        field.value = doc.Key();
+        field.datatype = DataType::STRING;
+        fields.push_back(field);
+    }
+
     for (size_t j = 0; j < fields.size(); ++j) {
       const auto &field_value = fields[j];
       const string &name = field_value.name;
@@ -354,27 +383,13 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
         memcpy(doc_value + offset, field_value.value.c_str(), type_size);
       } else {
         str_len_t len = field_value.value.size();
-        if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
-          LOG(ERROR) << "String length[" << len
-                     << "] greater than STR_MAX_INDEX_LEN[" << STR_MAX_INDEX_LEN
-                     << "] does not support indexing.";
-          len = STR_MAX_INDEX_LEN;
-        }
-        if (len > MAX_STRING_LEN) {
-          LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN["
-                     << MAX_STRING_LEN << "]. Truncation occurs.";
-          len = MAX_STRING_LEN;
-        }
+        CheckStrLen(name, len);
 
         uint32_t block_id;
         in_block_pos_t in_block_pos;
         storage_mgr_->AddString(field_value.value.c_str(), len, block_id,
                                 in_block_pos);
-        memcpy(doc_value + offset, &block_id, sizeof(block_id));
-        memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
-               sizeof(in_block_pos));
-        memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos),
-               &len, sizeof(len));
+        SetStrPosition(doc_value + offset, block_id, in_block_pos, len);
       }
     }
 
@@ -405,12 +420,13 @@ int Table::BatchAdd(int start_id, int batch_size, int docid,
 int Table::Update(const std::vector<Field> &fields, int docid) {
   if (fields.size() == 0) return 0;
 
-  const uint8_t *ori_doc_value;
+  const uint8_t *ori_doc_value = nullptr;
   storage_mgr_->Get(docid, ori_doc_value);
 
   uint8_t doc_value[item_length_];
 
   memcpy(doc_value, ori_doc_value, item_length_);
+  delete[] ori_doc_value;
 
   for (size_t i = 0; i < fields.size(); ++i) {
     const struct Field &field_value = fields[i];
@@ -425,28 +441,19 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
     int offset = idx_attr_offset_[field_id];
 
     if (field_value.datatype == DataType::STRING) {
-      str_len_t len = field_value.value.size();
-      if (len > STR_MAX_INDEX_LEN && attr_is_index_map_[name] == true) {
-        LOG(ERROR) << "String length[" << len
-                   << "] greater than STR_MAX_INDEX_LEN[" << STR_MAX_INDEX_LEN
-                   << "] does not support indexing.";
-        len = STR_MAX_INDEX_LEN;
-      }
-      if (len > MAX_STRING_LEN) {
-        LOG(ERROR) << "String length[" << len << "] > MAX_STRING_LEN["
-                   << MAX_STRING_LEN << "]. Truncation occurs.";
-        len = MAX_STRING_LEN;
-      }
+      uint32_t old_block_id;
+      in_block_pos_t old_in_block_pos;
+      str_len_t old_len;
+      ParseStrPosition(doc_value + offset, old_block_id, old_in_block_pos,
+                       old_len);
 
-      uint32_t block_id;
-      in_block_pos_t in_block_pos;
-      storage_mgr_->UpdateString(docid, field_value.value.c_str(), len,
+      str_len_t len = field_value.value.size();
+      CheckStrLen(name, len);
+      uint32_t block_id = old_block_id;
+      in_block_pos_t in_block_pos = old_in_block_pos;
+      storage_mgr_->UpdateString(docid, field_value.value.c_str(), old_len, len,
                                  block_id, in_block_pos);
-      memcpy(doc_value + offset, &block_id, sizeof(block_id));
-      memcpy(doc_value + offset + sizeof(block_id), &in_block_pos,
-             sizeof(in_block_pos));
-      memcpy(doc_value + offset + sizeof(block_id) + sizeof(in_block_pos), &len,
-             sizeof(len));
+      SetStrPosition(doc_value + offset, block_id, in_block_pos, len);
     } else {
       memcpy(doc_value + offset, field_value.value.data(),
              field_value.value.size());
@@ -454,7 +461,6 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
   }
 
   storage_mgr_->Update(docid, doc_value, item_length_);
-  delete[] ori_doc_value;
   return 0;
 }
 
@@ -479,10 +485,16 @@ long Table::GetMemoryBytes() {
   return total_mem_bytes;
 }
 
-int Table::GetDocInfo(std::string &id, Doc &doc,
-                      std::vector<std::string> &fields) {
+const uint8_t *Table::GetDocBuffer(int docid) {
+  const uint8_t *doc_value = nullptr;
+  storage_mgr_->Get(docid, doc_value);
+  return doc_value;
+}
+
+int Table::GetDocInfo(const std::string &key, Doc &doc,
+                      const std::vector<std::string> &fields) {
   int doc_id = 0;
-  int ret = GetDocIDByKey(id, doc_id);
+  int ret = GetDocIDByKey(key, doc_id);
   if (ret < 0) {
     return ret;
   }
@@ -490,47 +502,45 @@ int Table::GetDocInfo(std::string &id, Doc &doc,
 }
 
 int Table::GetDocInfo(const int docid, Doc &doc,
-                      std::vector<std::string> &fields) {
+                      const std::vector<std::string> &fields) {
   if (docid > last_docid_) {
     LOG(ERROR) << "doc [" << docid << "] in front of [" << last_docid_ << "]";
     return -1;
   }
-
-  const uint8_t *doc_value;
+  const uint8_t *doc_value = nullptr;
   int ret = storage_mgr_->Get(docid, doc_value);
   if (ret != 0) {
     return ret;
   }
-
   std::vector<struct Field> &table_fields = doc.TableFields();
 
+  auto assign_field = [&](struct Field &field, const std::string &field_name) {
+    DataType type = attr_type_map_[field_name];
+    std::string source;
+    field.name = field_name;
+    field.source = source;
+    field.datatype = type;
+  };
+
+  int i = 0;
   if (fields.size() == 0) {
-    int i = 0;
     table_fields.resize(attr_type_map_.size());
 
     for (const auto &it : attr_idx_map_) {
-      DataType type = attr_type_map_[it.first];
-      std::string source;
-      table_fields[i].name = it.first;
-      table_fields[i].source = source;
-      table_fields[i].datatype = type;
+      assign_field(table_fields[i], it.first);
       GetFieldRawValue(docid, it.second, table_fields[i].value, doc_value);
       ++i;
     }
   } else {
     table_fields.resize(fields.size());
-    int i = 0;
-    for (std::string &f : fields) {
+    for (const std::string &f : fields) {
       const auto &iter = attr_idx_map_.find(f);
       if (iter == attr_idx_map_.end()) {
         LOG(ERROR) << "Cannot find field [" << f << "]";
+        continue;
       }
       int field_idx = iter->second;
-      DataType type = attr_type_map_[f];
-      std::string source;
-      table_fields[i].name = f;
-      table_fields[i].source = source;
-      table_fields[i].datatype = type;
+      assign_field(table_fields[i], f);
       GetFieldRawValue(docid, field_idx, table_fields[i].value, doc_value);
       ++i;
     }
@@ -555,9 +565,9 @@ int Table::GetFieldRawValue(int docid, int field_id, std::string &value,
   if ((docid < 0) or (field_id < 0 || field_id >= field_num_)) return -1;
 
   const uint8_t *doc_value = doc_v;
-  bool free = false;
+  bool is_free = false;
   if (doc_value == nullptr) {
-    free = true;
+    is_free = true;
     storage_mgr_->Get(docid, doc_value);
   }
 
@@ -566,24 +576,52 @@ int Table::GetFieldRawValue(int docid, int field_id, std::string &value,
 
   if (data_type == DataType::STRING) {
     uint32_t block_id = 0;
-    memcpy(&block_id, doc_value + offset, sizeof(block_id));
-
     in_block_pos_t in_block_pos = 0;
-    memcpy(&in_block_pos, doc_value + offset + sizeof(block_id),
-           sizeof(in_block_pos));
-
-    str_len_t len;
-    memcpy(&len, doc_value + offset + sizeof(block_id) + sizeof(in_block_pos),
-           sizeof(len));
-    std::string str;
-    storage_mgr_->GetString(docid, str, block_id, in_block_pos, len);
-    value = std::move(str);
+    str_len_t len = 0;
+    ParseStrPosition(doc_value + offset, block_id, in_block_pos, len);
+    storage_mgr_->GetString(docid, value, block_id, in_block_pos, len);
   } else {
     int value_len = FTypeSize(data_type);
     value = std::string((const char *)(doc_value + offset), value_len);
   }
 
-  if (free) {
+  if (is_free) {
+    delete[] doc_value;
+  }
+
+  return 0;
+}
+
+int Table::GetFieldRawValue(int docid, int field_id, std::vector<uint8_t> &value,
+                            const uint8_t *doc_v) {
+  if ((docid < 0) or (field_id < 0 || field_id >= field_num_)) return -1;
+
+  const uint8_t *doc_value = doc_v;
+  bool is_free = false;
+  if (doc_value == nullptr) {
+    is_free = true;
+    storage_mgr_->Get(docid, doc_value);
+  }
+
+  DataType data_type = attrs_[field_id];
+  size_t offset = idx_attr_offset_[field_id];
+
+  if (data_type == DataType::STRING) {
+    uint32_t block_id = 0;
+    in_block_pos_t in_block_pos = 0;
+    str_len_t len = 0;
+    ParseStrPosition(doc_value + offset, block_id, in_block_pos, len);
+    std::string str;
+    storage_mgr_->GetString(docid, str, block_id, in_block_pos, len);
+    value.resize(str.size());
+    memcpy(value.data(), str.c_str(), str.size());
+  } else {
+    int value_len = FTypeSize(data_type);
+    value.resize(value_len);
+    memcpy(value.data(), doc_value + offset, value_len);
+  }
+
+  if (is_free) {
     delete[] doc_value;
   }
 
@@ -619,11 +657,11 @@ int Table::GetAttrIdx(const std::string &field) const {
   return (iter != attr_idx_map_.end()) ? iter->second : -1;
 }
 
-bool Table::AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size) {
+bool Table::AlterCacheSize(int cache_size, int str_cache_size) {
   return storage_mgr_->AlterCacheSize(cache_size, str_cache_size);
 }
 
-void Table::GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size) {
+void Table::GetCacheSize(int &cache_size, int &str_cache_size) {
   storage_mgr_->GetCacheSize(cache_size, str_cache_size);
 }
 
@@ -636,5 +674,4 @@ int Table::GetStorageManagerSize() {
   return table_doc_num;
 }
 
-}  // namespace table
 }  // namespace tig_gamma
