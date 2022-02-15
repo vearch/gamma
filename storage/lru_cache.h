@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "util/log.h"
+#include "util/utils.h"
 
 struct ReadFunParameter {
   int fd;
@@ -32,6 +33,8 @@ struct ReadFunParameter {
 #define THRESHOLD_OF_SWAP 250
 #define THRESHOLD_TYPE uint8_t
 #define MAP_GROUP_NUM 100
+
+enum class CacheType : std::uint8_t { LRUCacheType, SimpleCache };
 
 template <typename Value>
 class CacheList {
@@ -281,7 +284,54 @@ class MemoryPool {
 
 template <typename Key, typename FuncToken,
           typename HashFunction = std::hash<Key>>
-class LRUCache {
+class CacheBase {
+ public:
+  using LoadFunc = bool (*)(Key, char *, FuncToken);
+ protected:
+  std::string name_;
+  LoadFunc load_func_;
+  size_t cell_size_;
+  CacheType cache_type_;
+  std::mutex mtx_;
+
+ public:
+  virtual ~CacheBase() {}
+
+  virtual int Init() = 0;
+
+  virtual bool Get(Key key, char *&value) { return true; }
+
+  virtual void Set(Key key, char *value) {}
+
+  virtual bool SetOrGet(Key key, char *&value, FuncToken token) = 0;
+
+  virtual void Update(Key key, const char *buffer, int len, int begin_pos) = 0;
+
+  virtual void AlterCacheSize(size_t cache_size) {}
+
+  virtual int64_t GetMaxSize() { return 0; }
+
+  virtual size_t Count() { return 0; }
+
+  virtual size_t CacheMemBytes() { return 0; }
+
+  virtual size_t GetHits() { return 0; }
+
+  virtual size_t GetSetHits() { return 0; }
+
+  virtual size_t GetMisses() { return 0; }
+
+  virtual std::string &GetName() { return name_; }
+
+  virtual CacheType GetCacheType() { return cache_type_; }
+
+  LoadFunc GetLoadFun() { return load_func_; }
+
+};
+
+template <typename Key, typename FuncToken,
+          typename HashFunction = std::hash<Key>>
+class LRUCache final : public CacheBase<Key, FuncToken, HashFunction> {
  public:
   using LoadFunc = bool (*)(Key, char *, FuncToken);
   using QueueIterator = typename std::list<Key>::iterator;
@@ -305,9 +355,7 @@ class LRUCache {
   };
 
  private:
-  std::string name_;
   size_t max_size_;
-  size_t cell_size_;
   MemoryPool mem_pool_;
   std::unordered_map<Key, std::shared_ptr<InsertInfo>, HashFunction>
       insert_infos_;
@@ -322,35 +370,38 @@ class LRUCache {
 
   // CacheList<Key> queue_;
   std::list<Key> queue_;
-  LoadFunc load_func_;
-  std::mutex mtx_;
   // pthread_rwlock_t rw_lock_;
 
  public:
   LRUCache(std::string name, size_t cache_size, size_t cell_size,
            LoadFunc func) {
-    name_ = name;
-    cell_size_ = cell_size;
+    this->name_ = name;
+    this->cell_size_ = cell_size;
+    this->cache_type_ = CacheType::LRUCacheType;
     max_size_ = (cache_size * 1024 * 1024) / cell_size;
     max_overflow_ = max_size_ / 20;
     if (max_overflow_ > 1000) {
       max_overflow_ = 1000;
     }
     max_size_ -= max_overflow_;
-    load_func_ = func;
-    LOG(INFO) << "LruCache[" << name_ << "] open! Max_size[" << max_size_
+    this->load_func_ = func;
+    LOG(INFO) << "LruCache[" << this->name_ << "] open! Max_size[" << max_size_
               << "], max_overflow[" << max_overflow_ << "]";
   }
 
   virtual ~LRUCache() {
     // pthread_rwlock_destroy(&rw_lock_);
-    LOG(INFO) << "LruCache[" << name_ << "] destroyed successfully!";
+    {
+      std::lock_guard<std::mutex> lock(this->mtx_);
+      Clean();
+    }
+    LOG(INFO) << "LruCache[" << this->name_ << "] destroyed successfully!";
   }
 
   int Init() {
     // queue_.Init();
     mem_pool_.Init((uint32_t)max_size_ + max_overflow_ + 500,
-                   (uint32_t)cell_size_);
+                   (uint32_t)(this->cell_size_));
     // int ret = pthread_rwlock_init(&rw_lock_, nullptr);
     // if (ret != 0) {
     //   LOG(ERROR) << "LruCache[" << name_
@@ -363,7 +414,7 @@ class LRUCache {
   bool Get(Key key, char *&value) {
     bool res;
     {
-      std::lock_guard<std::mutex> lock(mtx_);
+      std::lock_guard<std::mutex> lock(this->mtx_);
       // pthread_rwlock_rdlock(&rw_lock_);
       res = GetImpl(key, value);
       // pthread_rwlock_unlock(&rw_lock_);
@@ -374,7 +425,7 @@ class LRUCache {
     else
       ++misses_;
     if (hits_ % 10000000 == 0 && hits_ != last_show_log_) {
-      LOG(INFO) << "LruCache[" << name_ << "] cur_size[" << cur_size_
+      LOG(INFO) << "LruCache[" << this->name_ << "] cur_size[" << cur_size_
                 << "] cells_size[" << cells_.size() << "] hits[" << hits_
                 << "] set_hits[" << set_hits_ << "] misses[" << misses_
                 << "] evict_num_[" << evict_num_ << "]";
@@ -384,7 +435,7 @@ class LRUCache {
   }
 
   void Set(Key key, char *value) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> lock(this->mtx_);
     // pthread_rwlock_wrlock(&rw_lock_);
     SetImpl(key, value);
     // pthread_rwlock_unlock(&rw_lock_);
@@ -393,7 +444,7 @@ class LRUCache {
   bool SetOrGet(Key key, char *&value, FuncToken token) {
     std::shared_ptr<InsertInfo> ptr_insert;
     {
-      std::lock_guard<std::mutex> cache_lck(mtx_);
+      std::lock_guard<std::mutex> cache_lck(this->mtx_);
       // pthread_rwlock_wrlock(&rw_lock_);
       bool res = GetImpl(key, value);
       if (res) {
@@ -420,13 +471,13 @@ class LRUCache {
       value = insert->cell_.value;
       return true;
     }
-    bool res = load_func_(key, insert->cell_.value, token);
+    bool res = this->load_func_(key, insert->cell_.value, token);
     if (res) {
       value = insert->cell_.value;
       insert->is_product_ = true;
     }
 
-    std::lock_guard<std::mutex> cache_lck(mtx_);
+    std::lock_guard<std::mutex> cache_lck(this->mtx_);
     // pthread_rwlock_wrlock(&rw_lock_);
     auto ite = insert_infos_.find(key);
     if (res && ite != insert_infos_.end() && ite->second.get() == insert) {
@@ -447,12 +498,12 @@ class LRUCache {
   bool Get2(Key key, char *&value) {
     bool res;
     {
-      std::lock_guard<std::mutex> lock(mtx_);
+      std::lock_guard<std::mutex> lock(this->mtx_);
       res = GetImpl(key, value);
       if (res == false) {
         value = mem_pool_.GetBuffer();
         if (value == nullptr) {
-          LOG(ERROR) << "lrucache[" << name_
+          LOG(ERROR) << "lrucache[" << this->name_
                      << "] mem_pool GetBuffer error, buffer is nullptr:";
         }
       }
@@ -463,7 +514,7 @@ class LRUCache {
     else
       ++misses_;
     if (hits_ % 10000000 == 0 && hits_ != last_show_log_) {
-      LOG(INFO) << "LruCache[" << name_ << "] cur_size[" << cur_size_
+      LOG(INFO) << "LruCache[" << this->name_ << "] cur_size[" << cur_size_
                 << "] cells_size[" << cells_.size() << "] hits[" << hits_
                 << "] set_hits[" << set_hits_ << "] misses[" << misses_
                 << "] evict_num_[" << evict_num_ << "]";
@@ -473,15 +524,15 @@ class LRUCache {
   }
 
   void Set2(Key key, char *buffer) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> lock(this->mtx_);
     if (buffer == nullptr) {
-      LOG(ERROR) << "lrucache[" << name_ << "] Set2 buffer is nullptr";
+      LOG(ERROR) << "lrucache[" << this->name_ << "] Set2 buffer is nullptr";
     }
     SetImpl(key, buffer);
   }
 
   void Evict(Key key) {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> lock(this->mtx_);
     // pthread_rwlock_wrlock(&rw_lock_);
     auto ite = cells_.find(key);
     if (ite == cells_.end()) {
@@ -500,32 +551,48 @@ class LRUCache {
   }
 
   void Update(Key key, const char *buffer, int len, int begin_pos) {
-    std::lock_guard<std::mutex> lock(mtx_);
-    auto ite = cells_.find(key);
-    if (ite == cells_.end()) {
-      return;
+    std::shared_ptr<InsertInfo> ptr_insert;
+    {
+      std::lock_guard<std::mutex> lock(this->mtx_);
+      auto insert_ite = insert_infos_.find(key);
+      if (insert_ite == insert_infos_.end()) {
+        auto ite = cells_.find(key);
+        if (ite != cells_.end()) {
+          Cell &cell = ite->second;
+          memcpy(cell.value + begin_pos, buffer, len);
+        }
+        return;
+      } else {
+        ptr_insert = insert_ite->second;
+      }
     }
-    Cell &cell = ite->second;
-    memcpy(cell.value + begin_pos, buffer, len);
+
+    std::lock_guard<std::mutex> insert_lck(ptr_insert->mtx_);
+    std::lock_guard<std::mutex> cache_lck(this->mtx_);
+    auto ite = cells_.find(key);
+    if (ite != cells_.end()) {
+      Cell &cell = ite->second;
+      memcpy(cell.value + begin_pos, buffer, len);
+    }
   }
 
   void AlterCacheSize(size_t cache_size) {
-    max_size_ = (cache_size * 1024 * 1024) / cell_size_;
+    max_size_ = (cache_size * 1024 * 1024) / this->cell_size_;
     max_overflow_ = max_size_ / 20;
     if (max_overflow_ > 1000) {
       max_overflow_ = 1000;
     }
     max_size_ = max_size_ - max_overflow_;
     // pthread_rwlock_wrlock(&rw_lock_);
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard<std::mutex> lock(this->mtx_);
     EvictOverflow();
     mem_pool_.SetMaxBufferNum((uint32_t)max_size_ + 500);
     // pthread_rwlock_unlock(&rw_lock_);
-    LOG(INFO) << "LruCache[" << name_ << "] Max_size[" << max_size_
+    LOG(INFO) << "LruCache[" << this->name_ << "] Max_size[" << max_size_
               << "], max_overflow[" << max_overflow_ << "]";
   }
 
-  size_t GetMaxSize() { return max_size_ + max_overflow_; }
+  int64_t GetMaxSize() { return (int64_t)max_size_ + (int64_t)max_overflow_; }
 
   size_t Count() const { return cur_size_; }
 
@@ -534,8 +601,6 @@ class LRUCache {
   size_t GetSetHits() { return set_hits_; }
 
   size_t GetMisses() { return misses_; }
-
-  std::string GetName() { return name_; }
 
  private:
   bool GetImpl(const Key &key, char *&value) {
@@ -585,6 +650,30 @@ class LRUCache {
     }
   }
 
+  void Clean() {
+    while (queue_.size() > 0) {
+      auto key = queue_.front();
+      auto ite = cells_.find(key);
+      if (ite == cells_.end()) {
+        LOG(ERROR) << "LruCache[" << this->name_ << "], cur_size[" << cur_size_
+                    << "], cells_.size()[" << cells_.size() << "]."
+                    << "Queue and map is inconsistent.";
+      } else {
+        if (ite->second.value) { delete[] ite->second.value; }
+        cells_.erase(ite);
+      }
+      queue_.pop_front();
+      --cur_size_;
+    }
+    if (cells_.size() > 0) {
+      LOG(ERROR) << "cells_ size()[" << cells_.size() << "] != queue_.size()";
+      for (auto iter = cells_.begin(); iter != cells_.end(); iter++) {
+        if (iter->second.value) { delete[] iter->second.value; }
+        cells_.erase(iter);
+      }
+    }
+  }
+
   void EvictOverflow() {
     if (cur_size_ >= max_size_ + max_overflow_) {
       int evict_num = cur_size_ - max_size_;
@@ -596,14 +685,13 @@ class LRUCache {
         // if (!queue_.Pop(key)) {
         if (queue_.empty()) {
           ++fail_pop_num;
-          LOG(ERROR) << "Lrucache[" << name_ << "] queue_.Pop(" << key
-                     << ") failed.";
+          LOG(ERROR) << "Lrucache[" << this->name_ << "] queue_ is empty.";
           continue;
         }
         key = queue_.front();
         auto ite = cells_.find(key);
         if (ite == cells_.end()) {
-          LOG(ERROR) << "LruCache[" << name_ << "], cur_size[" << cur_size_
+          LOG(ERROR) << "LruCache[" << this->name_ << "], cur_size[" << cur_size_
                      << "], cells_.size()[" << cells_.size() << "]."
                      << "Queue and map is inconsistent.";
           continue;
@@ -617,4 +705,179 @@ class LRUCache {
       // malloc_trim(0);
     }
   }
+};
+
+template <typename Key, typename FuncToken,
+          typename HashFunction = std::hash<Key>>
+class SimpleCache final : public CacheBase<Key, FuncToken, HashFunction> {
+ public:
+  using LoadFunc = bool (*)(Key, char *, FuncToken);
+
+  SimpleCache(std::string name, size_t cell_size, LoadFunc func,
+              size_t segment_gap, size_t init_segment_capacity = 0) {
+    this->name_ = name;
+    this->cell_size_ = cell_size;
+    this->load_func_ = func;
+    this->cache_type_ = CacheType::SimpleCache;
+    segment_gap_ = segment_gap;
+    if (init_segment_capacity > 0) {
+      init_segment_capacity_ = init_segment_capacity;
+    }
+  }
+
+  ~SimpleCache() {
+    for (int j = 0; j < segment_num_; ++j) {
+      char **segment = segments_[j];
+      if (segment) {
+        for (int i = 0; i < segments_capacity_[j]; ++i) {
+          if (segment[i]) {
+            delete[] segment[i];
+            segment[i] = nullptr;
+          }
+        }
+        delete[] segment;
+        segment = nullptr;
+        segments_capacity_[j] = 0;
+      }
+    }
+  }
+
+  int Init() {
+    segments_.resize(segment_num_, nullptr);
+    segments_capacity_.resize(segment_num_, 0);
+    char **segment =  new char*[init_segment_capacity_];
+    if (not segment) {
+      LOG(ERROR) << "SimpleCache[" << this->name_ << "] new char*[" 
+                 << init_segment_capacity_ << "] fail.";
+      return -1;
+    }
+    memset(segment, 0, sizeof(char *) * init_segment_capacity_);
+    segments_[0] = segment;
+    segments_capacity_[0] = init_segment_capacity_;
+    return 0;
+  }
+  
+  bool Get(Key key, char *&value) {
+    if (key < 0) return false;
+    size_t seg_id = key / segment_gap_;
+    size_t id_in_seg = key % segment_gap_;
+    char **segment = segments_[seg_id];
+    if (segment && id_in_seg < (size_t)segments_capacity_[seg_id]
+          && segment[id_in_seg]) {
+      value = segment[id_in_seg];
+      return true;
+    }
+    return false;
+  }
+
+  bool SetOrGet(Key key, char *&value, FuncToken token) {
+    if (key < 0) return false;
+    size_t seg_id = key / segment_gap_;
+    size_t id_in_seg = key % segment_gap_;
+    char **segment = segments_[seg_id];
+    if (segment && id_in_seg < (size_t)segments_capacity_[seg_id]
+          && segment[id_in_seg]) {
+      value = segment[id_in_seg];
+      return true;
+    }
+    
+    char *cell = new char[this->cell_size_];
+    if (not cell) {
+      LOG(ERROR) << "SimpleCache[" << this->name_ << "] new char[" 
+                << this->cell_size_ << "] fail.";
+      return false;
+    }
+    bool res = this->load_func_(key, cell, token);
+    if (res == false) {
+      LOG(INFO) << "SimpleCache[" << this->name_ << "] load_func_ fail.";
+      delete[] cell;
+      cell = nullptr;
+      return false;
+    }
+    
+    std::lock_guard<std::mutex> cache_lck(this->mtx_);
+    res = SetImpl(key, cell);
+    if(res) value = segments_[seg_id][id_in_seg];
+    return res;
+  }
+
+  void Update(Key key, const char *buffer, int len, int begin_pos) {
+    if (key < 0) return;
+    std::lock_guard<std::mutex> cache_lck(this->mtx_);
+    int seg_id = key / segment_gap_;
+    size_t id_in_seg = key % segment_gap_;
+    char **segment = segments_[seg_id];
+    if (segment == nullptr || id_in_seg >= (size_t)segments_capacity_[seg_id] ||
+        segment[id_in_seg] == nullptr) { return; }
+
+    memcpy(segment[id_in_seg] + begin_pos, buffer, len);
+  }
+
+  size_t CacheMemBytes() {
+    size_t total_mem = cells_num_ * this->cell_size_;
+    total_mem += (segments_.size() * (sizeof(char **) + sizeof(int)));
+    for (int i = 0; i < segment_num_; ++i) {
+      if (segments_capacity_[i] > 0) {
+        total_mem += (segments_capacity_[i] * sizeof(char *));
+      }
+    }
+    return total_mem;
+  }
+
+  int64_t GetMaxSize() { return -1; }
+
+ private:
+  bool SetImpl(Key key, char *value) {
+    size_t seg_id = key / segment_gap_;
+    size_t id_in_seg = key % segment_gap_;
+    if (segments_[seg_id] == nullptr) {
+      char **segment =  new char*[init_segment_capacity_];
+      if (not segment) {
+        LOG(ERROR) << "SimpleCache[" << this->name_ << "] new char*[" 
+                   << init_segment_capacity_ << "] fail.";
+        return -1;
+      }
+      memset(segment, 0, sizeof(char *) * init_segment_capacity_);
+      segments_[seg_id] = segment;
+      segments_capacity_[seg_id] = init_segment_capacity_;
+    }
+
+    if ((size_t)segments_capacity_[seg_id] <= id_in_seg) {
+      size_t capacity = id_in_seg * 1.5;
+
+      char **new_segment = new char*[capacity];
+      if (new_segment == nullptr) {
+        LOG(INFO) << "SimpleCache[" << this->name_ << "] new char*[" << capacity
+                  << "] fail.";
+        delete[] value;
+        value = nullptr;
+        return false; 
+      }
+      memset(new_segment, 0, sizeof(char *) * capacity);
+      memcpy(new_segment, segments_[seg_id], sizeof(char *) * segments_capacity_[seg_id]);
+      char **del = segments_[seg_id];
+      segments_[seg_id] = new_segment;
+      segments_capacity_[seg_id] = capacity;
+      // delay free
+      utils::AsyncWait(1000 * 100, [](char **del_buf) { delete[] del_buf; },
+                       del);  // after 100s
+    }
+
+    if (segments_[seg_id][id_in_seg]) {
+      memcpy(segments_[seg_id][id_in_seg], value, this->cell_size_);
+      delete[] value;
+      value = nullptr;
+    } else {
+      segments_[seg_id][id_in_seg] = value;
+      ++cells_num_;
+    }
+    return true;
+  }
+
+  std::vector<char **> segments_;
+  std::vector<int> segments_capacity_;
+  size_t segment_gap_;
+  size_t init_segment_capacity_ = 512;
+  uint16_t segment_num_ = 400;
+  size_t cells_num_ = 0;
 };
