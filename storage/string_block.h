@@ -44,17 +44,22 @@ class StringBlock : public Block {
   int WriteString(const char *value, str_len_t n_bytes, str_offset_t start,
                   uint32_t &block_id, in_block_pos_t &in_block_pos);
 
+  int UpdateString(const char *value, str_len_t n_bytes, uint32_t block_id,
+                   in_block_pos_t in_block_pos);
+
   int Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t n_bytes,
            std::string &str_out);
 
   static bool ReadString(uint32_t key, char *block, ReadFunParameter *param);
+
+  void SetCache(void *cache) override;
 
  private:
   void InitSubclass(){};
 
   int AddBlockPos(uint32_t block_pos);
 
-  LRUCache<uint32_t, ReadFunParameter *> *str_lru_cache_;
+  CacheBase<uint32_t, ReadFunParameter *> *str_lru_cache_;
 
   std::string block_pos_file_path_;
 

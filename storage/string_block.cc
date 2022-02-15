@@ -11,8 +11,6 @@
 
 namespace tig_gamma {
 
-const static int MAX_STR_BLOCK_SIZE = 102400;
-
 StringBlock::StringBlock(int fd, int per_block_size, int length,
                          uint32_t header_size, uint32_t seg_id,
                          std::string name, uint32_t seg_block_capacity)
@@ -27,7 +25,7 @@ StringBlock::~StringBlock() {
 }
 
 void StringBlock::InitStrBlock(void *lru) {
-  str_lru_cache_ = (LRUCache<uint32_t, ReadFunParameter *> *)lru;
+  str_lru_cache_ = (CacheBase<uint32_t, ReadFunParameter *> *)lru;
   bool res = block_pos_.Init(std::string("StrBlock_") + std::to_string(seg_id_),
                              BEGIN_GRP_OF_BLOCK_POS, GRP_GAP_OF_BLOCK_POS);
   if (res == false) {
@@ -103,8 +101,26 @@ int StringBlock::WriteString(const char *value, str_len_t n_bytes,
   return 0;
 }
 
-int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos,
-                      str_len_t n_bytes, std::string &str_out) {
+int StringBlock::UpdateString(const char *value, str_len_t n_bytes, uint32_t block_id,
+                              in_block_pos_t in_block_pos) {
+  uint32_t block_pos = 0;
+  bool ret = block_pos_.GetData(block_id, block_pos);
+  if (ret == false || in_block_pos + n_bytes > per_block_size_) {
+    LOG(ERROR) << "update failed. block_pos_ size:" << block_pos_.Size()
+               << " in_block_pos:" << in_block_pos << " n_bytes:" << n_bytes
+               << " per_block_size:" << per_block_size_;
+    return -1;
+  }
+  pwrite(fd_, value, n_bytes, block_pos + in_block_pos);
+  if (str_lru_cache_) {
+    uint32_t cache_bid = GetCacheBlockId(block_id);
+    str_lru_cache_->Update(cache_bid, value, n_bytes, in_block_pos);
+  }
+  return 0;
+}
+
+int StringBlock::Read(uint32_t block_id, in_block_pos_t in_block_pos, str_len_t n_bytes,
+                      std::string &str_out) {
   if (str_lru_cache_ == nullptr) {
     uint32_t block_pos = 0;
     block_pos_.GetData(block_id, block_pos);
@@ -191,6 +207,10 @@ bool StringBlock::ReadString(uint32_t key, char *block,
   }
   pread(param->fd, block, param->len, param->offset);
   return true;
+}
+
+void StringBlock::SetCache(void *cache) {
+  str_lru_cache_ = (CacheBase<uint32_t, ReadFunParameter *> *)cache;
 }
 
 int StringBlock::AddBlockPos(uint32_t block_pos) {
