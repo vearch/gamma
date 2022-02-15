@@ -46,7 +46,7 @@ typedef tbb::concurrent_bounded_queue<FieldOperate *> FieldOperateQueue;
 class FieldRangeIndex;
 class MultiFieldsRangeIndex {
  public:
-  MultiFieldsRangeIndex(std::string &path, table::Table *table);
+  MultiFieldsRangeIndex(std::string &path, Table *table);
   ~MultiFieldsRangeIndex();
 
   int Add(int docid, int field);
@@ -70,7 +70,7 @@ class MultiFieldsRangeIndex {
 
   int DeleteDoc(int docid, int field, std::string &key);
   std::vector<FieldRangeIndex *> fields_;
-  table::Table *table_;
+  Table *table_;
   std::string path_;
   bool b_running_;
   bool b_operate_running_;

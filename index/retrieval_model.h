@@ -76,7 +76,10 @@ class RetrievalParameters {
 // it also provides performance tool to record performance info
 class RetrievalContext {
  public:
-  RetrievalContext() { retrieval_params_ = nullptr; }
+  RetrievalContext() { 
+    retrieval_params_ = nullptr;
+    perf_tool_ = nullptr;
+  }
 
   virtual ~RetrievalContext() {
     if (retrieval_params_ != nullptr) {
@@ -93,10 +96,10 @@ class RetrievalContext {
   // Score filter
   virtual bool IsSimilarScoreValid(float score) const = 0;
 
-  PerfTool &GetPerfTool() { return perf_tool_; }
+  PerfTool &GetPerfTool() { return *perf_tool_; }
 
   RetrievalParameters *retrieval_params_;
-  PerfTool perf_tool_;
+  PerfTool *perf_tool_;
 };
 
 // Store vector meta infos
@@ -146,6 +149,7 @@ class VectorMetaInfo {
   long mem_bytes_;             // memory usage
   int data_size_;              // each vector element size(byte)
   int version_;
+  bool with_io_ = true;
 };
 
 /** Scoped raw vectors (for automatic deallocation)
@@ -189,7 +193,10 @@ class VectorReader {
  public:
   VectorReader(VectorMetaInfo *meta_info) : meta_info_(meta_info) {}
 
-  virtual ~VectorReader() { delete meta_info_; };
+  virtual ~VectorReader() { 
+    delete meta_info_;
+    meta_info_ = nullptr;
+  };
 
   /** Get vectors by vecotor id list
    *
@@ -292,6 +299,8 @@ class RetrievalModel {
    * @return load number(>=0) if successed
    */
   virtual int Load(const std::string &dir) = 0;
+
+  virtual void train(int64_t n, const float *x) {}
 
   VectorReader *vector_;
   tbb::concurrent_bounded_queue<int> updated_vids_;

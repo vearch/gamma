@@ -57,40 +57,87 @@ int StorageManager::UseCompress(CompressType type, int d, double rate) {
   return (compressor_ ? 0 : -1);
 }
 
-bool StorageManager::AlterCacheSize(uint32_t cache_size,
-                                    uint32_t str_cache_size) {
+bool StorageManager::AlterCacheSize(int cache_size, int str_cache_size) {
+  CacheBase<uint32_t, ReadFunParameter *>  *del_cache = nullptr;
+  CacheBase<uint32_t, ReadFunParameter *>  *del_str_cache = nullptr;
+  uint32_t per_block_size = ((64 * 1024) / options_.fixed_value_bytes) *
+                            options_.fixed_value_bytes;  // block~=64k
+  auto cache_fun = &TableBlock::ReadBlock;
+  if (block_type_ == BlockType::VectorBlockType) {
+    cache_fun = &VectorBlock::ReadBlock;
+  }
+
   if (cache_size > 0) {  // cache_size unit: M
-    if (cache_ != nullptr) {
+    if (cache_ == nullptr || cache_->GetCacheType() == CacheType::SimpleCache) {
+      del_cache = cache_;
+      cache_ = new LRUCache<uint32_t, ReadFunParameter *>
+                        (name_, (size_t)cache_size, per_block_size, cache_fun);
+      cache_->Init();
+    } else {
       cache_->AlterCacheSize((size_t)cache_size);
+    }
+  } else if (cache_size < 0) {     // use all memory
+    if (cache_ == nullptr || cache_->GetCacheType() == CacheType::LRUCacheType) {
+      del_cache = cache_;
+      cache_ = new SimpleCache<uint32_t, ReadFunParameter *>(
+                  name_, per_block_size, cache_fun, options_.seg_block_capacity);
+      cache_->Init();
+    }
+  } else {
+    del_cache = cache_;
+    cache_ = nullptr;
+  }
+
+  if (block_type_ == BlockType::TableBlockType) {
+    if (str_cache_size > 0) {
+      if (str_cache_ == nullptr || str_cache_->GetCacheType() == CacheType::SimpleCache) {
+        del_str_cache = str_cache_;
+        str_cache_ = new LRUCache<uint32_t, ReadFunParameter *>(name_, 
+                        (size_t)str_cache_size, MAX_BLOCK_SIZE, &StringBlock::ReadString);
+        str_cache_->Init();
+      } else {
+        str_cache_->AlterCacheSize((size_t)str_cache_size);
+      }
+    } else if (str_cache_size < 0) {    // use all memory
+      if (str_cache_ == nullptr || str_cache_->GetCacheType() == CacheType::LRUCacheType) {
+        del_str_cache = str_cache_;
+        str_cache_ = new SimpleCache<uint32_t, ReadFunParameter *>(
+                            name_, MAX_BLOCK_SIZE, &StringBlock::ReadString,
+                            options_.seg_block_capacity);
+        str_cache_->Init();
+      }
     } else {
-      LOG(WARNING) << "Storage[" << name_
-                   << "]. Alter cache_ failure, cache_ is nullptr.";
+      del_str_cache = str_cache_;
+      str_cache_ = nullptr;
     }
   }
-  if (str_cache_size > 0) {
-    if (str_cache_ != nullptr) {
-      str_cache_->AlterCacheSize((size_t)str_cache_size);
-    } else {
-      LOG(WARNING) << "Storage[" << name_
-                   << "]. Alter str_cache_ failure, str_cache_ is nullptr.";
-    }
+
+  for(size_t i = 0; i < segments_.Size(); ++i) {
+    Segment *segment = segments_.GetData(i);
+    segment->SetCache((void *)cache_, (void *)str_cache_);
   }
+
+  // delay free
+  utils::AsyncWait(1000 * 100,
+      [](CacheBase<uint32_t, ReadFunParameter *>  *cache,
+         CacheBase<uint32_t, ReadFunParameter *>  *str_cache) { 
+            CHECK_DELETE(cache); CHECK_DELETE(str_cache); },
+      del_cache,del_str_cache);  // after 100s
+
   return true;
 }
 
-void StorageManager::GetCacheSize(uint32_t &cache_size,
-                                  uint32_t &str_cache_size) {
+void StorageManager::GetCacheSize(int &cache_size,
+                                  int &str_cache_size) {
+  cache_size = 0;
+  str_cache_size = 0;
   if (cache_ != nullptr) {
-    size_t max_size = cache_->GetMaxSize();
-    cache_size = (uint32_t)(max_size * 64 / 1024);
-  } else {
-    cache_size = 0;
+    int64_t max_size = cache_->GetMaxSize();
+    cache_size = (max_size < 0 ? max_size : (int)(max_size * 64 / 1024));
   }
   if (str_cache_ != nullptr) {
-    size_t max_size = str_cache_->GetMaxSize();
-    str_cache_size = (uint32_t)(max_size * 64 / 1024);
-  } else {
-    str_cache_size = 0;
+    int64_t max_size = cache_->GetMaxSize();
+    str_cache_size = (max_size < 0 ? max_size : (int)(max_size * 64 / 1024));
   }
 }
 
@@ -115,11 +162,20 @@ int StorageManager::Init(std::string name, int cache_size, int str_cache_size) {
     cache_ = new LRUCache<uint32_t, ReadFunParameter *>(name, cache_size,
                                                         per_block_size, fun);
     cache_->Init();
+  } else if (cache_size < 0) {
+    cache_ = new SimpleCache<uint32_t, ReadFunParameter *>(name,
+                    per_block_size, fun, options_.seg_block_capacity);
+    cache_->Init();
   }
   if (str_cache_size > 0) {
     str_cache_ = new LRUCache<uint32_t, ReadFunParameter *>(
         name + "_str", str_cache_size, MAX_BLOCK_SIZE,
         &StringBlock::ReadString);
+    str_cache_->Init();
+  } else if (str_cache_size < 0) {
+    str_cache_ = new SimpleCache<uint32_t, ReadFunParameter *>(
+        name + "_str", MAX_BLOCK_SIZE, &StringBlock::ReadString,
+        options_.seg_block_capacity);
     str_cache_->Init();
   }
 
@@ -278,7 +334,8 @@ int StorageManager::Update(int id, uint8_t *value, int len) {
 }
 
 str_offset_t StorageManager::UpdateString(int id, const char *value,
-                                          str_len_t len, uint32_t &block_id,
+                                          str_len_t old_len, str_len_t len,
+                                          uint32_t &block_id,
                                           in_block_pos_t &in_block_pos) {
   if ((size_t)id >= size_ || id < 0) {
     LOG(ERROR) << "Storage[" << name_ << "], id [" << id << "] >= size_ ["
@@ -294,7 +351,14 @@ str_offset_t StorageManager::UpdateString(int id, const char *value,
                << id << ") failed.";
     return -1;
   }
-  str_offset_t ret = segment->AddString(value, len, block_id, in_block_pos);
+  int ret = -1;
+  if (len <= old_len) {
+    ret = segment->UpdateString(value, len, block_id, in_block_pos);
+  }
+  if (ret == -1) {
+    ret = segment->AddString(value, len, block_id, in_block_pos);
+  }
+
   return ret;
 }
 
@@ -388,20 +452,6 @@ int StorageManager::Truncate(size_t size) {
             << ", current segment num=" << segments_.Size()
             << ", last offset=" << offset;
   return 0;
-}
-
-void StorageManager::CountByteSize(uint64_t &base_size, uint64_t &str_size) {
-  base_size = 0;
-  str_size = 0;
-  int n = segments_.Size();
-  for (int i = 0; i < n; ++i) {
-    Segment *seg = nullptr;
-    segments_.GetData(i, seg);
-    uint32_t base_off = seg->BaseOffset();
-    str_offset_t str_off = seg->StrOffset();
-    base_size += base_off;
-    str_size += str_off;
-  }
 }
 
 int StorageManager::Sync() { return disk_io_->Sync(); }

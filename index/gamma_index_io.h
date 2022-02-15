@@ -145,7 +145,7 @@ struct FileIOWriter : faiss::IOWriter {
 int WriteInvertedLists(faiss::IOWriter *f,
                        realtime::RTInvertIndex *rt_invert_index);
 int ReadInvertedLists(faiss::IOReader *f,
-                      realtime::RTInvertIndex *rt_invert_index);
+                      realtime::RTInvertIndex *rt_invert_index, int &indexed_vec_count);
 }  // namespace tig_gamma
 
 #endif

@@ -28,9 +28,9 @@ class MmapRawVector : public RawVector {
                       std::vector<int> &lens) override;
   int UpdateToStore(int vid, uint8_t *v, int len) override;
 
-  int AlterCacheSize(uint32_t cache_size) override;
+  int AlterCacheSize(int cache_size) override;
 
-  int GetCacheSize(uint32_t &cache_size) override;
+  int GetCacheSize(int &cache_size) override;
 
  protected:
   int GetVector(long vid, const uint8_t *&vec, bool &deletable) const override;

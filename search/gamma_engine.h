@@ -21,6 +21,7 @@
 #include "table/table.h"
 #include "vector/vector_manager.h"
 #include "util/bitmap_manager.h"
+#include "storage/migrate_data.h"
 
 namespace tig_gamma {
 
@@ -42,7 +43,6 @@ class GammaEngine {
 
   int AddOrUpdateDocs(Docs &docs, BatchResult &result);
 
-  int Update(Doc *doc);
   int Update(int doc_id, std::vector<struct Field> &fields_table,
              std::vector<struct Field> &fields_vec);
 
@@ -80,6 +80,8 @@ class GammaEngine {
 
   int Load();
 
+  int LoadFromFaiss();
+
   int GetDocsNum();
   
   int GetBRunning() { return b_running_; }
@@ -88,7 +90,7 @@ class GammaEngine {
   int GetMaxDocid() { return max_docid_; }
   void SetMaxDocid(int max_docid) { max_docid_ = max_docid; }
 
-  table::Table *GetTable() { return table_; }
+  Table *GetTable() { return table_; }
 
   VectorManager *GetVectorManager() { return vec_manager_; }
 
@@ -115,12 +117,24 @@ class GammaEngine {
 
   int SetConfig(Config &config);
 
+  int BeginMigrate();
+
+  int GetMigrageDoc(Doc &doc, int *is_delete);
+
+  int TerminateMigrate();
+
  private:
   GammaEngine(const std::string &index_root_path);
 
   int CreateTableFromLocal(std::string &table_name);
 
   int Indexing();
+
+  int AddNumIndexFields();
+
+  int MultiRangeQuery(Request &request, GammaSearchCondition *condition,
+                      Response &response_results,
+                      MultiRangeQueryResults *range_query_result);
 
  private:
   std::string index_root_path_;
@@ -129,10 +143,10 @@ class GammaEngine {
   MultiFieldsRangeIndex *field_range_index_;
 
   bitmap::BitmapManager *docids_bitmap_;
-  table::Table *table_;
+  Table *table_;
   VectorManager *vec_manager_;
-
-  int AddNumIndexFields();
+  
+  MigrateData *migrate_data_;
 
   int max_docid_;
   int indexing_size_;
@@ -144,16 +158,6 @@ class GammaEngine {
 
   std::condition_variable running_cv_;
   std::condition_variable running_field_cv_;
-
-  int PackResults(const GammaResult *gamma_results, Response &response_results,
-                  Request &request);
-
-  int PackResultItem(const VectorDoc *vec_doc, Request &request,
-                     struct ResultItem &result_item);
-
-  int MultiRangeQuery(Request &request, GammaSearchCondition *condition,
-                      Response &response_results,
-                      MultiRangeQueryResults *range_query_result);
 
   enum IndexStatus index_status_;
 

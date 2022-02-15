@@ -37,6 +37,9 @@ class Segment {
   str_offset_t AddString(const char *str, str_len_t len, uint32_t &block_id,
                          in_block_pos_t &in_block_pos);
 
+  str_offset_t UpdateString(const char *str, str_len_t len, uint32_t block_id,
+                            in_block_pos_t in_block_pos);
+
   int GetValues(uint8_t *value, int id, int size);
 
   std::string GetString(uint32_t block_id, in_block_pos_t in_block_pos,
@@ -45,6 +48,8 @@ class Segment {
   bool IsFull();
 
   int Update(int id, uint8_t *data, int len);
+
+  void SetCache(void *cache, void *str_cache);
 
   uint32_t BaseOffset();
 

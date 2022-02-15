@@ -6,44 +6,125 @@
  */
 
 #include "gamma_response.h"
+#include "c_api/api_data/gamma_doc.h"
+#include "table/table.h"
+#include "vector/vector_manager.h"
+#include "util/log.h"
+#include "util/utils.h"
 
 namespace tig_gamma {
 
-Response::Response() { response_ = nullptr; }
+Response::Response() { 
+  response_ = nullptr;
+#ifdef PERFORMANCE_TESTING
+  perf_tool_ = (void *)new PerfTool();
+#endif
+}
 
-int Response::Serialize(char **out, int *out_len) {
+Response::~Response() { 
+#ifdef PERFORMANCE_TESTING
+  if(perf_tool_) {
+    PerfTool *perf_tool = static_cast<PerfTool *>(perf_tool_);
+    delete perf_tool;
+    perf_tool_ = nullptr; 
+  }
+#endif
+}
+
+int Response::Serialize(std::vector<std::string> &fields_name, char **out,
+                        int *out_len) {
+  std::vector<std::string> vec_fields;
+  std::map<std::string, int> attr_idx;
+  Table *table = static_cast<Table *>(table_);
+  VectorManager *vector_mgr = static_cast<VectorManager *>(vector_mgr_);
+  const auto &attr_idx_map = table->FieldMap();
+
+  if (fields_name.size()) {
+    for (size_t i = 0; i < fields_name.size(); ++i) {
+      std::string &name = fields_name[i];
+      if (vector_mgr->Contains(name)) {
+        vec_fields.emplace_back(name);
+      } else {
+        const auto &it = attr_idx_map.find(name);
+        if (it != attr_idx_map.end()) {
+          attr_idx.insert(std::make_pair(name, it->second));
+        }
+      }
+    }
+  } else {
+    attr_idx = attr_idx_map;
+  }
+
   flatbuffers::FlatBufferBuilder builder;
   std::vector<flatbuffers::Offset<gamma_api::SearchResult>> search_results;
-  for (size_t i = 0; i < results_.size(); ++i) {
-    struct SearchResult &result = results_[i];
-
+  for (int i = 0; i < req_num_; ++i) {
     std::vector<flatbuffers::Offset<gamma_api::ResultItem>> result_items;
-    for (size_t j = 0; j < result.result_items.size(); ++j) {
-      struct ResultItem &result_item = result.result_items[j];
-      double score = result_item.score;
+    for (int j = 0; j < gamma_results_[i].results_count; ++j) {
+      VectorDoc *vec_doc = gamma_results_[i].docs[j];
+      int docid = vec_doc->docid;
+      double score = vec_doc->score;
 
-      std::vector<flatbuffers::Offset<gamma_api::Attribute>> attributes;
-      for (size_t k = 0; k < result_item.names.size(); ++k) {
-        std::vector<uint8_t> it(result_item.values[k].size());
-        memcpy(it.data(), result_item.values[k].data(),
-               result_item.values[k].size());
-        attributes.emplace_back(gamma_api::CreateAttribute(
-            builder, builder.CreateString(result_item.names[k]),
-            builder.CreateVector(it)));
+      const uint8_t *doc_buffer = table->GetDocBuffer(docid);
+      if (doc_buffer == nullptr) { 
+        LOG(ERROR) << "docid[" << docid << "] table doc_buffer is nullptr";
+        continue;
       }
 
-      std::string &extra = result_item.extra;
+      std::vector<flatbuffers::Offset<gamma_api::Attribute>> attributes;
+      for (auto &it : attr_idx) {
+        std::vector<uint8_t> val;
+        table->GetFieldRawValue(docid, it.second, val, doc_buffer);
+
+        attributes.emplace_back(gamma_api::CreateAttribute(
+            builder, builder.CreateString(it.first),
+            builder.CreateVector(val)));
+      }
+      delete[] doc_buffer;
+      for (uint32_t k = 0; k < vec_fields.size(); ++k) {
+        std::vector<uint8_t> vec;
+        if (vector_mgr->GetDocVector(docid, vec_fields[k], vec) == 0) {
+          attributes.emplace_back(gamma_api::CreateAttribute(
+              builder, builder.CreateString(vec_fields[k]),
+              builder.CreateVector(vec)));
+        }
+      }
+      std::string extra;
+      if (vec_fields.size() > 0 && vec_doc->fields_len > 0) {
+        cJSON *extra_json = cJSON_CreateObject();
+        cJSON *vec_result_json = cJSON_CreateArray();
+        cJSON_AddItemToObject(extra_json, EXTRA_VECTOR_RESULT.c_str(),
+                              vec_result_json);
+        for (int k = 0; k < vec_doc->fields_len; ++k) {
+          VectorDocField *vec_field = vec_doc->fields + k;
+          cJSON *vec_field_json = cJSON_CreateObject();
+
+          cJSON_AddStringToObject(vec_field_json, EXTRA_VECTOR_FIELD_NAME.c_str(),
+                                  vec_field->name.c_str());
+          string source = string(vec_field->source, vec_field->source_len);
+          cJSON_AddStringToObject(vec_field_json, EXTRA_VECTOR_FIELD_SOURCE.c_str(),
+                                  source.c_str());
+          cJSON_AddNumberToObject(vec_field_json, EXTRA_VECTOR_FIELD_SCORE.c_str(),
+                                  vec_field->score);
+          cJSON_AddItemToArray(vec_result_json, vec_field_json);
+        }
+
+        char *extra_data = cJSON_PrintUnformatted(extra_json);
+        extra = std::string(extra_data, std::strlen(extra_data));
+        free(extra_data);
+        cJSON_Delete(extra_json);
+      }
+
       result_items.emplace_back(gamma_api::CreateResultItem(
           builder, score, builder.CreateVector(attributes),
           builder.CreateString(extra)));
     }
 
+    std::string str_msg = "Success";
     auto item_vec = builder.CreateVector(result_items);
+    auto msg = builder.CreateString(str_msg);
 
-    auto msg = builder.CreateString(result.msg);
-    gamma_api::SearchResultCode result_code =
-        static_cast<gamma_api::SearchResultCode>(result.result_code);
-    auto results = gamma_api::CreateSearchResult(builder, result.total,
+    gamma_api::SearchResultCode result_code = gamma_api::SearchResultCode::SUCCESS;
+    auto results = gamma_api::CreateSearchResult(builder, gamma_results_[i].total,
                                                  result_code, msg, item_vec);
     search_results.push_back(results);
   }
@@ -58,6 +139,13 @@ int Response::Serialize(char **out, int *out_len) {
   *out_len = builder.GetSize();
   *out = (char *)malloc(*out_len * sizeof(char));
   memcpy(*out, (char *)builder.GetBufferPointer(), *out_len);
+  delete[] gamma_results_;
+  gamma_results_ = nullptr;
+#ifdef PERFORMANCE_TESTING
+  PerfTool *perf_tool = static_cast<PerfTool *>(perf_tool_);
+  perf_tool->Perf("serialize total");
+  LOG(INFO) << perf_tool->OutputPerf().str();
+#endif
   return 0;
 }
 
@@ -117,4 +205,117 @@ std::vector<struct SearchResult> &Response::Results() { return results_; }
 void Response::SetOnlineLogMessage(const std::string &msg) {
   online_log_message_ = msg;
 }
+
+void Response::SetEngineInfo(void *table, void *vector_mgr,
+                          GammaResult *gamma_results, int req_num) {
+  gamma_results_ = gamma_results;
+  req_num_ = req_num;
+  table_ = table;
+  vector_mgr_ = vector_mgr;
+}
+
+int Response::PackResultItem(const VectorDoc *vec_doc, 
+                             std::vector<std::string> &fields_name,
+                             struct ResultItem &result_item) {
+  result_item.score = vec_doc->score;
+
+  Doc doc;
+  int docid = vec_doc->docid;
+  VectorManager *vector_mgr = static_cast<VectorManager *>(vector_mgr_);
+  Table *table = static_cast<Table *>(table_);
+
+  // add vector into result
+  size_t fields_size = fields_name.size();
+  if (fields_size != 0) {
+    std::vector<std::pair<string, int>> vec_fields_ids;
+    std::vector<string> table_fields;
+
+    for (size_t i = 0; i < fields_size; ++i) {
+      std::string &name =  fields_name[i];
+      if (!vector_mgr->Contains(name)) {
+        table_fields.push_back(name);
+      } else {
+        vec_fields_ids.emplace_back(std::make_pair(name, docid));
+      }
+    }
+
+    std::vector<string> vec;
+    int ret = vector_mgr->GetVector(vec_fields_ids, vec, true);
+
+    table->GetDocInfo(docid, doc, table_fields);
+
+    if (ret == 0 && vec.size() == vec_fields_ids.size()) {
+      for (size_t i = 0; i < vec_fields_ids.size(); ++i) {
+        const string &field_name = vec_fields_ids[i].first;
+        result_item.names.emplace_back(std::move(field_name));
+        result_item.values.emplace_back(vec[i]);
+      }
+    } else {
+      // get vector error
+      // TODO : release extra field
+      ;
+    }
+  } else {
+    std::vector<string> table_fields;
+    table->GetDocInfo(docid, doc, table_fields);
+  }
+
+  std::vector<struct Field> &fields = doc.TableFields();
+
+  for (struct Field &field : fields) {
+    result_item.names.emplace_back(std::move(field.name));
+    result_item.values.emplace_back(std::move(field.value));
+  }
+
+  cJSON *extra_json = cJSON_CreateObject();
+  cJSON *vec_result_json = cJSON_CreateArray();
+  cJSON_AddItemToObject(extra_json, EXTRA_VECTOR_RESULT.c_str(),
+                        vec_result_json);
+  for (int i = 0; i < vec_doc->fields_len; ++i) {
+    VectorDocField *vec_field = vec_doc->fields + i;
+    cJSON *vec_field_json = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(vec_field_json, EXTRA_VECTOR_FIELD_NAME.c_str(),
+                            vec_field->name.c_str());
+    string source = string(vec_field->source, vec_field->source_len);
+    cJSON_AddStringToObject(vec_field_json, EXTRA_VECTOR_FIELD_SOURCE.c_str(),
+                            source.c_str());
+    cJSON_AddNumberToObject(vec_field_json, EXTRA_VECTOR_FIELD_SCORE.c_str(),
+                            vec_field->score);
+    cJSON_AddItemToArray(vec_result_json, vec_field_json);
+  }
+
+  char *extra_data = cJSON_PrintUnformatted(extra_json);
+  result_item.extra = std::string(extra_data, std::strlen(extra_data));
+  free(extra_data);
+  cJSON_Delete(extra_json);
+
+  return 0;
+}
+
+int Response::PackResults(std::vector<std::string> &fields_name) {
+  for (int i = 0; i < req_num_; ++i) {
+    struct SearchResult result;
+    result.total = gamma_results_[i].total;
+    result.result_items.resize(gamma_results_[i].results_count);
+    for (int j = 0; j < gamma_results_[i].results_count; ++j) {
+      VectorDoc *vec_doc = gamma_results_[i].docs[j];
+      struct ResultItem result_item;
+      PackResultItem(vec_doc, fields_name, result_item);
+      result.result_items[j] = std::move(result_item);
+    }
+    result.msg = "Success";
+    result.result_code = SearchResultCode::SUCCESS;
+    this->AddResults(std::move(result));
+  }
+  delete[] gamma_results_;
+  gamma_results_ = nullptr;
+#ifdef PERFORMANCE_TESTING
+  PerfTool *perf_tool = static_cast<PerfTool *>(perf_tool_);
+  perf_tool->Perf("pack result total");
+  LOG(INFO) << perf_tool->OutputPerf().str();
+#endif
+  return 0;
+}
+
 }  // namespace tig_gamma

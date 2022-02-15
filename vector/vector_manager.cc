@@ -282,7 +282,7 @@ int VectorManager::AddRTVecsToIndex(bool &index_is_dirty) {
   index_is_dirty = false;
   for (const auto &iter : vector_indexes_) {
     RetrievalModel *retrieval_model = iter.second;
-    RawVector *raw_vec = dynamic_cast<RawVector *>(iter.second->vector_);
+    RawVector *raw_vec = dynamic_cast<RawVector *>(retrieval_model->vector_);
     int total_stored_vecs = raw_vec->MetaInfo()->Size();
     int indexed_vec_count = retrieval_model->indexed_count_;
 
@@ -340,7 +340,7 @@ int VectorManager::AddRTVecsToIndex(bool &index_is_dirty) {
             }
           }
         }
-        if (!iter.second->Add(count_per_index, add_vec)) {
+        if (!retrieval_model->Add(count_per_index, add_vec)) {
           LOG(ERROR) << "add index from docid " << start_docid << " error!";
           ret = -2;
         } else {
@@ -681,6 +681,42 @@ int VectorManager::GetVector(
   return 0;
 }
 
+int VectorManager::GetDocVector(int docid, std::string &field_name,
+                                std::vector<uint8_t> &vec) {
+  auto iter = raw_vectors_.find(field_name);
+  if (iter == raw_vectors_.end()) { return -1; }
+  RawVector *raw_vec = iter->second;
+  if (raw_vec == nullptr) {
+    LOG(ERROR) << "raw_vec is null!";
+    return -1;
+  }
+  int vid = raw_vec->VidMgr()->GetFirstVID(docid);
+
+  char *source = nullptr;
+  int len = -1;
+  int ret = raw_vec->GetSource(vid, source, len);
+
+  if (ret != 0 || len < 0) {
+    LOG(ERROR) << "Get source failed!";
+    return -1;
+  }
+  ScopeVector scope_vec;
+  raw_vec->GetVector(vid, scope_vec);
+  const float *feature = (const float *)(scope_vec.Get());
+
+  int d = raw_vec->MetaInfo()->Dimension();
+  int d_byte = d * raw_vec->MetaInfo()->DataSize();
+
+  vec.resize(sizeof(d) + d_byte + len);
+  // char feat_source[sizeof(d) + d_byte + len];
+  memcpy((void *)vec.data(), &d_byte, sizeof(int));
+  int cur = sizeof(d_byte);
+  memcpy((void *)(vec.data() + cur), feature, d_byte);
+  cur += d_byte;
+  memcpy((void *)(vec.data() + cur), source, len);
+  return 0;
+}
+
 void VectorManager::GetTotalMemBytes(long &index_total_mem_bytes,
                                      long &vector_total_mem_bytes) {
   for (const auto &iter : vector_indexes_) {
@@ -810,7 +846,7 @@ int VectorManager::AlterCacheSize(struct CacheInfo &cache_info) {
   auto ite = raw_vectors_.find(cache_info.field_name);
   if (ite != raw_vectors_.end()) {
     RawVector *raw_vec = ite->second;
-    uint32_t cache_size = (uint32_t)cache_info.cache_size;
+    int cache_size = cache_info.cache_size;
     int res = raw_vec->AlterCacheSize(cache_size);
     if (res == 0) {
       LOG(INFO) << "vector field[" << cache_info.field_name
@@ -828,7 +864,7 @@ int VectorManager::AlterCacheSize(struct CacheInfo &cache_info) {
 int VectorManager::GetAllCacheSize(Config &conf) {
   for (auto ite = raw_vectors_.begin(); ite != raw_vectors_.end(); ++ite) {
     RawVector *raw_vec = ite->second;
-    uint32_t cache_size = 0;
+    int cache_size = 0;
     if (0 != raw_vec->GetCacheSize(cache_size)) continue;
     conf.AddCacheInfo(ite->first, (int)cache_size);
   }

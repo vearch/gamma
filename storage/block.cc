@@ -39,7 +39,7 @@ Block::~Block() {
 }
 
 void Block::Init(void *lru, Compressor *compressor) {
-  lru_cache_ = (LRUCache<uint32_t, ReadFunParameter *> *)lru;
+  lru_cache_ = (CacheBase<uint32_t, ReadFunParameter *> *)lru;
   compressor_ = compressor;
   InitSubclass();
 }
@@ -102,6 +102,8 @@ int Block::Read(uint8_t *value, uint32_t n_bytes, uint32_t start) {
 int Block::Update(const uint8_t *value, uint32_t n_bytes, uint32_t start) {
   pwrite(fd_, value, n_bytes, header_size_ + start);
 
+  if (lru_cache_ == nullptr) return 0;
+
   uint32_t update_len = 0;
   while (n_bytes) {
     uint32_t len = n_bytes;
@@ -131,6 +133,10 @@ void Block::SegmentIsFull() {
 
 int32_t Block::GetCacheBlockId(uint32_t block_id) {
   return seg_id_ * seg_block_capacity_ + block_id;
+}
+
+void Block::SetCache(void *cache) {
+  lru_cache_ = (CacheBase<uint32_t, ReadFunParameter *> *)cache;
 }
 
 }  // namespace tig_gamma

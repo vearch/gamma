@@ -79,7 +79,7 @@ class IVFFlatRetrievalParameters : public RetrievalParameters {
  public:
   IVFFlatRetrievalParameters() : RetrievalParameters() {
     parallel_on_queries_ = true;
-    nprobe_ = 80;
+    nprobe_ = -1;
   }
 
   IVFFlatRetrievalParameters(bool parallel_on_queries, int nprobe,
@@ -92,7 +92,7 @@ class IVFFlatRetrievalParameters : public RetrievalParameters {
 
   IVFFlatRetrievalParameters(enum DistanceComputeType type) {
     parallel_on_queries_ = true;
-    nprobe_ = 80;
+    nprobe_ = -1;
     distance_compute_type_ = type;
   }
 
@@ -145,12 +145,17 @@ struct GammaIndexIVFFlat : faiss::IndexIVFFlat, public RetrievalModel {
   int Dump(const std::string &dir) override;
   int Load(const std::string &dir) override;
 
+  void train(int64_t n, const float *x) { faiss::IndexIVFFlat::train(n, x); }
+
  private:
   GammaInvertedListScanner *GetGammaInvertedListScanner(
       bool store_pairs, faiss::MetricType metric_type) const;
 
- private:
+ protected:
   int indexed_vec_count_;
+  bool check_vector_ = true;
+
+ private:
   realtime::RTInvertIndex *rt_invert_index_ptr_;
   uint64_t updated_num_;
 #ifdef PERFORMANCE_TESTING

@@ -25,6 +25,7 @@ MemoryRawVector::MemoryRawVector(VectorMetaInfo *meta_info,
   current_segment_ = nullptr;
   curr_idx_in_seg_ = 0;
   storage_mgr_ = nullptr;
+  allow_use_zfp = false;
 }
 
 MemoryRawVector::~MemoryRawVector() {
@@ -58,42 +59,23 @@ int MemoryRawVector::InitStore(std::string &vec_name) {
   options.seg_block_capacity = seg_block_capacity;
   storage_mgr_ =
       new StorageManager(vec_dir, BlockType::VectorBlockType, options);
-#ifdef WITH_ZFP
-  if (!store_params_.compress.IsEmpty()) {
-    if (meta_info_->DataType() != VectorValueType::FLOAT) {
-      LOG(ERROR) << "data type is not float, compress is unsupported";
-      return PARAM_ERR;
-    }
-    int res =
-        storage_mgr_->UseCompress(CompressType::Zfp, meta_info_->Dimension());
-    if (res == 0) {
-      LOG(INFO) << "Storage_manager use zfp compress vector";
-    } else {
-      LOG(INFO) << "ZFP initialization failed, not use zfp";
-    }
-  } else {
-    LOG(INFO) << "store_params_.compress.IsEmpty() is true, not use zfp";
-  }
-#endif
-  int ret = storage_mgr_->Init(vec_name, store_params_.cache_size);
+
+  int ret = storage_mgr_->Init(vec_name, 0);
   if (ret) {
     LOG(ERROR) << "init gamma db error, ret=" << ret;
     return ret;
   }
 
-  LOG(INFO) << "init mmap raw vector success! vector byte size="
+  LOG(INFO) << "init memory raw vector success! vector byte size="
             << vector_byte_size_ << ", path=" << vec_dir;
   return SUCC;
 }
 
 int MemoryRawVector::AddToStore(uint8_t *v, int len) {
-  ScopeVector svec;
-  if (Compress(v, svec)) {
-    return INTERNAL_ERR;
-  }
+  int ret = storage_mgr_->Add(v, len);
 
-  AddToMem((uint8_t *)svec.Get(), vector_byte_size_);
-  return storage_mgr_->Add((uint8_t *)svec.Get(), vector_byte_size_);
+  ret = AddToMem(v, vector_byte_size_);
+  return ret;
 }
 
 int MemoryRawVector::AddToMem(const uint8_t *v, int len) {
@@ -135,13 +117,8 @@ int MemoryRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
     int len = segment_size_ - start % segment_size_;
     if (len > n) len = n;
 
-    uint8_t *vec = nullptr;
     bool deletable = false;
-    if (Decompress(cmprs_v, len, vec, deletable)) {
-      return INTERNAL_ERR;
-    }
-
-    vecs.Add(vec, deletable);
+    vecs.Add(cmprs_v, deletable);
     lens.push_back(len);
     start += len;
     n -= len;
@@ -150,26 +127,17 @@ int MemoryRawVector::GetVectorHeader(int start, int n, ScopeVectors &vecs,
 }
 
 int MemoryRawVector::UpdateToStore(int vid, uint8_t *v, int len) {
-  ScopeVector svec;
-  if (this->Compress(v, svec)) {
-    return INTERNAL_ERR;
-  }
-
   memcpy((void *)(segments_[vid / segment_size_] +
                   (size_t)vid % segment_size_ * vector_byte_size_),
-         (void *)svec.Get(), vector_byte_size_);
+         (void *)v, vector_byte_size_);
   return storage_mgr_->Update(vid, v, len);
 }
 
 int MemoryRawVector::GetVector(long vid, const uint8_t *&vec,
                                bool &deletable) const {
-  uint8_t *cmprs_v = segments_[vid / segment_size_] +
-                     (size_t)vid % segment_size_ * vector_byte_size_;
-  uint8_t *v = nullptr;
-  if (Decompress(cmprs_v, 1, v, deletable)) {
-    return INTERNAL_ERR;
-  }
-  vec = v;
+  deletable = false;
+  vec = segments_[vid / segment_size_] +
+        (size_t)vid % segment_size_ * vector_byte_size_;
   return SUCC;
 }
 

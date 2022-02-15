@@ -35,7 +35,7 @@ RawVector::RawVector(VectorMetaInfo *meta_info, const string &root_path,
 #ifdef WITH_ZFP
   zfp_compressor_ = nullptr;
 #endif
-  allow_use_zpf = true;
+  allow_use_zfp = true;
 }
 
 RawVector::~RawVector() {
@@ -69,7 +69,7 @@ int RawVector::Init(std::string vec_name, bool has_source, bool multi_vids) {
   vector_byte_size_ = meta_info_->Dimension() * data_size_;
 
 #ifdef WITH_ZFP
-  if (!store_params_.compress.IsEmpty() && allow_use_zpf) {
+  if (!store_params_.compress.IsEmpty() && allow_use_zfp) {
     if (meta_info_->DataType() != VectorValueType::FLOAT) {
       LOG(ERROR) << "data type is not float, compress is unsupported";
       return PARAM_ERR;
@@ -122,7 +122,7 @@ int RawVector::GetSource(int vid, char *&str, int &len) {
 
 int RawVector::Add(int docid, struct Field &field) {
   if (field.value.size() != (size_t)data_size_ * meta_info_->Dimension()) {
-    LOG(ERROR) << "Doc [" << docid << "] len " << field.value.size() << "]";
+    LOG(ERROR) << "Doc [" << docid << "] len [" << field.value.size() << "]";
     return -1;
   }
   int ret = AddToStore((uint8_t *)field.value.c_str(), field.value.size());

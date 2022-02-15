@@ -87,7 +87,7 @@ int AddOrUpdateDocs(void *engine, char **doc_str, int len, char **result_str,
                     int *result_len);
 
 /** update a doc, if _id not exist, equal to function @AddDoc
- *
+ *  the interface is not supported temporarily.
  * @param engine  search engine pointer
  * @param doc     doc pointer to update
  * @return 0 successed, 1 failed
@@ -187,6 +187,23 @@ int SetConfig(void *engine, const char *config_str, int len);
  * @return 0 successed, 1 failed
  */
 int GetConfig(void *engine, char **config_str, int *len);
+
+/** start data migration
+ * @param engine  engine pointer
+ */
+int BeginMigrate(void *engine);
+
+/** get a migration doc. support concurrent calls.
+ *  this interface supports concurrent calls.
+ * @param engine  engine pointer
+ * @return  a doc. when is_del is 1, doc is deleted. 
+ */
+int GetMigrageDoc(void *engine, char **doc_str, int *len, int *is_del);
+
+/** terminate data migration
+ * @param engine  engine pointer
+ */
+int TerminateMigrate(void *engine);
 
 #ifdef __cplusplus
 }

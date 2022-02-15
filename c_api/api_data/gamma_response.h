@@ -8,9 +8,7 @@
 #pragma once
 
 #include <vector>
-
-#include "common/gamma_common_data.h"
-#include "gamma_raw_data.h"
+#include "common/common_query_data.h"
 #include "idl/fbs-gen/c/response_generated.h"
 
 namespace tig_gamma {
@@ -99,11 +97,13 @@ struct SearchResult {
   std::vector<struct ResultItem> result_items;
 };
 
-class Response : public RawData {
+class Response {
  public:
   Response();
+  
+  ~Response();
 
-  virtual int Serialize(char **out, int *out_len);
+  virtual int Serialize(std::vector<std::string> &fields_name, char **out, int *out_len);
 
   virtual void Deserialize(const char *data, int len);
 
@@ -115,10 +115,25 @@ class Response : public RawData {
 
   void SetOnlineLogMessage(const std::string &msg);
 
+  void SetEngineInfo(void *table, void *vector_mgr,
+                  GammaResult *gamma_results, int req_num);
+ 
+  void *GetPerTool() { return perf_tool_; }
+
+  int PackResults(std::vector<std::string> &fields_name);
+  
+  int PackResultItem(const VectorDoc *vec_doc, std::vector<std::string> &fields_name,
+                     struct ResultItem &result_item);
+ 
  private:
   gamma_api::Response *response_;
   std::vector<struct SearchResult> results_;
   std::string online_log_message_;
+  GammaResult *gamma_results_ = nullptr;
+  void *table_ = nullptr;
+  void *vector_mgr_ = nullptr;
+  int req_num_ = 0;
+  void *perf_tool_;
 };
 
 }  // namespace tig_gamma

@@ -68,8 +68,9 @@ class StorageManager {
 
   int Update(int id, uint8_t *value, int len);
 
-  str_offset_t UpdateString(int id, const char *value, str_len_t len,
-                            uint32_t &block_id, in_block_pos_t &in_block_pos);
+  str_offset_t UpdateString(int id, const char *value, str_len_t old_len,
+                            str_len_t len, uint32_t &block_id,
+                            in_block_pos_t &in_block_pos);
 
   // warning: vec can't be free
   int Get(int id, const uint8_t *&value);
@@ -87,13 +88,15 @@ class StorageManager {
 
   int UseCompress(CompressType type, int d = -1, double rate = -1);
 
-  bool AlterCacheSize(uint32_t cache_size, uint32_t str_cache_size);
+  bool AlterCacheSize(int cache_size, int str_cache_size);
 
-  void GetCacheSize(uint32_t &cache_size, uint32_t &str_cache_size);
-
-  void CountByteSize(uint64_t &base_size, uint64_t &str_size);
+  void GetCacheSize(int &cache_size, int &str_cache_size);
 
   int Sync();
+
+  Compressor *GetCompressor() { return compressor_; }
+
+  const StorageManagerOptions &GetStorageManagerOptions() { return options_; }
 
  private:
   int Load();
@@ -111,8 +114,8 @@ class StorageManager {
   disk_io::AsyncWriter *disk_io_;
   BlockType block_type_;
   StorageManagerOptions options_;
-  LRUCache<uint32_t, ReadFunParameter *> *cache_;
-  LRUCache<uint32_t, ReadFunParameter *> *str_cache_;
+  CacheBase<uint32_t, ReadFunParameter *> *cache_;
+  CacheBase<uint32_t, ReadFunParameter *> *str_cache_;
   Compressor *compressor_;
 };
 

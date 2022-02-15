@@ -45,9 +45,9 @@ void Doc::Deserialize(const char *data, int len) {
   }
 
   doc_ = const_cast<gamma_api::Doc *>(gamma_api::GetDoc(data));
-  table::Table *table = engine_->GetTable();
+  Table *table = engine_->GetTable();
   VectorManager *vec_manager = engine_->GetVectorManager();
-  std::map<std::string, int> &field_map = table->FieldMap();
+  const std::map<std::string, int> &field_map = table->FieldMap();
   int table_field_num = table->FieldsNum();
   int vector_field_num = vec_manager->RawVectors().size();
   size_t fields_num = doc_->fields()->size();
