@@ -337,6 +337,11 @@ str_offset_t Segment::AddString(const char *str, str_len_t len,
   return str_offset_;
 }
 
+str_offset_t Segment::UpdateString(const char *str, str_len_t len, uint32_t block_id,
+                                   in_block_pos_t in_block_pos) {
+  return str_blocks_->UpdateString(str, len, block_id, in_block_pos);
+}
+
 int Segment::GetValues(uint8_t *value, int id, int n) {
   uint32_t start = (uint32_t)id * item_length_;
   uint32_t n_bytes = (uint32_t)n * item_length_;
@@ -381,6 +386,13 @@ int Segment::Update(int id, uint8_t *data, int len) {
   size_t offset = (size_t)id * item_length_;
   blocks_->Update(data, len, offset);
   return 0;
+}
+
+void Segment::SetCache(void *cache, void *str_cache) {
+  blocks_->SetCache(cache);
+  if (str_blocks_) {
+    str_blocks_->SetCache(str_cache);
+  }
 }
 
 }  // namespace tig_gamma

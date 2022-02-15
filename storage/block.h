@@ -56,6 +56,8 @@ class Block {
 
   std::string &GetName() { return name_; }
 
+  virtual void SetCache(void *cache);
+
  protected:
   // virtual int Compress() = 0;
 
@@ -73,7 +75,7 @@ class Block {
   virtual int ReadContent(uint8_t *value, uint32_t n_bytes, uint32_t start) = 0;
 
  protected:
-  LRUCache<uint32_t, ReadFunParameter *> *lru_cache_;
+  CacheBase<uint32_t, ReadFunParameter *> *lru_cache_;
 
   int fd_;
 
