@@ -71,7 +71,7 @@ int SetLogDictionary(const std::string &log_dir) {
   defaultConf.setGlobally(el::ConfigurationType::Filename, dir + "/gamma.log");
   el::Loggers::reconfigureLogger("default", defaultConf);
   el::Helpers::installPreRollOutCallback(
-      [&log_dir](const char *filename, std::size_t size) {
+      [](const char *filename, std::size_t size) {
         // SHOULD NOT LOG ANYTHING HERE BECAUSE LOG FILE IS CLOSED!
         std::cout << "************** Rolling out [" << filename
                   << "] because it reached [" << size << " bytes]" << std::endl;
@@ -83,10 +83,6 @@ int SetLogDictionary(const std::string &log_dir) {
         std::stringstream ss;
         ss << "mv " << filename << " " << filename << "-" << mbstr;
         system(ss.str().c_str());
-
-        std::stringstream cleanSS;
-        cleanSS << "find " << log_dir << " -type f -name 'gamma.log-*' -mtime +7 -exec rm {} +";
-        system(cleanSS.str().c_str());
       });
 
   LOG(INFO) << "Version [" << GIT_SHA1 << "]";
