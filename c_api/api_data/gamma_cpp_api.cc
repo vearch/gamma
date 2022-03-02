@@ -30,14 +30,19 @@
 #include "common/gamma_common_data.h"
 
 int CPPSearch(void *engine, tig_gamma::Request *request, tig_gamma::Response *response) {
-  return static_cast<tig_gamma::GammaEngine *>(engine)->Search(*request, *response);
+  int ret = static_cast<tig_gamma::GammaEngine *>(engine)->Search(*request, *response);
+  if(ret)
+    return ret;
+  response->PackResults(request->Fields());
+  return 0;
 }
 
 int CPPSearch2(void *engine, tig_gamma::VectorResult *result) {
   int ret = 0;
 
   tig_gamma::GammaQuery gamma_query;
-  gamma_query.condition = new tig_gamma::GammaSearchCondition;
+  PerfTool perf_tool;
+  gamma_query.condition = new tig_gamma::GammaSearchCondition(&perf_tool);
 
   auto vec_manager = static_cast<tig_gamma::GammaEngine *>(engine)->GetVectorManager();
 
@@ -61,7 +66,6 @@ int CPPSearch2(void *engine, tig_gamma::VectorResult *result) {
                                 result->docids);
   if (ret)
     LOG(ERROR) << "index search error with ret=" << ret;
-  return ret;
 
 #ifdef PERFORMANCE_TESTING
   LOG(INFO) << gamma_query.condition->GetPerfTool().OutputPerf().str();
