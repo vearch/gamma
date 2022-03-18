@@ -8,10 +8,13 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
+option(BUILD_WITH_SCANN "Build gamma with scann index support" off)
+option(BUILD_WITH_SSG "Build gamma with ssg index support" off)
 option(BUILD_TOOLS "Build tools" off)
 option(BUILD_FAISSLIKE_INDEX "Build faisslike index" off)
 option(BUILD_RELAYOUT "Build relayout index" off)
 option(ENABLE_COVERAGE "Use gcov" off)
+option(BUILD_PYTHON_SDK "Build python sdk" off)
 
 
 exec_program(
@@ -129,6 +132,7 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/storage/compress DIR_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl DIR_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/hnswlib DIR_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/ssg DIR_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/index/impl/scann DIR_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/vector DIR_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/realtime DIR_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/table DIR_SRCS)
@@ -177,7 +181,7 @@ set(LIB_SRCS ${DIR_SRCS} ${RELAYOUT_SRCS})
 
 if(BUILD_WITH_GPU)
     message(STATUS "With GPU")
-    add_definitions(-DBUILD_GPU) 
+    add_definitions(-DBUILD_WITH_GPU) 
     set(GAMMA_GPU ${CMAKE_CURRENT_SOURCE_DIR}/index/impl/gpu)
 
     aux_source_directory(${GAMMA_GPU} DIR_SRCS)
@@ -218,6 +222,34 @@ else(BUILD_WITH_GPU)
         target_link_libraries(gamma -lrelayout)
     endif()
 endif(BUILD_WITH_GPU)
+
+if(BUILD_WITH_SCANN)
+    message(STATUS "With SCANN INDEX")
+    exec_program(
+        "sh"
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+        ARGS "build-scann.sh"
+        RETURN_VALUE EXEC_RET_VAL)
+    if(NOT ${EXEC_RET_VAL} MATCHES "0")
+        message(STATUS "SCANN BUILD ERROR, EXEC_RET_VAL=${EXEC_RET_VAL}")
+        EXIT()
+    endif(NOT ${EXEC_RET_VAL} MATCHES "0")
+    add_definitions(-DUSE_SCANN) 
+    target_link_libraries(gamma
+        ${LIBRARIES}
+        -lscannapi
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/scann/lib/libscannapi.so)
+endif(BUILD_WITH_SCANN)
+
+if(BUILD_WITH_SSG)
+    message(STATUS "With SSG INDEX")
+    add_definitions(-DUSE_SSG) 
+endif(BUILD_WITH_SSG)
+
+if(BUILD_PYTHON_SDK)
+    message(STATUS "FOR PYTHON SDK BUILD")
+    add_definitions(-DPYTHON_SDK)
+endif(BUILD_PYTHON_SDK)
 
 install(TARGETS gamma
 	LIBRARY	DESTINATION	lib 

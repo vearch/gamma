@@ -1,0 +1,1 @@
+TF_HEADER_DIR="/root/miniconda3/lib/python3.9/site-packages/tensorflow/include" TF_SHARED_LIBRARY_DIR="/root/miniconda3/lib/python3.9/site-packages/tensorflow" TF_SHARED_LIBRARY_NAME="libtensorflow_framework.so.2" TF_CXX11_ABI_FLAG="0" bazel query "$@"

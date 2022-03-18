@@ -1,0 +1,7 @@
+build --action_env TF_HEADER_DIR="/root/miniconda3/lib/python3.9/site-packages/tensorflow/include"
+build --action_env TF_SHARED_LIBRARY_DIR="/root/miniconda3/lib/python3.9/site-packages/tensorflow"
+build --action_env TF_SHARED_LIBRARY_NAME="libtensorflow_framework.so.2"
+build --action_env TF_CXX11_ABI_FLAG="0"
+build --spawn_strategy=standalone
+build --strategy=Genrule=standalone
+build -c opt
