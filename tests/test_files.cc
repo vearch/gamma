@@ -287,7 +287,7 @@ TEST_F(GammaTest, SCANN_ROCKSDB) {
   struct Options opt;
   opt.profile_file = my_argv[1];
   opt.feature_file = my_argv[2];
-  opt.retrieval_type = "SCANN";
+  opt.retrieval_type = "VEARCH";
   opt.retrieval_param = kSCANNParam;
   opt.store_type = "RocksDB";
   ASSERT_EQ(TestIndexes(opt), 0);
@@ -297,7 +297,7 @@ TEST_F(GammaTest, SCANN_THREADPOOL_ROCKSDB) {
   struct Options opt;
   opt.profile_file = my_argv[1];
   opt.feature_file = my_argv[2];
-  opt.retrieval_type = "SCANN";
+  opt.retrieval_type = "VEARCH";
   opt.retrieval_param = kSCANNWithThreadPoolParam;
   opt.store_type = "RocksDB";
   ASSERT_EQ(TestIndexes(opt), 0);
