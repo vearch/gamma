@@ -55,6 +55,10 @@ GammaIVFPQIndex::GammaIVFPQIndex() : indexed_vec_count_(0) {
   compacted_num_ = 0;
   updated_num_ = 0;
   is_trained = false;
+  rt_invert_index_ptr_ = nullptr;
+  invlists = nullptr;
+  quantizer = nullptr;
+  model_param_ = nullptr;
   opq_ = nullptr;
 #ifdef PERFORMANCE_TESTING
   search_count_ = 0;
@@ -124,6 +128,12 @@ int GammaIVFPQIndex::Init(const std::string &model_parameters, int indexing_size
   d = vector_->MetaInfo()->Dimension();
 
   if (d % ivfpq_param.nsubvector != 0) {
+    if (!ivfpq_param.support_indivisible_nsubvector) {
+      LOG(ERROR) << "Dimension [" << vector_->MetaInfo()->Dimension()
+                << "] cannot divide by nsubvector [" << ivfpq_param.nsubvector
+                << "]. If you really want to use this nsubvector, please set support_indivisible_nsubvector to a non-zero value";
+      return -2;
+    }
     d = (d / ivfpq_param.nsubvector + 1) * ivfpq_param.nsubvector;
     LOG(INFO) << "Dimension [" << vector_->MetaInfo()->Dimension()
               << "] cannot divide by nsubvector [" << ivfpq_param.nsubvector

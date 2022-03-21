@@ -23,7 +23,9 @@
 #include "util/log.h"
 #include "util/utils.h"
 #include "index/impl/gamma_index_ivfpq.h"
+#include "index/impl/gamma_index_ivfpqfs.h"
 #include "index/impl/gamma_index_ivfflat.h"
+#include "index/impl/scann/gamma_index_vearch.h"
 #include "search/gamma_engine.h"
 #include "vector/vector_manager.h"
 #include "vector/raw_vector.h"
@@ -187,6 +189,52 @@ void CPPSetNprobe(void *engine, int nprobe, std::string index_type) {
     if(index) {
       index->nprobe = nprobe;
     }
+  } else if (index_type == "IVFPQFastScan") {
+    tig_gamma::GammaIVFPQFastScanIndex *index = dynamic_cast<tig_gamma::GammaIVFPQFastScanIndex *>(retrieval_model);
+    if(index) {
+      index->nprobe = nprobe;
+    }
+  } else if (index_type == "VEARCH") {
+#ifdef USE_SCANN
+#ifdef PYTHON_SDK
+    tig_gamma::GammaVearchIndex *index = dynamic_cast<tig_gamma::GammaVearchIndex *>(retrieval_model);
+    if(index) {
+      index->nprobe = nprobe;
+    }
+#endif
+#endif
   }
 }
+
+void CPPSetRerank(void *engine, int rerank, std::string index_type) {
+  auto retrieval_model = static_cast<tig_gamma::GammaEngine *>(engine)->GetVectorManager()->RetrievalModels().begin()->second;
+  if (index_type == "IVFPQ") {
+    tig_gamma::GammaIVFPQIndex *index = dynamic_cast<tig_gamma::GammaIVFPQIndex *>(retrieval_model);
+    if(index) {
+      index->rerank_ = rerank;
+    }
+  } else if (index_type == "IVFPQ_RELAYOUT") {
+#ifdef OPT_IVFPQ_RELAYOUT
+    tig_gamma::GammaIndexIVFPQRelayout *index = dynamic_cast<tig_gamma::GammaIndexIVFPQRelayout *>(retrieval_model);
+    if(index) {
+      index->rerank_ = rerank;
+    }  
+#endif
+  } else if (index_type == "IVFPQFastScan") {
+    tig_gamma::GammaIVFPQFastScanIndex *index = dynamic_cast<tig_gamma::GammaIVFPQFastScanIndex *>(retrieval_model);
+    if(index) {
+      index->rerank_ = rerank;
+    }
+  } else if (index_type == "VEARCH") {
+#ifdef USE_SCANN
+#ifdef PYTHON_SDK
+    tig_gamma::GammaVearchIndex *index = dynamic_cast<tig_gamma::GammaVearchIndex *>(retrieval_model);
+    if(index) {
+      index->rerank_ = rerank;
+    }
+#endif
+#endif
+  }
+}
+
 
