@@ -72,6 +72,9 @@ class Table {
    */
   int Update(const std::vector<struct Field> &fields, int docid);
 
+  std::vector<bool> CheckFieldIsEqual(const std::vector<Field> &fields,
+                                      int docid);
+
   int Delete(std::string &key);
 
   /** get docid by key
