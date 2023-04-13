@@ -8,7 +8,7 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
 option(BUILD_TEST "Build tests" off)
 option(BUILD_WITH_GPU "Build gamma with gpu index support" off)
-option(BUILD_WITH_SCANN "Build gamma with scann index support" on)
+option(BUILD_WITH_SCANN "Build gamma with scann index support" off)
 option(BUILD_TOOLS "Build tools" off)
 option(BUILD_FAISSLIKE_INDEX "Build faisslike index" off)
 option(BUILD_RELAYOUT "Build relayout index" off)

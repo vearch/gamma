@@ -765,8 +765,14 @@ int GammaEngine::Update(int doc_id, std::vector<struct Field> &fields_table,
     return ret;
   }
 
+  std::vector<bool> is_equal = table_->CheckFieldIsEqual(fields_table, doc_id);
   for (size_t i = 0; i < fields_table.size(); ++i) {
     struct Field &field = fields_table[i];
+    if (is_equal[i] == true) {
+      continue;
+    }
+    LOG(INFO) << "value of field.name[" << field.name
+              << "] is changed, if has index it is updated";
     int idx = table_->GetAttrIdx(field.name);
     field_range_index_->Delete(doc_id, idx);
   }
@@ -777,6 +783,9 @@ int GammaEngine::Update(int doc_id, std::vector<struct Field> &fields_table,
   }
 
   for (size_t i = 0; i < fields_table.size(); ++i) {
+    if (is_equal[i] == true) {
+      continue;
+    }
     struct Field &field = fields_table[i];
     int idx = table_->GetAttrIdx(field.name);
     field_range_index_->Add(doc_id, idx);

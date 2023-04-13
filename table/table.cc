@@ -464,6 +464,32 @@ int Table::Update(const std::vector<Field> &fields, int docid) {
   return 0;
 }
 
+std::vector<bool> Table::CheckFieldIsEqual(const std::vector<Field> &fields,
+                                           int docid) {
+  int size = fields.size();
+  std::vector<bool> is_equal(size, false);
+  std::vector<std::string> field_names;
+  Doc doc;
+  if (GetDocInfo(docid, doc, field_names) == 0) {
+    const std::vector<struct Field> &table_fields = doc.TableFields();
+    for (int i = 0; i < size; ++i) {
+      const std::string &name = fields[i].name;
+      const std::string &val = fields[i].value;
+      if (attr_idx_map_.count(name) == false) {
+        continue;
+      }
+      size_t idx = attr_idx_map_[name];
+      if (idx < table_fields.size() && name == table_fields[idx].name
+          && val == table_fields[idx].value) {
+        is_equal[i] = true;
+        // LOG(INFO) << "doc [" << docid << "] field[" << name << "], value["
+        //           << val << "] is equal.";
+      }
+    }
+  }
+  return is_equal;
+}
+
 int Table::Delete(std::string &key) {
   if (id_type_ == 0) {
     int64_t k = utils::StringToInt64(key);
@@ -524,12 +550,11 @@ int Table::GetDocInfo(const int docid, Doc &doc,
 
   int i = 0;
   if (fields.size() == 0) {
-    table_fields.resize(attr_type_map_.size());
+    table_fields.resize(attr_idx_map_.size());
 
     for (const auto &it : attr_idx_map_) {
-      assign_field(table_fields[i], it.first);
-      GetFieldRawValue(docid, it.second, table_fields[i].value, doc_value);
-      ++i;
+      assign_field(table_fields[it.second], it.first);
+      GetFieldRawValue(docid, it.second, table_fields[it.second].value, doc_value);
     }
   } else {
     table_fields.resize(fields.size());
